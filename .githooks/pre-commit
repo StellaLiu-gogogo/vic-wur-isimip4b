@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Block commits that violate docs/directory-contracts.md.
+# Activate once per clone: git config core.hooksPath .githooks
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+if ! python3 "${repo_root}/tests/check_layout.py" --repo "${repo_root}" --quiet; then
+    echo "pre-commit: layout check failed; see docs/directory-contracts.md." >&2
+    exit 1
+fi

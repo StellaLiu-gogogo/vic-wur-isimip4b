@@ -1,0 +1,754 @@
+# Directory Contracts
+
+## Purpose
+
+This document is the authoritative specification for the VIC-WUR ISIMIP4b
+directory hierarchy. It defines where files belong, which directory levels are
+valid, which contents are allowed or forbidden, and how the hierarchy may
+change.
+
+All project contributors and coding agents must follow this contract before
+creating, moving, renaming, copying, or generating files and directories.
+
+Terms such as experiment, segment, chunk, campaign, and run are defined in
+`glossary.md`.
+
+## Status vocabulary
+
+Directory entries in this document use three lifecycle classes:
+
+- **Required**: must exist in a usable project checkout.
+- **Created when used**: created only when the corresponding maintained content
+  exists. Do not pre-create speculative empty trees.
+- **Dynamic**: created programmatically for a specific dataset, build, run,
+  product, quality-control target, analysis, or delivery.
+
+Angle-bracket names such as `<gcm>` and `<run-id>` are placeholders, not literal
+directory names.
+
+## Global hierarchy rules
+
+1. Every directory level must represent a real and stable project dimension,
+   ownership boundary, or lifecycle boundary.
+2. Do not add a directory level with only one possible value unless that level
+   provides an important lifecycle or access boundary.
+3. Do not repeat information already established by the project root. For
+   example, `workdir/forcing/` does not need an additional
+   `isimip4b-vic-5arcmin/` level while this project has only one model and one
+   production grid.
+4. Use the same dimension order for all comparable datasets.
+5. Do not organize scientific workflow code by programming language.
+6. Do not organize production content by developer or agent name.
+7. Do not use `v2`, `new`, `old`, `fix`, `fixed`, `final`, or `latest` as a
+   versioning system.
+8. Do not use dates as code versions. Dates are allowed when they are real
+   audit, meeting, protocol, run, delivery, or scientific attributes.
+9. Do not pre-create deep empty directory trees. Create **Created when used**
+   and **Dynamic** paths only when real content requires them.
+10. Static repository directories are created and reviewed manually. Dynamic
+    workdir directories should be created by workflow code.
+11. A new production directory pattern requires an approved update to this
+    document before use.
+12. Prefer two to five meaningful levels below a major directory. Add depth for
+    stable semantics, not merely to hide a large unstructured collection.
+13. Files and directories created by the project use ASCII names. Upstream
+    names under `workdir/raw/` are kept exactly as delivered.
+
+Rules that can be checked automatically are enforced by
+`tests/check_layout.py` (see [Automated layout check](#automated-layout-check)).
+
+## Project roots
+
+```text
+isimip4b/
+├── repo/
+└── workdir/
+```
+
+- `repo/` is the version-controlled project repository.
+- `workdir/` is the large-data and runtime area outside Git.
+
+The complete project runs on Anunna.
+
+## Repository hierarchy
+
+```text
+repo/
+├── .githooks/
+│   └── pre-commit
+├── .gitignore
+├── AGENTS.md
+├── CLAUDE.md
+├── README.md
+├── analysis/
+│   ├── README.md
+│   └── <task-id>/
+├── configs/
+│   ├── campaigns/
+│   └── resources/
+├── docs/
+│   ├── README.md
+│   ├── glossary.md
+│   ├── directory-contracts.md
+│   ├── architecture.md
+│   ├── workflow.md
+│   ├── experiment-matrix.md
+│   ├── runbook.md
+│   ├── decisions/
+│   └── audits/
+├── environments/
+├── manifests/
+│   ├── inputs/
+│   ├── parameters/
+│   ├── runs/
+│   └── deliveries/
+├── model/
+│   └── vic.lock.yaml
+├── tests/
+│   ├── check_layout.py
+│   ├── unit/
+│   ├── integration/
+│   ├── smoke/
+│   └── fixtures/
+└── workflow/
+    ├── common/
+    ├── 01_acquisition/
+    ├── 02_preprocessing/
+    ├── 03_parameters/
+    ├── 04_forcing/
+    ├── 05_simulation/
+    ├── 06_postprocessing/
+    ├── 07_quality_control/
+    └── 08_delivery/
+```
+
+### Required repository paths
+
+- `.githooks/pre-commit`
+- `.gitignore`
+- `AGENTS.md`
+- `CLAUDE.md`
+- `README.md`
+- `analysis/README.md`
+- `configs/`
+- `docs/README.md`, `docs/glossary.md`, `docs/directory-contracts.md`
+- `environments/`
+- `manifests/`
+- `model/`
+- `tests/check_layout.py`
+- `workflow/`
+- the eight numbered workflow stage directories
+
+`CLAUDE.md` imports `AGENTS.md` and must not duplicate its content.
+
+### Created-when-used repository paths
+
+- `analysis/<task-id>/`
+- `docs/architecture.md`, `docs/workflow.md`, `docs/experiment-matrix.md`,
+  `docs/runbook.md`
+- `docs/decisions/`
+- `docs/audits/`
+- `tests/unit/`
+- `tests/integration/`
+- `tests/smoke/`
+- `tests/fixtures/`
+- `workflow/common/`
+- component directories described below
+
+## Repository contracts
+
+### `.githooks/` and `.gitignore`
+
+`.githooks/pre-commit` runs `tests/check_layout.py` on the repository before
+every commit. Each clone activates it once with:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.gitignore` keeps generated data, logs, caches, and build products out of Git.
+It is a first line of defence, not a substitute for the layout check.
+
+### `analysis/`
+
+Canonical layout:
+
+```text
+analysis/
+├── README.md
+└── <task-id>/
+    ├── README.md
+    └── <source files>
+```
+
+An analysis answers a question or supports a decision. Its product is a
+conclusion, comparison, figure, or report, not an input to a production stage.
+Examples: comparison of irrigated-area datasets, a trial of a land-use
+harmonization method, a review of an external dataset.
+
+Classification between `analysis/` and `workflow/` is decided by the user, as
+defined in `analysis/README.md`. Code whose output is read by a workflow stage,
+or which must be re-run to reproduce a production result, belongs in
+`workflow/`.
+
+Each `<task-id>/README.md` records the question, the user's classification
+decision, the status (`open`, `closed`, or `promoted`), the conclusion, and the
+location of the maintained record of that conclusion in `docs/audits/` or
+`docs/decisions/`.
+
+Allowed: source code, small configuration, small tables, and the task README.
+
+Forbidden: generated data, figures, and logs (these belong under
+`workdir/analysis/<task-id>/`), and code imported by `workflow/`.
+
+`<task-id>` is a short descriptive lowercase identifier of the question, e.g.
+`irrigated-area-comparison`. The same `<task-id>` is used under
+`workdir/analysis/`.
+
+### `configs/`
+
+Canonical layout:
+
+```text
+configs/
+├── campaigns/
+└── resources/
+```
+
+- `campaigns/` contains one structured definition per campaign.
+- `resources/` contains Anunna resource requests organized by workload type or
+  scale.
+
+A campaign definition states the model build, parameter set, ISIMIP protocol
+commit, GCMs, and the selection of experiments to simulate (for example all
+`water_global` experiments of a given priority), together with any explicit
+exclusions and their justification. It does not list segments. The segments,
+their periods, and their parent segments are derived by workflow code from the
+experiment definitions of the pinned protocol commit and are saved in the
+resolved configuration of each run.
+
+Allowed: YAML configuration, schemas when introduced, and directory
+documentation.
+
+Forbidden: hand-maintained segment lists, generated VIC files, generated Slurm
+jobs, scientific data, logs, credentials, and personal path configuration
+committed as production policy.
+
+There is no `defaults/` directory unless a reviewed configuration-resolution
+system is introduced and every run preserves a complete resolved configuration.
+
+### `docs/`
+
+Maintained project documentation belongs here. `glossary.md` is the canonical
+terminology source. `directory-contracts.md` is the canonical path-placement
+source.
+
+Allowed: Markdown, small maintained diagrams, and small evidence required to
+understand a maintained document.
+
+Forbidden: raw data, model output, large generated figures, temporary review
+artifacts, and undocumented copies of external documents.
+
+### `environments/`
+
+Contains reproducible environment definitions, lock files, Anunna module
+requirements, and environment verification instructions.
+
+Forbidden: installed environments, caches, personal activation scripts,
+credentials, and generated build directories.
+
+### `manifests/`
+
+Canonical layout:
+
+```text
+manifests/
+├── inputs/
+├── parameters/
+├── runs/
+└── deliveries/
+```
+
+- `inputs/` records accepted external dataset identity and integrity.
+- `parameters/` records accepted parameter-set identity and provenance.
+- `runs/` may contain concise summaries of formally accepted production runs.
+- `deliveries/` records delivered products, source runs, checksums, quality
+  status, protocol identity, and destination.
+
+The complete run manifest remains under
+`workdir/runs/<campaign-id>/<run-id>/`. Debug, trial, failed, and routine run
+manifests do not need Git copies.
+
+Allowed: YAML, JSON, CSV, TSV, checksum lists, schemas, and documentation.
+
+Forbidden: the scientific data referenced by a manifest and manually altered
+checksums or file counts.
+
+### `model/`
+
+Contains the VIC-WUR version lock and model-version documentation.
+
+Forbidden: copied VIC-WUR source trees, compiled executables, build trees, and
+model output.
+
+The lock must use an immutable full Git commit SHA for a frozen production
+version. A moving branch name is insufficient.
+
+### `tests/`
+
+Canonical layout:
+
+```text
+tests/
+├── check_layout.py
+├── unit/
+├── integration/
+├── smoke/
+└── fixtures/
+```
+
+`check_layout.py` is the automated layout check. The subdirectories are
+created when used.
+
+Small fixtures may be committed when their source and purpose are documented.
+Large production datasets and generated test products are forbidden.
+
+### `workflow/`
+
+Workflow code is organized by scientific and operational stage, not by
+language, developer, GCM, scenario, or date.
+
+Allowed: source code, small source-controlled mappings, schemas, templates,
+Slurm templates, tests local to a stage when justified, and documentation.
+
+Forbidden: generated scientific data, logs, caches, executables, model states,
+personal notebooks, and any reference to `analysis/` or `workdir/analysis/`.
+
+#### `workflow/common/`
+
+Shared Python modules used by two or more workflow stages, for example workdir
+path resolution, grid utilities, NetCDF metadata handling, checksum and
+manifest writing, and map plotting.
+
+Rules:
+
+- a function moves to `common/` only when at least two stages use it;
+- `common/` contains no stage-specific logic and no executable entry points;
+- modules are flat files in `common/`; do not add a language or package layer;
+- workflow code imports it as `from common import <module>` with
+  `PYTHONPATH` including `repo/workflow`, as defined in `environments/`.
+
+#### `workflow/03_parameters/`
+
+Create component directories only when implementation exists:
+
+```text
+03_parameters/
+├── domain/
+├── soil/
+├── vegetation/
+├── landuse/
+├── routing/
+├── dams/
+├── irrigation/
+└── water_use/
+```
+
+Each component directory may contain its canonical generation and validation
+code, small mappings, Slurm templates, tests, and README. Do not add a language
+layer such as `python/` or `shell/`.
+
+#### `workflow/04_forcing/`
+
+Create forcing-family directories only when implementation exists:
+
+```text
+04_forcing/
+├── climate/
+├── landuse/
+└── water_use/
+```
+
+VIC-WUR has no CO₂-dependent process; there is no CO₂ forcing family.
+
+Do not copy common transformation code for individual GCMs or scenarios.
+
+#### `workflow/05_simulation/`
+
+Create responsibility directories only when implementation exists:
+
+```text
+05_simulation/
+├── build/
+├── render/
+├── submit/
+├── monitor/
+└── templates/
+    ├── vic/
+    └── slurm/
+```
+
+- `build/` builds or verifies the model executable.
+- `render/` resolves a campaign into segments, resolves each run
+  configuration, and renders exact run files.
+- `submit/` creates dependencies and submits jobs.
+- `monitor/` inspects scheduler and model status without changing scientific
+  results.
+- `templates/vic/` stores VIC configuration templates.
+- `templates/slurm/` stores Slurm job templates.
+
+Generated configurations and jobs belong with the dynamic run, not here.
+
+## Workdir hierarchy
+
+```text
+workdir/
+├── README.md
+├── raw/
+├── intermediate/
+├── parameters/
+├── forcing/
+├── builds/
+├── runs/
+├── postprocessed/
+├── qc/
+├── delivery/
+├── analysis/
+├── logs/
+└── scratch/
+```
+
+These top-level workdir paths are required. Their child paths are dynamic and
+must be created only when used.
+
+## Workdir contracts
+
+### `raw/`
+
+Canonical layout:
+
+```text
+raw/
+├── ISIMIP4b/
+│   └── <DKRZ path below ISIMIP4b/, unchanged>
+└── external/
+    └── <dataset-id>/
+        └── <dataset-version>/
+```
+
+- `ISIMIP4b/` mirrors the DKRZ ISIMIP4b tree exactly, including directory
+  names, capitalisation, and filenames, e.g.
+  `raw/ISIMIP4b/InputData/climate/atmosphere/bias-adjusted/global/daily/esm-hist/EC-Earth3-ESM-1-1/`.
+  Only the subset required by the project is present.
+- `external/` holds data that do not come from the ISIMIP DKRZ tree, e.g. the
+  ISIMIP protocol repository at a pinned commit or a third-party dataset used
+  for comparison.
+
+Raw files are immutable. Do not rename, rewrite, reformat, subset, or repair
+them in place. Store transformations under `intermediate/`, `parameters/`, or
+`forcing/` as appropriate.
+
+Raw files may be deleted after processing to recover space, provided that the
+accepted input manifest records their identity and checksums so that the same
+files can be downloaded again and verified.
+
+### `intermediate/`
+
+Canonical layout:
+
+```text
+intermediate/
+└── <workflow-stage>/
+    └── <task-id>/
+```
+
+`<workflow-stage>` is the full stage directory name, e.g. `02_preprocessing`.
+
+This directory contains reproducible, non-authoritative transformation
+products. A task identifier must describe the transformation or target, not a
+developer or temporary version.
+
+No file here may be the only copy of an accepted source dataset, production
+parameter set, production run output, or delivery product.
+
+### `parameters/`
+
+Canonical layout:
+
+```text
+parameters/
+├── candidates/
+│   └── <parameter-set-id>/
+│       └── <component>/
+└── production/
+    └── <parameter-set-id>/
+        └── <component>/
+```
+
+Valid components include those implemented under
+`workflow/03_parameters/`. Promotion from `candidates/` to `production/` must
+be explicit, reproducible, and supported by quality-control evidence and an
+accepted parameter manifest.
+
+Do not represent parameter versions with `v2`, `fix`, `final`, or similar
+names. Use a meaningful parameter-set identifier and manifest provenance.
+
+### `forcing/`
+
+Canonical layout:
+
+```text
+forcing/
+├── climate/
+│   └── <gcm>/
+│       └── <climate-scenario-input-alias>/
+│           └── <variable>/
+├── landuse/
+│   └── <soc-scenario>/
+└── water_use/
+    └── <soc-scenario>/
+```
+
+Examples:
+
+```text
+forcing/climate/ec-earth3-esm-1-1/esm-picontrol/pr/
+forcing/climate/ec-earth3-esm-1-1/esm-hist/tas/
+forcing/climate/ukesm1-3-ll/esm-hist/pr/
+forcing/landuse/histsoc/
+forcing/landuse/ssp3hsoc-noadapt/
+```
+
+Rules:
+
+- the first level identifies the forcing family (`climate`, `landuse`,
+  `water_use`);
+- climate forcing is organized by GCM, then climate-scenario input alias as
+  used in the DKRZ path (e.g. `esm-hist`, see `glossary.md`), then variable;
+- DHF forcing is organized by soc scenario;
+- use official lowercase identifiers;
+- apply the same dimension order to every GCM and scenario;
+- do not add a redundant project, model, or grid level while only one model and
+  production grid exist;
+- record grid, method, workflow commit, and acceptance status in provenance,
+  not in ad hoc version directories.
+
+The climate variable level may be omitted only if each scenario contains a
+small number of files and the decision is applied consistently to every GCM and
+scenario. Changing this choice requires updating this contract first.
+
+### `builds/`
+
+Canonical layout:
+
+```text
+builds/
+└── vic/
+    └── <model-commit>/
+        ├── bin/
+        ├── logs/
+        ├── tests/
+        └── build_manifest.json
+```
+
+`<model-commit>` must uniquely identify the source commit. Do not use
+`current`, `latest`, `final`, or a branch name as a build identity.
+
+The build manifest must record the full model commit, build environment, build
+command, executable checksum, and test status.
+
+### `runs/`
+
+Canonical layout:
+
+```text
+runs/
+└── <campaign-id>/
+    └── <run-id>/
+        ├── config/
+        ├── logs/
+        ├── states/
+        ├── output/
+        └── run_manifest.json
+```
+
+- `<campaign-id>` identifies the campaign defined in `configs/campaigns/`.
+- `<run-id>` is the segment ID defined in `glossary.md`:
+  `<climate-forcing>_<climate-scenario>_<soc-scenario>_<sens-scenario>_<period>`.
+
+`config/` must preserve the resolved campaign and segment configuration, the
+exact VIC configuration, and the exact Slurm job used for the run.
+
+If one run is split into chunks, use:
+
+```text
+runs/<campaign-id>/<run-id>/
+├── run_manifest.json
+└── chunks/
+    └── <start-year>-<end-year>/
+        ├── config/
+        ├── logs/
+        ├── states/
+        └── output/
+```
+
+Do not create `run_fix`, `run_final`, or similar replacement directories.
+Changed scientific or computational identity requires a new campaign.
+A scheduler retry with identical identity remains associated with the same run
+manifest and records the additional attempt.
+
+### `postprocessed/`
+
+Canonical layout:
+
+```text
+postprocessed/
+└── <product-set-id>/
+    └── <gcm>/
+        └── <experiment-id>/
+            └── <variable>/
+```
+
+This directory contains derived products that are not yet formal delivery
+products. `<experiment-id>` is the ISIMIP experiment ID. Every product set must
+remain traceable to its source runs and postprocessing workflow commit.
+
+Use the same GCM, experiment, and variable ordering throughout a product set.
+
+### `qc/`
+
+Canonical layout:
+
+```text
+qc/
+└── <object-type>/
+    └── <object-id>/
+        ├── summary.json
+        ├── reports/
+        ├── figures/
+        └── logs/
+```
+
+`<object-type>` is the name of the workdir top-level directory that holds the
+checked object: `raw`, `intermediate`, `parameters`, `forcing`, `builds`,
+`runs`, `postprocessed`, or `delivery`.
+
+Use explicit statuses including `passed`, `failed`, `warning`, and
+`not_checked`. A path under `qc/` is not proof that checks passed.
+
+### `delivery/`
+
+Canonical layout:
+
+```text
+delivery/
+└── <delivery-id>/
+    ├── files/
+    ├── inventory.tsv
+    ├── checksums.sha256
+    ├── qc-summary.json
+    └── delivery-manifest.yaml
+```
+
+Only products that satisfy all mandatory quality-control requirements may be
+placed under `files/`. The delivery manifest must identify source runs,
+workflow and model versions, protocol identity, quality-control evidence, file
+inventory, checksums, status, and destination.
+
+Do not overwrite an existing delivery identity. A materially changed delivery
+requires a new reviewed delivery identity.
+
+### `analysis/`
+
+Canonical layout:
+
+```text
+analysis/
+└── <task-id>/
+```
+
+Generated data, figures, tables, and logs of the analysis task with the same
+`<task-id>` under `repo/analysis/`. Source code is never stored here.
+
+No workflow stage may read from this directory. A result that a production
+stage needs must be produced by workflow code.
+
+### `logs/`
+
+Canonical layout:
+
+```text
+logs/
+└── <workflow-stage>/
+```
+
+`<workflow-stage>` is the full stage directory name, e.g. `01_acquisition`.
+
+Use this directory for centralized logs not already owned by a build, run,
+quality-control target, analysis, or delivery. Run-specific logs belong with
+the run; build-specific logs belong with the build.
+
+Logs do not replace manifests or structured status records.
+
+### `scratch/`
+
+Canonical layout:
+
+```text
+scratch/
+└── <task-id>/
+```
+
+Scratch content is disposable and must never be required for production
+reproducibility. It may contain temporary experiments, caches, and generated
+intermediates. Code in scratch is temporary; it is promoted to the repository
+or deleted before the task is complete.
+
+Do not organize shared production content by agent or developer name. If an
+owner must be recorded for cleanup, record it in task metadata rather than as
+the primary scientific hierarchy.
+
+## Directory density and depth
+
+- Review a human-maintained directory when it grows beyond approximately 30 to
+  50 files. Add a subdirectory only when a stable semantic grouping exists.
+- Large machine-generated collections are organized by access pattern and
+  scientific dimensions, not by an arbitrary file-count threshold.
+- Do not create a directory for a single file unless it defines an ownership,
+  lifecycle, or access boundary.
+- Do not add a level solely to make the tree look symmetrical.
+- Prefer canonical manifests and inventories over browsing enormous file lists
+  manually.
+
+## Automated layout check
+
+`tests/check_layout.py` checks the rules of this document that can be verified
+from paths and file types. It only reports; it never renames, moves, or deletes.
+
+```bash
+python3 tests/check_layout.py            # repository only
+python3 tests/check_layout.py --workdir  # repository and $ISIMIP4B_WORKDIR
+```
+
+- The pre-commit hook runs the repository check before every commit.
+- Coding agents run the full check before completing any task that creates or
+  moves files, as required by `AGENTS.md`.
+
+A reported violation is resolved by fixing the path or, if the rule is wrong,
+by the change procedure below. Errors block a commit; warnings do not.
+
+## Change procedure
+
+When a task does not fit this contract:
+
+1. identify the missing or conflicting concept;
+2. determine whether an existing directory can satisfy the requirement;
+3. propose the smallest new stable hierarchy or rule;
+4. obtain user approval if the project structure changes;
+5. update this document and relevant README files in the same change;
+6. update `tests/check_layout.py` when the new rule can be checked
+   automatically;
+7. only then create production content in the new location.
+
+Temporary deviations are not allowed to become undocumented permanent
+structure.

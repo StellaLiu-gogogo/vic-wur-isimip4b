@@ -1,0 +1,50 @@
+# Scientific data and model products belong in ../workdir, never in Git.
+*.nc
+*.nc4
+*.h5
+*.hdf
+*.hdf5
+*.he5
+*.grb
+*.grib
+*.grib2
+*.zarr/
+*.tif
+*.tiff
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.parquet
+*.feather
+
+# Logs and scheduler output
+*.log
+*.out
+*.err
+slurm-*.out
+
+# Build products
+*.o
+*.a
+*.so
+*.exe
+
+# Python and notebook caches
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments and local settings
+.venv/
+venv/
+.env
+.claude/settings.local.json
+
+# Editor and OS files
+*.swp
+*~
+.DS_Store
