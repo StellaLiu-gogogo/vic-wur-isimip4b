@@ -101,6 +101,14 @@ TOKEN_SPLIT = re.compile(r"[-_.\s]+")
 LOWER_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 CHUNK_ID = re.compile(r"^\d{4}-\d{4}$")
+CACHE_ID = re.compile(r"^[a-z0-9]+([-_][a-z0-9]+)*$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+UTC_TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
+CACHE_KEY_LINE = re.compile(r"^([a-z_]+):(.*)$")
+CACHE_REQUIRED = ["cache_id", "cache_fingerprint", "producer_stage",
+                  "created_by", "code_commit", "code_dirty", "created_at",
+                  "inputs", "rebuild_command"]
+MANIFEST_INTERMEDIATE = re.compile(r"(^|[^A-Za-z0-9_])intermediate/")
 RUN_ID = re.compile(
     r"^(?P<gcm>[a-z0-9-]+)_(?P<climate>[a-z0-9-]+)_(?P<soc>[a-z0-9-]+)"
     r"_(?P<sens>[a-z0-9-]+)_(?P<period>[a-z0-9-]+)$")
@@ -246,6 +254,11 @@ def check_repo(repo: Path, report: Report) -> None:
                 if f.startswith("workflow/common/") and MAIN_GUARD.search(text):
                     report.error(f, "workflow/common/ must not contain entry "
                                     "points")
+        if (f.startswith("manifests/") and p.name != "README.md"
+                and size <= REPO_ERROR_BYTES
+                and MANIFEST_INTERMEDIATE.search(read_text(full))):
+            report.error(f, "manifests must not reference intermediate/; "
+                            "caches are never inputs or delivered objects")
         if f.startswith("configs/campaigns/") and suffix in {".yaml", ".yml"}:
             if CAMPAIGN_SEGMENTS.search(read_text(full)):
                 report.error(f, "campaigns must not list segments by hand")
@@ -304,14 +317,7 @@ def check_workdir(workdir: Path, repo: Path, report: Report) -> None:
     for e in subdirs(w / "raw" / "external"):
         check_id(report, f"raw/external/{e.name}", e.name, "dataset ID")
 
-    # intermediate/<stage>/<task-id>
-    for stage in subdirs(w / "intermediate"):
-        if stage.name not in STAGES:
-            report.error(f"intermediate/{stage.name}",
-                         "must be a full workflow stage name")
-        for task in subdirs(Path(stage.path)):
-            check_id(report, f"intermediate/{stage.name}/{task.name}",
-                     task.name, "task ID")
+    check_intermediate(w, repo, report)
 
     # parameters/{candidates,production}/<set>/<component>
     check_allowed(report, "parameters", children(w / "parameters"),
@@ -401,6 +407,115 @@ def check_workdir(workdir: Path, repo: Path, report: Report) -> None:
         check_id(report, f"scratch/{task.name}", task.name, "task ID")
 
     walk_workdir(w, report)
+
+
+def parse_cache_yaml(text: str) -> dict[str, str]:
+    """Map top-level keys to their inline value ('' for block values).
+
+    A deliberately small line-based reader: full YAML semantics and the
+    fingerprint are validated by the workflow code that uses the cache.
+    """
+    keys: dict[str, str] = {}
+    for line in text.splitlines():
+        m = CACHE_KEY_LINE.match(line)
+        if m:
+            keys[m.group(1)] = m.group(2).strip().strip("'\"")
+    return keys
+
+
+def block_items(text: str, key: str) -> list[str]:
+    """Return '- item' lines that follow a top-level key."""
+    items, inside = [], False
+    for line in text.splitlines():
+        if CACHE_KEY_LINE.match(line):
+            inside = line.startswith(f"{key}:")
+            continue
+        m = re.match(r"^\s+-\s+(.*)$", line)
+        if inside and m:
+            items.append(m.group(1).strip().strip("'\""))
+    return items
+
+
+def check_intermediate(w: Path, repo: Path, report: Report) -> None:
+    base = w / "intermediate"
+    for e in children(base):
+        if not e.is_dir(follow_symlinks=False) and e.name != "README.md":
+            report.error(f"intermediate/{e.name}",
+                         "files are not allowed directly in intermediate/")
+    for stage in subdirs(base):
+        srel = f"intermediate/{stage.name}"
+        if stage.name not in STAGES:
+            report.error(srel, "must be a full workflow stage name")
+        for e in children(Path(stage.path)):
+            if not e.is_dir(follow_symlinks=False):
+                report.error(f"{srel}/{e.name}", "files are not allowed "
+                             "directly in a producer-stage directory")
+        for cache in subdirs(Path(stage.path)):
+            check_cache(report, repo, Path(cache.path), stage.name,
+                        f"{srel}/{cache.name}")
+
+
+def check_cache(report: Report, repo: Path, path: Path, stage: str,
+                rel: str) -> None:
+    name = path.name
+    if not CACHE_ID.match(name):
+        report.error(rel, "cache ID must use lowercase letters, digits, "
+                          "hyphens, and underscores")
+    if not (path / "_SUCCESS").exists():
+        report.warn(rel, "no _SUCCESS; incomplete cache must not be reused")
+    yaml_path = path / "cache.yaml"
+    if not yaml_path.exists():
+        report.error(rel, "cache directory has no cache.yaml")
+        return
+    text = read_text(yaml_path)
+    keys = parse_cache_yaml(text)
+    yrel = f"{rel}/cache.yaml"
+    missing = [k for k in CACHE_REQUIRED if k not in keys]
+    if missing:
+        report.error(yrel, f"missing required keys {missing}")
+    if "status" in keys:
+        report.error(yrel, "'status' is not used; completeness is _SUCCESS")
+    if keys.get("cache_id", name) != name:
+        report.error(yrel, "cache_id does not match the directory name")
+    if keys.get("producer_stage", stage) != stage:
+        report.error(yrel, "producer_stage does not match the parent "
+                           "directory")
+    fp = keys.get("cache_fingerprint")
+    if fp is not None and not SHA256.match(fp):
+        report.error(yrel, "cache_fingerprint must be a 64-character "
+                           "SHA-256")
+    created_by = keys.get("created_by")
+    if created_by is not None:
+        if not created_by.startswith("workflow/"):
+            report.error(yrel, "created_by must be a path under workflow/")
+        elif not (repo / created_by).is_file():
+            report.error(yrel, f"created_by '{created_by}' does not exist in "
+                               "the repository")
+    commit = keys.get("code_commit")
+    if commit is not None and not COMMIT_SHA.match(commit):
+        report.error(yrel, "code_commit must be a full 40-character commit")
+    if "code_dirty" in keys and keys["code_dirty"].lower() != "false":
+        report.error(yrel, "code_dirty must be false; outputs of uncommitted "
+                           "code belong in scratch/")
+    created_at = keys.get("created_at")
+    if created_at is not None and not UTC_TIME.match(created_at):
+        report.error(yrel, "created_at must be UTC ISO 8601, e.g. "
+                           "2026-09-28T14:30:00Z")
+    manifest = keys.get("input_manifest")
+    if manifest and not manifest.startswith("manifests/inputs/"):
+        report.error(yrel, "input_manifest must be under manifests/inputs/")
+    inputs = block_items(text, "inputs")
+    if "inputs" in keys and not inputs and not keys["inputs"]:
+        report.error(yrel, "inputs is empty")
+    for item in inputs:
+        if item.startswith("/"):
+            report.error(yrel, f"input '{item}' must be relative to the "
+                               "workdir")
+    for item in block_items(text, "final_destination"):
+        if item.startswith("/") or item.lstrip("./").startswith(
+                "intermediate"):
+            report.error(yrel, f"final_destination '{item}' must be a "
+                               "workdir path outside intermediate/")
 
 
 def check_run_id(report: Report, rel: str, name: str) -> None:

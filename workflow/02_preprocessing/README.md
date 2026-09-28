@@ -12,7 +12,7 @@ Transform accepted raw datasets into reusable intermediate products without modi
 
 ## Outputs
 
-- Reproducible intermediate products under `workdir/intermediate/02_preprocessing/<task-id>/`.
+- Reusable caches under `workdir/intermediate/02_preprocessing/<cache-id>/`, each with `cache.yaml` and `_SUCCESS` as defined in `docs/directory-contracts.md`.
 - Processing logs under `workdir/logs/02_preprocessing/`.
 - Validation summaries required by downstream stages.
 
@@ -31,5 +31,5 @@ Transform accepted raw datasets into reusable intermediate products without modi
 
 ## Completion criteria
 
-Every intermediate product must be reproducible from verified inputs, explicit settings, and a clean workflow commit. Required structural and numerical checks must pass before downstream use.
+Every cache must be reproducible from verified inputs, explicit settings, and a clean workflow commit, and may be deleted at any time. Required structural and numerical checks must pass before downstream use.
 

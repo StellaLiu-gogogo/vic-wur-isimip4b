@@ -445,8 +445,8 @@ raw/
   for comparison.
 
 Raw files are immutable. Do not rename, rewrite, reformat, subset, or repair
-them in place. Store transformations under `intermediate/`, `parameters/`, or
-`forcing/` as appropriate.
+them in place. Store transformations under `parameters/` or `forcing/`, and
+reusable caches of transformation steps under `intermediate/`.
 
 Raw files may be deleted after processing to recover space, provided that the
 accepted input manifest records their identity and checksums so that the same
@@ -458,18 +458,139 @@ Canonical layout:
 
 ```text
 intermediate/
-└── <workflow-stage>/
-    └── <task-id>/
+└── <producer-stage>/
+    └── <cache-id>/
+        ├── cache.yaml
+        ├── data/
+        └── _SUCCESS
 ```
 
-`<workflow-stage>` is the full stage directory name, e.g. `02_preprocessing`.
+> Intermediate is a rebuildable performance cache, never a scientific product
+> or a storage destination.
 
-This directory contains reproducible, non-authoritative transformation
-products. A task identifier must describe the transformation or target, not a
-developer or temporary version.
+#### Purpose
 
-No file here may be the only copy of an accepted source dataset, production
-parameter set, production run output, or delivery product.
+This directory contains reproducible workflow caches only. A cache is an
+optimization: deleting it costs compute time and nothing else.
+
+Every cache must be reproducible from version-controlled workflow code,
+recorded configuration and parameters, and upstream data that either remains
+available or can be downloaded again using the referenced input manifest.
+
+**Any cache may be deleted at any time without notice.** This directory is not
+backed up, does not take part in delivery, and needs no approval from its
+creator before cleanup.
+
+| Situation | Directory |
+|---|---|
+| Disposable, no reuse value | `scratch/` |
+| Disposable, expensive to compute, reusable | `intermediate/` |
+| Accepted forcing | `forcing/` |
+| Model parameters | `parameters/` |
+| Model runs and restart states | `runs/` |
+| Postprocessed products | `postprocessed/` |
+| Trials, comparisons, and decision support | `analysis/` |
+
+#### Identifiers
+
+- `<producer-stage>` is the full name of the workflow stage whose code
+  created the cache, e.g. `04_forcing`.
+- `<cache-id>` uses lowercase letters, digits, hyphens, and underscores, and
+  describes the transformation and target, e.g.
+  `climate-regridding_ec-earth3-esm-1-1_esm-hist_pr`. It must not contain a
+  version label or a manual date.
+
+#### Producers
+
+- Only production code under `workflow/` creates cache directories.
+  Analysis code, manual commands, and agents acting outside a workflow script
+  never write here.
+- A producer checks the Git state before it starts. If `workflow/`,
+  `configs/`, or `manifests/` contain uncommitted changes, it must write to
+  `scratch/` or stop. Outputs of uncommitted code are never reusable caches.
+- A producer writes `data/` and `cache.yaml` first and creates `_SUCCESS`
+  last, atomically (write a temporary file in the cache directory and rename
+  it to `_SUCCESS`).
+- Cache creation, fingerprinting, Git-state checks, and `_SUCCESS` handling
+  are implemented once in `workflow/common/cache.py` when the first producer
+  needs them.
+
+#### `cache.yaml`
+
+```yaml
+cache_id: climate-regridding_ec-earth3-esm-1-1_esm-hist_pr
+cache_fingerprint: <sha256>
+
+producer_stage: 04_forcing
+created_by: workflow/04_forcing/climate/regrid_climate.py
+code_commit: 0123456789abcdef0123456789abcdef01234567
+code_dirty: false
+created_at: 2026-09-28T14:30:00Z
+
+input_manifest: manifests/inputs/example.yaml
+
+inputs:
+  - raw/ISIMIP4b/InputData/...
+
+rebuild_command: >-
+  python3 workflow/04_forcing/climate/regrid_climate.py
+  --manifest manifests/inputs/example.yaml
+
+campaign_config: configs/campaigns/example.yaml
+
+final_destination:
+  - forcing/climate/ec-earth3-esm-1-1/esm-hist/pr
+```
+
+| Key | Requirement |
+|---|---|
+| `cache_id` | Required; equals the directory name. |
+| `cache_fingerprint` | Required; SHA-256 defined below. |
+| `producer_stage` | Required; equals the parent directory name. |
+| `created_by` | Required; a path under `workflow/` that exists in the repository. |
+| `code_commit` | Required; full 40-character Git commit, for provenance. |
+| `code_dirty` | Required; must be `false`. |
+| `created_at` | Required; UTC ISO 8601. |
+| `inputs` | Required; paths relative to the workdir. |
+| `rebuild_command` | Required; run from the repository root. |
+| `input_manifest` | Required when the inputs are covered by a manifest; a path under `manifests/inputs/`. |
+| `campaign_config` | Optional; omit the key when the cache does not depend on a campaign. |
+| `final_destination` | Optional; workdir paths of the products built from this cache, never under `intermediate/`. Omit the key when the cache is only reused by its producer. |
+
+There is no `status` key; completeness is expressed only by `_SUCCESS`.
+
+#### Fingerprint and reuse
+
+The producer computes `cache_fingerprint` as the SHA-256 of:
+
+- `created_by`;
+- the Git tree hashes of `workflow/<producer-stage>/` and `workflow/common/`
+  (so that commits which do not touch the producing code keep caches valid);
+- the content or checksum of the input manifest and of every input not
+  covered by it;
+- the effective parameters;
+- the result-relevant part of the campaign configuration;
+- the cache format version declared by the producer.
+
+A workflow reuses a cache only when the requested fingerprint equals the
+recorded fingerprint **and** `_SUCCESS` exists. Otherwise it deletes and
+rebuilds the cache. Cache validity never depends on file names or manual
+judgement.
+
+#### Forbidden
+
+- manually created or manually edited data;
+- the only copy of any file;
+- accepted forcing, parameter, simulation, postprocessing, or delivery
+  products and delivery candidates;
+- audit or analysis evidence that cannot be regenerated;
+- files without an identifiable producing workflow;
+- files placed here because their proper destination is unclear;
+- version suffixes such as `_v2` or `_final` and date-based manual copies;
+- manifests that reference `intermediate/` as an input or delivered object.
+
+Uncertainty about file classification is not a valid reason to place a file
+in `intermediate/`.
 
 ### `parameters/`
 

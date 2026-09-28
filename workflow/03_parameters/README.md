@@ -11,7 +11,7 @@ This stage may include domain, soil, vegetation, land-use, routing, reservoir, i
 ## Inputs
 
 - Verified source data from `workdir/raw/`.
-- Reusable intermediate products from `workdir/intermediate/`.
+- Reusable caches from `workdir/intermediate/`, used only when their fingerprint matches and `_SUCCESS` exists.
 - Explicit parameter-generation settings.
 
 ## Outputs

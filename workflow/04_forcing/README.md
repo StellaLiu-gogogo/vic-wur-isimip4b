@@ -7,7 +7,7 @@ Convert accepted time-dependent inputs into the units, variables, grid, calendar
 ## Inputs
 
 - Verified source datasets under `workdir/raw/`.
-- Required intermediate products under `workdir/intermediate/`.
+- Reusable caches from `workdir/intermediate/`, used only when their fingerprint matches and `_SUCCESS` exists.
 - Accepted domain and parameter references where masking or spatial alignment is required.
 - Campaign definitions under `configs/campaigns/`.
 
