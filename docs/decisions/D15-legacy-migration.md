@@ -65,6 +65,7 @@ The plan is executed step by step, each step verified before the next.
 | `02Audit/*.md` (12 reports) | Q1 |
 | `02Audit/smoke_test/` | never executed; Snellius paths; superseded by `05_simulation` when implemented |
 | `02Audit/evidence/landuse_monthly_harmonization_plan/` (49 MB) | withdrawn route; nothing downstream uses it |
+| `02Audit/evidence/` root files, `evidence/2026-09-20/`, `evidence/landuse_2021_analysis/` | evidence of reports that are not adopted (Q1); moved back on 2026-09-29 after a first migration, see log |
 | `03Data/qa_slices/` (5.5 GB) | Q6 |
 | `04Slides/` | decided 2026-09-28 |
 | `05Landuse/trial_2021/weights_cache_v5_2003_2022.npz` | Q7 |
@@ -104,10 +105,7 @@ version, and per-file checksums (contract, "adopted" parameter sets).
 
 | Legacy path | Task ID | Code and small docs → `repo/analysis/<task>/` | Products → `workdir/analysis/<task>/` | Status | Paths rewritten |
 |---|---|---|---|---|---|
-| `02Audit/evidence/` root files (protocol YAML extracts, DKRZ listings, email extract, HTML index) | `protocol-audit-2026-09` | README only | 21 files, 1.7 MB | closed | — |
-| `02Audit/evidence/2026-09-20/` | `model-capability-audit-2026-09` | README only | 10 files, 4.7 MB | closed | — |
 | `02Audit/evidence/irrigated_area_comparison_5crops_15arcmin/` (without `inputs_staged/`) | `irrigated-area-comparison` | 4 `.py`, `README.md`, `hyde_review.md`, `inventory.md` | `cellwise_comparison.nc`, 8 CSV/JSON, `figures/`, `logs/` | closed | yes (its `cellwise_comparison.nc` is reused) |
-| `02Audit/evidence/landuse_2021_analysis/` | `landuse-scoping-2021` | 6 `.py` | 7 JSON, 5 PNG, 1 TXT | closed | no |
 | `02Audit/evidence/landuse_annual_15crops_plan/` | `landuse-harmonization-annual` | 6 `.py`, `README.md` | 6 JSON, 3 NPZ (17 MB), `figures/` | promoted | yes |
 | `05Landuse/trial_2021/` (without the weights cache) and `05Landuse/logs/` | `landuse-harmonization-annual` (subdirectory `trial-2021/`) | — | `coverage_ISIMIP4b_histsoc_2021.nc` (38 MB), ledger, QA and verification files, 3 logs (`trial_histsoc_2021_v1.1.out` renamed `trial_histsoc_2021_attempt1.out`) | promoted | — |
 
