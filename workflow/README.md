@@ -27,7 +27,7 @@ All stages must fail clearly when required inputs are missing or invalid. Produc
 
 ## Data locations
 
-Workflow code must read and write through `ISIMIP4B_WORKDIR`. Each stage README defines its expected input and output subdirectories. Centralized logs go to `workdir/logs/<stage>/`, using the full stage directory name such as `01_acquisition`. Temporary products belong under `workdir/scratch/<task-id>/`, never in this repository.
+Workflow code must read and write through `ISIMIP4B_WORKDIR`. Each stage README defines its expected input and output subdirectories. Centralized logs go to `workdir/logs/<stage>/`, using the full stage directory name such as `01_acquisition`. Temporary working files belong under `workdir/scratch/<task-id>/`, never in this repository; workflow stages never read from scratch.
 
 Workflow code must never read from `analysis/` or `workdir/analysis/`. A result needed by production must be produced by workflow code.
 

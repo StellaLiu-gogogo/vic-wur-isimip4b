@@ -828,10 +828,13 @@ scratch/
 └── <task-id>/
 ```
 
-Scratch content is disposable and must never be required for production
-reproducibility. It may contain temporary experiments, caches, and generated
-intermediates. Code in scratch is temporary; it is promoted to the repository
-or deleted before the task is complete.
+Scratch is a disposable temporary workspace with no reuse value. It may
+contain temporary working files, exploratory trial outputs, and outputs of a
+repository that is not clean. Nothing in scratch is reused: no workflow stage
+reads from scratch, and reusable results belong in `intermediate/` as defined
+above. Scratch content must never be required for production reproducibility
+and may be deleted at any time. Code in scratch is temporary; it is promoted
+to the repository or deleted before the task is complete.
 
 Do not organize shared production content by agent or developer name. If an
 owner must be recorded for cleanup, record it in task metadata rather than as
