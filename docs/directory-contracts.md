@@ -66,7 +66,12 @@ isimip4b/
 ```
 
 - `repo/` is the version-controlled project repository.
-- `workdir/` is the large-data and runtime area outside Git.
+- `workdir/` is the large-data and runtime area outside Git, on the
+  non-backed-up filesystem `/lustre/nobackup/`.
+
+A backup copy of selected workdir content lives outside the project root, in
+`/lustre/backup/WUR/ESG/liu297/isimip4b/workdir/` (see
+[Data protection](#data-protection)).
 
 The complete project runs on Anunna.
 
@@ -898,20 +903,75 @@ the primary scientific hierarchy.
 
 Whether deleting something loses information is a property of the data.
 Whether someone may delete it is a permission. This section defines the
-permission for the whole workdir; `AGENTS.md` applies it to coding agents.
+permission for the whole workdir and the backup copy; `AGENTS.md` applies it
+to coding agents.
 
 | Who | What | User authorization |
 |---|---|---|
 | The user | anything | not needed |
 | A workflow producer | the one cache it is about to rebuild, when the fingerprint does not match or `_SUCCESS` is missing | not needed |
 | A coding agent | `scratch/<task-id>/` of its own current task, at the end of that task | not needed |
-| A coding agent | anything else, including caches, other scratch tasks, analysis products, and raw files | required |
+| A coding agent | anything else, including caches, other scratch tasks, analysis products, raw files, and anything in the backup copy | required |
 
 When authorization is required, the agent first presents the paths, file
 counts, and sizes to be deleted and deletes only after the user approves that
 list. Raw files additionally require the conditions in [`raw/`](#raw).
 
 Never delete a cache or run directory that a running job may be reading.
+
+## Data protection
+
+`/lustre/nobackup/` is not backed up but is not purged automatically. The Git
+repository is protected by its GitHub remote. Selected workdir content is
+copied to the backup copy:
+
+```text
+/lustre/backup/WUR/ESG/liu297/isimip4b/workdir/<same relative path>
+```
+
+The backup copy mirrors workdir paths exactly and contains nothing that is not
+also in the workdir, except the checksum files defined below. Its root is
+available to workflow code as `ISIMIP4B_BACKUP`.
+
+### What is backed up
+
+Only content of formally accepted production campaigns and parameter sets.
+Smoke, trial, debug, and failed runs are never backed up.
+
+| Workdir path | Backed up |
+|---|---|
+| `parameters/production/<parameter-set-id>/` | yes |
+| `runs/<campaign-id>/<run-id>/config/` (resolved configuration, VIC configuration, Slurm job) | yes |
+| `runs/<campaign-id>/<run-id>/states/` | yes |
+| `runs/<campaign-id>/<run-id>/run_manifest.json` | yes |
+| the same `config/` and `states/` under `chunks/<start-year>-<end-year>/` | yes |
+| `runs/<campaign-id>/<run-id>/output/` and `logs/` | no; reproducible from the backed-up configuration, states, build, and parameters |
+| `builds/vic/<model-commit>/` of builds used by production runs | yes |
+| `postprocessed/<product-set-id>/` of production product sets | yes |
+| `delivery/<delivery-id>/` | yes, until upload to DKRZ is confirmed; afterwards DKRZ holds the reference copy |
+| `raw/`, `intermediate/`, `forcing/`, `parameters/candidates/`, `qc/`, `analysis/`, `logs/`, `scratch/` | no |
+
+Raw model output is deliberately not backed up. The postprocessed products
+are the protected form of the model results.
+
+### How content is backed up
+
+- Backing up is copying. Work always happens in the workdir; nothing is
+  created, edited, or computed in the backup copy.
+- An object is copied only after it is complete and accepted, and each backed
+  up object is treated as write-once: existing files in the backup copy are
+  never modified. A changed object gets a new identity in the workdir first.
+- After copying, the backup procedure writes `backup-checksums.sha256` at the
+  root of the object in the backup copy, verifies every file against the
+  workdir, and records the backup path, date, and verification result in the
+  object's manifest (run manifest, parameter manifest, or delivery manifest).
+- The backup procedure is implemented as workflow code when the first
+  production object is accepted; its location requires an update to this
+  contract first.
+- Copying into the backup copy uses paid storage. A coding agent proposes the
+  list of objects, file counts, and sizes, and copies only after user approval.
+  Deleting from the backup copy follows
+  [Deletion permissions](#deletion-permissions).
 
 ## Directory density and depth
 

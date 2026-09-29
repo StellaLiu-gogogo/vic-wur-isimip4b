@@ -203,6 +203,13 @@ explicitly asks for it.
 
 ## Safety
 
+Never write to the backup copy (`ISIMIP4B_BACKUP`,
+`/lustre/backup/WUR/ESG/liu297/isimip4b/`) except through the backup
+procedure defined under "Data protection" in `docs/directory-contracts.md`,
+and only after the user has approved the list of objects, file counts, and
+sizes. Never modify or delete anything in the backup copy without explicit
+user authorization.
+
 Do not delete, overwrite, or relocate data under `../workdir/` without
 explicit user authorization and pre-operation inventory checks. The only
 exceptions are defined in "Deletion permissions" in

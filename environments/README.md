@@ -21,3 +21,7 @@ Every environment used to run workflow or analysis code sets:
 
 - `ISIMIP4B_WORKDIR`: absolute path of the sibling `workdir` directory;
 - `PYTHONPATH` including `<repo>/workflow`, so that shared modules are imported as `from common import <module>`.
+
+The backup procedure additionally uses:
+
+- `ISIMIP4B_BACKUP`: absolute path of the backup copy of the workdir, `/lustre/backup/WUR/ESG/liu297/isimip4b/workdir`.
