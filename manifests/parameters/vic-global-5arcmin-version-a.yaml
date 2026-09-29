@@ -1,0 +1,21 @@
+parameter_set_id: vic-global-5arcmin-version-a
+status: candidate
+adopted: true
+description: >-
+  VIC-WUR global 5 arcmin parameter set adopted from the sibling vic_coupled
+  and vic_parameter projects. Only the domain component is present; the
+  vegetation component is added when decisions D01 and D04 are taken.
+location: parameters/candidates/vic-global-5arcmin-version-a/
+adopted_on: 2026-09-29
+components:
+  domain:
+    source: /lustre/nobackup/WUR/ESG/liu297/vic_coupled/Data/VIC/domain/global/vic_global_5min_domain_nogl.nc
+    source_mtime: 2025-04-17
+    files:
+      - path: domain/vic_global_5min_domain_nogl.nc
+        size_bytes: 87147802
+        md5: 8a50b807b83db364a3db0d23e1ed3849
+    verification: md5 of the copy equals md5 of the source (2026-09-29)
+    qc_status: not_checked
+  vegetation:
+    status: deferred until D01 and D04 are decided
