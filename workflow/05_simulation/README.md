@@ -38,7 +38,7 @@ Each run must be isolated under `workdir/runs/<campaign-id>/<run-id>/`, where `<
 - Generated run configurations or job files in the repository.
 - Compiled executables.
 - Model output or state files.
-- Production runs from an uncommitted or dirty workflow state.
+- Production runs from a repository that is not clean (see `docs/glossary.md`).
 - Manual edits to a resolved configuration after submission without a new campaign.
 
 ## Completion criteria

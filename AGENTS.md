@@ -92,7 +92,7 @@ Files may be written to `../workdir/intermediate/` only by workflow code under
 `workflow/`, and only as reproducible caches with a declared producing
 workflow, recorded inputs, a fingerprint, rebuild instructions, and no
 irreplaceable information. Never write there manually, from analysis code, or
-from uncommitted code. Final workflow products go to their purpose-specific
+from a repository that is not clean (see `docs/glossary.md`). Final workflow products go to their purpose-specific
 workdir directory. Uncertainty about classification is not a reason to use
 `intermediate/`: intermediate is a rebuildable performance cache, never a
 scientific product or a storage destination.

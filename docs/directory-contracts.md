@@ -505,9 +505,10 @@ creator before cleanup.
 - Only production code under `workflow/` creates cache directories.
   Analysis code, manual commands, and agents acting outside a workflow script
   never write here.
-- A producer checks the Git state before it starts. If `workflow/`,
-  `configs/`, or `manifests/` contain uncommitted changes, it must write to
-  `scratch/` or stop. Outputs of uncommitted code are never reusable caches.
+- A producer checks the Git state before it starts. Unless the repository is
+  clean as defined in `glossary.md` (`git status --porcelain` prints nothing),
+  it must write to `scratch/` or stop. Outputs of a repository that is not
+  clean are never reusable caches.
 - A producer writes `data/` and `cache.yaml` first and creates `_SUCCESS`
   last, atomically (write a temporary file in the cache directory and rename
   it to `_SUCCESS`).
@@ -549,7 +550,7 @@ final_destination:
 | `producer_stage` | Required; equals the parent directory name. |
 | `created_by` | Required; a path under `workflow/` that exists in the repository. |
 | `code_commit` | Required; full 40-character Git commit, for provenance. |
-| `code_dirty` | Required; must be `false`. |
+| `code_dirty` | Required; must be `false`, i.e. the repository was clean. |
 | `created_at` | Required; UTC ISO 8601. |
 | `inputs` | Required; paths relative to the workdir. |
 | `rebuild_command` | Required; run from the repository root. |
@@ -564,8 +565,9 @@ There is no `status` key; completeness is expressed only by `_SUCCESS`.
 The producer computes `cache_fingerprint` as the SHA-256 of:
 
 - `created_by`;
-- the Git tree hashes of `workflow/<producer-stage>/` and `workflow/common/`
-  (so that commits which do not touch the producing code keep caches valid);
+- the Git tree hashes of `workflow/<producer-stage>/`, `workflow/common/`,
+  and `environments/` (so that commits which do not touch the producing code
+  or its software environment keep caches valid);
 - the content or checksum of the input manifest and of every input not
   covered by it;
 - the effective parameters;

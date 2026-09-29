@@ -31,7 +31,7 @@ Production scripts must derive data and output paths from this variable or from 
 
 A production result is reproducible only when all of the following are known:
 
-1. the clean Git commit of this repository;
+1. the Git commit of this repository, recorded from a clean repository as defined in `docs/glossary.md`;
 2. the pinned VIC-WUR commit and executable checksum;
 3. the resolved campaign and segment configuration;
 4. the exact VIC configuration and Slurm job submitted;

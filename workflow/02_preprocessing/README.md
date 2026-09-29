@@ -31,5 +31,5 @@ Transform accepted raw datasets into reusable intermediate products without modi
 
 ## Completion criteria
 
-Every cache must be reproducible from verified inputs, explicit settings, and a clean workflow commit, and may be deleted at any time. Required structural and numerical checks must pass before downstream use.
+Every cache must be reproducible from verified inputs, explicit settings, and a commit recorded from a clean repository, and may be deleted at any time. Required structural and numerical checks must pass before downstream use.
 

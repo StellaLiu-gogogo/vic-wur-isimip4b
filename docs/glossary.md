@@ -273,6 +273,15 @@ re-downloaded later; it is never edited.
 VIC-ready time-dependent input derived from raw data, stored under
 `workdir/forcing/`.
 
+### Clean repository — project
+
+The state in which `git status --porcelain` in the repository prints nothing:
+no modified, staged, deleted, or untracked non-ignored files anywhere in the
+repository. Only a clean repository can produce reusable caches, production
+runs, or delivery products, because only then does the recorded commit
+identify the exact code, configuration, manifests, model lock, and environment
+definitions that were used.
+
 ### Parameter set — project
 
 A complete, internally consistent set of static or slowly varying VIC-WUR
