@@ -111,4 +111,6 @@ runs from a clean repository.
 | 4 | 2026-09-29 | domain file adopted; parameter manifest committed (`dbabb5d`) |
 | 5 | 2026-09-29 | six analysis tasks committed; five moved back the same day (Q10), 49 + 697 files md5-verified; `data-acquisition-2026-09` kept |
 | 6 | 2026-09-29 | QA figures, reports and `summary.json` in `qc/raw/ISIMIP4b/InputData/`; transfer logs in `logs/01_acquisition/`; 599 QC job outputs moved back (Q10) |
-| 7–10 | pending | |
+| 7 | 2026-09-29 | `build_inventory.py`, `make_batch_lists.py`, `transfer_batch.sh` in `workflow/01_acquisition/` (`d605b6f`); batch lists reproduce the 2026-09-21 lists exactly |
+| 8 | 2026-09-29 | `isimip_landuse_to_vic_annual.py`, `verify_forcing.py` in `workflow/04_forcing/landuse/`; test run histsoc 2021 bit-identical to the legacy trial after fixing a precision dependence on the weights cache; verification passed |
+| 9–10 | pending | |
