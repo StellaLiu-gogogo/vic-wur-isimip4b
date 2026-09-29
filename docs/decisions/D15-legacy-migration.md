@@ -1,7 +1,7 @@
 # D15 — Migration of the legacy `vic_global/isimip4b/` area
 
-Status: **final, 2026-09-29.** Data steps executed and verified; code steps
-7–8 reduced in scope (section 5) and pending.
+Status: **final, 2026-09-29.** All steps executed and verified; steps 9 and
+10 cancelled by the user (section 5).
 
 Source: `/lustre/nobackup/WUR/ESG/liu297/vic_global/isimip4b/` (legacy area).
 Target: `/lustre/nobackup/WUR/ESG/liu297/isimip4b/repo/` (Git) and
@@ -97,8 +97,8 @@ runs from a clean repository.
 |---|---|---|---|
 | 7 | `03Data/scripts/build_inventory.py`, `make_batch_lists.py`, `transfer_batch.sh` | `workflow/01_acquisition/` | paths via `ISIMIP4B_WORKDIR`; manifests under `manifests/inputs/`; needed for the next DKRZ transfer (UKESM1-3-LL) |
 | 8 | `05Landuse/scripts/isimip_landuse_to_vic_annual.py`, `verify_forcing.py` | `workflow/04_forcing/landuse/` | inputs from `raw/ISIMIP4b/`, `raw/external/vic-coverage-version-a/5/`, `parameters/candidates/<set>/domain/`; output as forcing units under `forcing/landuse/<soc>/` with `provenance.yaml`; weights cache via `common/cache.py` (until it exists, to `scratch/`); verification output to `qc/forcing/landuse/<soc>/`. Blocked by D01 and D04 for production use, not for the rewrite. |
-| 9 | — | `check_layout.py --workdir`; `LEGACY_INDEX.md` in the legacy area | — |
-| 10 | — | cleanup list for approval (section 4.3) | — |
+| 9 | — | cancelled 2026-09-29: this record (section 3) is the index of where legacy content went; the legacy reports are not edited | — |
+| 10 | — | cancelled 2026-09-29: the legacy area is kept as-is and no longer used; duplicates listed in section 4.3 stay | — |
 
 ## 6. Execution log
 
@@ -113,4 +113,4 @@ runs from a clean repository.
 | 6 | 2026-09-29 | QA figures, reports and `summary.json` in `qc/raw/ISIMIP4b/InputData/`; transfer logs in `logs/01_acquisition/`; 599 QC job outputs moved back (Q10) |
 | 7 | 2026-09-29 | `build_inventory.py`, `make_batch_lists.py`, `transfer_batch.sh` in `workflow/01_acquisition/` (`d605b6f`); batch lists reproduce the 2026-09-21 lists exactly |
 | 8 | 2026-09-29 | `isimip_landuse_to_vic_annual.py`, `verify_forcing.py` in `workflow/04_forcing/landuse/`; test run histsoc 2021 bit-identical to the legacy trial after fixing a precision dependence on the weights cache; verification passed |
-| 9–10 | pending | |
+| 9–10 | 2026-09-29 | cancelled by the user; the legacy area is frozen as an archive |

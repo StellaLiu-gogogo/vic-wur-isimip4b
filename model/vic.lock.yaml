@@ -1,0 +1,15 @@
+# VIC-WUR version used by this project (docs/directory-contracts.md, model/).
+# freeze_status: provisional -> the branch may still move; production builds,
+# runs and deliveries require freeze_status: frozen with an immutable commit.
+repository: https://github.com/wur-wsg/VIC
+branch: fix-restart-luapply-snow-state
+commit: 39e21ff5015d01d9bc20407a8f50006831417aff   # branch head on 2026-09-29
+commit_date: 2026-09-15
+driver: image
+freeze_status: provisional
+set_on: 2026-09-29
+set_by: user (D01, provisional)
+note: >-
+  Provisional choice recorded on 2026-09-29. The branch is not frozen; D01
+  stays open until the user freezes an immutable commit. Any build made from
+  this record is a candidate build, identified by the commit above.

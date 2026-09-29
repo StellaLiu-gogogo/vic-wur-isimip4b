@@ -10,6 +10,8 @@ before it is still open.
 
 Last reviewed: 2026-09-29.
 
+D05 is being handled outside this session by another agent (user, 2026-09-29).
+
 ## How to use this list
 
 - **Status** is `open` or `decided`. A decision becomes `decided` only on
@@ -31,7 +33,7 @@ Last reviewed: 2026-09-29.
 
 | ID | Decision | Due stage | Trigger | Owner | Status |
 |---|---|---|---|---|---|
-| D01 | Which VIC-WUR commit is frozen for production (`model/vic.lock.yaml` is empty) | 03_parameters | | user | open |
+| D01 | Which VIC-WUR commit is frozen for production | 03_parameters | | user | open (provisional: branch `fix-restart-luapply-snow-state`, head `39e21ff5` on 2026-09-29, recorded in `model/vic.lock.yaml` with `freeze_status: provisional`) |
 | D02 | Compute scope: which GCMs, experiments, and priorities fit the available compute, and whether to apply for more | 05_simulation | | user | open |
 | D03 | Storage plan for 5′ model output: where it lives during a campaign and when it is deleted after postprocessing | 05_simulation | | user | open |
 | D04 | Land use: tile-count threshold for fallback tiles, treatment of `rice_rainfed`, and acceptance of the paddy area change | 03_parameters | | user | open |
