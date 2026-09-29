@@ -108,7 +108,8 @@ CACHE_KEY_LINE = re.compile(r"^([a-z_]+):(.*)$")
 CACHE_REQUIRED = ["cache_id", "cache_fingerprint", "producer_stage",
                   "created_by", "code_commit", "code_dirty", "created_at",
                   "inputs", "rebuild_command"]
-MANIFEST_INTERMEDIATE = re.compile(r"(^|[^A-Za-z0-9_])intermediate/")
+CACHE_ROOT_ENTRIES = {"cache.yaml", "_SUCCESS", "data"}
+MANIFEST_INTERMEDIATE =re.compile(r"(^|[^A-Za-z0-9_])intermediate/")
 RUN_ID = re.compile(
     r"^(?P<gcm>[a-z0-9-]+)_(?P<climate>[a-z0-9-]+)_(?P<soc>[a-z0-9-]+)"
     r"_(?P<sens>[a-z0-9-]+)_(?P<period>[a-z0-9-]+)$")
@@ -461,8 +462,21 @@ def check_cache(report: Report, repo: Path, path: Path, stage: str,
     if not CACHE_ID.match(name):
         report.error(rel, "cache ID must use lowercase letters, digits, "
                           "hyphens, and underscores")
-    if not (path / "_SUCCESS").exists():
+    for e in children(path):
+        is_dir = e.is_dir(follow_symlinks=False)
+        if e.name == "data" and not is_dir:
+            report.error(f"{rel}/data", "data must be a directory")
+        elif e.name in {"cache.yaml", "_SUCCESS"} and is_dir:
+            report.error(f"{rel}/{e.name}", "must be a file")
+        elif e.name not in CACHE_ROOT_ENTRIES:
+            report.error(f"{rel}/{e.name}", "cache root allows only "
+                         "cache.yaml, _SUCCESS, and data/; cached content "
+                         "goes into data/")
+    success = (path / "_SUCCESS").exists()
+    if not success:
         report.warn(rel, "no _SUCCESS; incomplete cache must not be reused")
+    elif not (path / "data").is_dir():
+        report.warn(rel, "complete cache has no data/ directory")
     yaml_path = path / "cache.yaml"
     if not yaml_path.exists():
         report.error(rel, "cache directory has no cache.yaml")

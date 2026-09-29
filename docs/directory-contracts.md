@@ -476,6 +476,12 @@ intermediate/
         └── _SUCCESS
 ```
 
+The cache root contains only `cache.yaml`, `_SUCCESS`, and the `data/`
+directory. All cached content, including small indexes or lookup tables, goes
+into `data/`, whose internal structure is chosen by the producer. Any further
+fixed metadata file in the cache root requires a change to this contract
+first.
+
 > Intermediate is a rebuildable performance cache, never a scientific product
 > or a storage destination.
 
@@ -526,9 +532,10 @@ creator before cleanup.
   clean as defined in `glossary.md` (`git status --porcelain` prints nothing),
   it must write to `scratch/` or stop. Outputs of a repository that is not
   clean are never reusable caches.
-- A producer writes `data/` and `cache.yaml` first and creates `_SUCCESS`
-  last, atomically (write a temporary file in the cache directory and rename
-  it to `_SUCCESS`).
+- A producer writes `data/` and `cache.yaml` completely (flushed to disk)
+  first and creates `_SUCCESS` last as an empty file with an exclusive create
+  (`O_CREAT | O_EXCL`), which is atomic and leaves no temporary file in the
+  cache root.
 - Cache creation, fingerprinting, Git-state checks, and `_SUCCESS` handling
   are implemented once in `workflow/common/cache.py` when the first producer
   needs them.
