@@ -502,9 +502,15 @@ creator before cleanup.
 
 #### Producers
 
-- Only production code under `workflow/` creates cache directories.
-  Analysis code, manual commands, and agents acting outside a workflow script
-  never write here.
+- Caches are written only by a workflow producer under `workflow/`, through
+  the common cache writer. The producer may be started by anyone and in any
+  way: from a terminal, through Slurm, or by a coding agent. The
+  `rebuild_command` is exactly such an invocation.
+- Forbidden ways of writing a cache: placing or changing files directly
+  (`cp`, `mv`, `rsync`, `ln`, editors); ad hoc Python or shell commands,
+  notebooks, or analysis code; and any code that bypasses the common cache
+  writer.
+- Deleting a cache is always allowed and needs no producer.
 - A producer checks the Git state before it starts. Unless the repository is
   clean as defined in `glossary.md` (`git status --porcelain` prints nothing),
   it must write to `scratch/` or stop. Outputs of a repository that is not
