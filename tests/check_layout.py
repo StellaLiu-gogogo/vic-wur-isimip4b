@@ -108,6 +108,7 @@ CACHE_KEY_LINE = re.compile(r"^([a-z_]+):(.*)$")
 CACHE_REQUIRED = ["cache_id", "cache_fingerprint", "producer_stage",
                   "created_by", "code_commit", "code_dirty", "created_at",
                   "inputs", "rebuild_command"]
+DECISION_ID = re.compile(r"^D\d{2,}$")
 JOB_RECORD = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*_(?P<jobid>\d+)$")
 CACHE_ROOT_ENTRIES = {"cache.yaml", "_SUCCESS", "data"}
 MANIFEST_INTERMEDIATE =re.compile(r"(^|[^A-Za-z0-9_])intermediate/")
@@ -268,9 +269,34 @@ def check_repo(repo: Path, report: Report, tracked_only: bool = False) -> None:
             if CAMPAIGN_SEGMENTS.search(read_text(full)):
                 report.error(f, "campaigns must not list segments by hand")
 
+    check_open_decisions(repo, files, report)
+
     claude = repo / "CLAUDE.md"
     if claude.exists() and "@AGENTS.md" not in read_text(claude):
         report.error("CLAUDE.md", "must import AGENTS.md with '@AGENTS.md'")
+
+
+def check_open_decisions(repo: Path, files: list[str],
+                         report: Report) -> None:
+    """Remind about open decisions due at or before a stage that has code."""
+    text = read_text(repo / "docs" / "decisions" / "open-decisions.md")
+    due: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if (len(cells) == 6 and DECISION_ID.match(cells[0])
+                and cells[5] == "open" and cells[2] in STAGES):
+            due.append((cells[0], cells[2]))
+    active = {PurePosixPath(f).parts[1] for f in files
+              if f.startswith("workflow/0") and PurePosixPath(f).name
+              != "README.md"}
+    for stage in STAGES:
+        if stage not in active:
+            continue
+        ids = [d for d, s in due if STAGES.index(s) <= STAGES.index(stage)]
+        if ids:
+            report.warn(f"workflow/{stage}", f"open decisions due at or before "
+                        f"this stage: {', '.join(ids)}; see "
+                        "docs/decisions/open-decisions.md")
 
 
 def read_text(path: Path) -> str:

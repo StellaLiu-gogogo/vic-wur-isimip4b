@@ -4,6 +4,8 @@
 
 Assemble, inventory, checksum, and prepare approved products for formal delivery or long-term archival.
 
+Open decisions due at or before this stage are listed in `docs/decisions/open-decisions.md`; check them before starting work here.
+
 ## Inputs
 
 - Postprocessed products with an explicit passing quality-control status.

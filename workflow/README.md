@@ -17,6 +17,10 @@ This directory contains the complete version-controlled workflow. It is organize
 
 `common/` holds Python modules used by at least two stages, and the infrastructure modules listed in `docs/directory-contracts.md` (currently `cache.py`), such as workdir path resolution, grid utilities, NetCDF metadata handling, checksum and manifest writing, and map plotting. It contains no stage-specific logic and no entry points. Stage code imports it as `from common import <module>` with `PYTHONPATH` including `repo/workflow`. Stage directory names start with a digit and cannot be imported as Python modules; shared code must therefore live in `common/`, not in another stage.
 
+## Open decisions
+
+Before working on a stage, check `docs/decisions/open-decisions.md` for open decisions due at or before that stage.
+
 ## General contract
 
 Allowed content includes source code, small text templates, Slurm templates, workflow metadata, and stage documentation. Generated NetCDF files, logs, caches, model output, compiled executables, and personal notebooks are forbidden.

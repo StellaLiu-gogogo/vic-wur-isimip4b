@@ -4,6 +4,8 @@
 
 Discover, transfer, inventory, and verify external source data required by the project.
 
+Open decisions due at or before this stage are listed in `docs/decisions/open-decisions.md`; check them before starting work here.
+
 ## Inputs
 
 - Authoritative source locations and access instructions.

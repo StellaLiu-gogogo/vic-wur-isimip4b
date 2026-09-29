@@ -4,6 +4,8 @@
 
 Convert accepted time-dependent inputs into the units, variables, grid, calendar, and file layout required by VIC-WUR.
 
+Open decisions due at or before this stage are listed in `docs/decisions/open-decisions.md`; check them before starting work here.
+
 ## Inputs
 
 - Verified source datasets under `workdir/raw/`.

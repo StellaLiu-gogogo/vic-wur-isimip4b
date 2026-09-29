@@ -1,0 +1,96 @@
+# Open Decisions
+
+This is the single list of project decisions that are not yet taken. Each
+decision has a **due stage**: the workflow stage that must not produce
+accepted outputs until the decision is taken. Coding agents check this list
+before working on a stage and remind the user of every open decision due at
+or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
+reports a warning while a stage contains code and a decision due at or
+before it is still open.
+
+Last reviewed: 2026-09-29.
+
+## How to use this list
+
+- **Status** is `open` or `decided`. Only the user changes a decision to
+  `decided`.
+- When a decision is taken, write a decision record
+  `docs/decisions/<id>-<short-title>.md` (context, options, decision,
+  consequences, date) and set the status to `decided` with a link to it.
+  Decided rows stay in the table.
+- **Due stage** is a full workflow stage name. A decision triggered by an
+  event rather than a stage names the trigger in the "Trigger" column and has
+  `-` as due stage.
+- Sources in the legacy audit area refer to
+  `/lustre/nobackup/WUR/ESG/liu297/vic_global/isimip4b/02Audit/`, which has
+  not yet been migrated into this project.
+
+## Decision table
+
+| ID | Decision | Due stage | Trigger | Owner | Status |
+|---|---|---|---|---|---|
+| D01 | Which VIC-WUR commit is frozen for production (`model/vic.lock.yaml` is empty) | 03_parameters | | user | open |
+| D02 | Compute scope: which GCMs, experiments, and priorities fit the available compute, and whether to apply for more | 05_simulation | | user | open |
+| D03 | Storage plan for 5′ model output: where it lives during a campaign and when it is deleted after postprocessing | 05_simulation | | user | open |
+| D04 | Land use: tile-count threshold for fallback tiles, treatment of `rice_rainfed`, and acceptance of the paddy area change | 03_parameters | | user | open |
+| D05 | Non-irrigation water use: how to proceed while the ISIMIP4b dataset is not released | 04_forcing | | user, sector coordinators | open |
+| D06 | Composition of the `extrasoc` sensitivity experiments (which additional direct human forcings) | 05_simulation | | user, sector coordinators | open |
+| D07 | 5′ to 0.5° aggregation method, `dis` outlet mapping, and `contfrac` derivation | 06_postprocessing | | user | open |
+| D08 | Reporting of ISIMIP mask cells not covered by the VIC domain | 06_postprocessing | | user, sector coordinators | open |
+| D09 | ISIMIP4b `water_global` output filename pattern (not yet published by ISIMIP) | 06_postprocessing | | ISIMIP | open |
+| D10 | VIC-WUR model name and version suffix for ISIMIP4b filenames | 06_postprocessing | | user | open |
+| D11 | Structure of the postprocessed product-set manifest | 06_postprocessing | | user | open |
+| D12 | Whether `2021co2` experiments are reported (VIC-WUR has no CO₂ response) | 08_delivery | | sector coordinators | open |
+| D13 | Location and implementation of the backup procedure | - | first production object accepted | user | open |
+| D14 | Include the ensemble member in project identifiers | - | a second ensemble member is used | user | open |
+
+## Context
+
+**D01 — Frozen model version.** Every production build, run, and cache
+records a model commit. Parameter files must match the input format of that
+commit, so the decision is needed before production parameters are
+generated.
+
+**D02 — Compute scope.** The model capability audit (legacy audit area,
+`VICWUR_ISIMIP4b_WaterGlobal_model_capability_audit_v2_2026-09-20.md`)
+estimated the cost of the core experiment set per GCM and concluded that the
+budget known at that time covered one GCM only. The campaign definitions
+depend on this decision.
+
+**D03 — Output storage.** The same audit and the land-use scoping estimated
+several TB of 5′ output per GCM. Raw model output is not backed up (see
+`directory-contracts.md`, "Data protection"), and `/lustre` was 98 % full on
+2026-09-29.
+
+**D04 — Land-use harmonization.** Open points listed in
+`VICWUR_ISIMIP4b_annual_landuse_harmonization_plan_15crops_2026-09-23.md`
+(legacy audit area): the tile-count threshold for fallback children in SSP
+scenarios, the treatment of `rice_rainfed`, and accepting the change of
+paddy area relative to the current VIC coverage.
+
+**D05 — Non-irrigation water use.** The protocol audit found no ISIMIP4b
+non-irrigation water-use dataset on DKRZ; Group III default experiments
+require it.
+
+**D06 — `extrasoc`.** The protocol leaves the choice of additional direct
+human forcings to the modelling team and encourages coordination with the
+sector coordinators.
+
+**D07 — Aggregation.** ISIMIP `water_global` output is reported at 0.5°.
+The capability audit identified the missing 5′ to 0.5° aggregation, the
+outlet mapping for discharge, and the derivation of `contfrac` as gaps.
+
+**D08 — Mask coverage.** The capability audit found ISIMIP mask cells,
+mainly in Greenland and the Arctic, that the VIC domain does not cover.
+
+**D09, D10 — Filenames.** See `glossary.md`, "Output naming".
+
+**D11 — Product-set manifest.** Required by "Data protection" in
+`directory-contracts.md` to record backups of postprocessed product sets.
+
+**D12 — `2021co2`.** See `glossary.md`, "Sensitivity scenario".
+
+**D13 — Backup procedure.** See `directory-contracts.md`, "Data protection";
+its location requires a contract change.
+
+**D14 — Ensemble member.** See `glossary.md`, "Ensemble member".

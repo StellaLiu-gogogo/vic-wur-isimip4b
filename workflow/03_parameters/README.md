@@ -4,6 +4,8 @@
 
 Generate, assemble, and validate the static or slowly varying parameter datasets required by VIC-WUR.
 
+Open decisions due at or before this stage are listed in `docs/decisions/open-decisions.md`; check them before starting work here.
+
 ## Scope
 
 This stage may include domain, soil, vegetation, land-use, routing, reservoir, irrigation, and water-use parameters. Subdirectories should be created by parameter family only when implementation work begins.

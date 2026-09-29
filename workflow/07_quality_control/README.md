@@ -4,6 +4,8 @@
 
 Determine whether inputs, parameters, forcing, runs, and postprocessed products satisfy project, scientific, and protocol requirements.
 
+Open decisions due at or before this stage are listed in `docs/decisions/open-decisions.md`; check them before starting work here.
+
 ## Inputs
 
 - Products from the relevant workdir stage.

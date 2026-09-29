@@ -4,6 +4,8 @@
 
 Transform accepted raw datasets into reusable caches for later stages, without modifying the original source files. These caches are a performance optimization, not scientific products: later stages must produce their accepted outputs under `workdir/parameters/` or `workdir/forcing/`.
 
+Open decisions due at or before this stage are listed in `docs/decisions/open-decisions.md`; check them before starting work here.
+
 ## Inputs
 
 - Verified datasets under `workdir/raw/`.

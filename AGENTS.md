@@ -57,6 +57,21 @@ If requested work does not fit the current contract:
 5. update `docs/directory-contracts.md` before placing production content in
    the new location.
 
+## Open decisions
+
+`docs/decisions/open-decisions.md` lists decisions that are not yet taken,
+each with the workflow stage it is due before. Before working on a workflow
+stage, defining a campaign, or producing accepted outputs:
+
+1. read the open-decisions table;
+2. tell the user about every `open` decision whose due stage is the current
+   stage or an earlier one, or whose trigger has occurred;
+3. do not substitute a default for an open decision; ask the user and wait;
+4. when the user takes a decision, write the decision record and update the
+   table as described in that file.
+
+The layout check reports a warning for such decisions; report it to the user.
+
 ## Workflow or analysis classification
 
 The user decides whether new code belongs to `workflow/` or `analysis/`.

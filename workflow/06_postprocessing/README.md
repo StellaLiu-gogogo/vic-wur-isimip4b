@@ -4,6 +4,8 @@
 
 Convert raw VIC-WUR output into scientifically interpretable and protocol-oriented products.
 
+Open decisions due at or before this stage are listed in `docs/decisions/open-decisions.md`; check them before starting work here.
+
 ## Inputs
 
 - Completed run output and run manifests under `workdir/runs/`.

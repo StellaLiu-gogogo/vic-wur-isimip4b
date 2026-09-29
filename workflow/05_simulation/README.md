@@ -4,6 +4,8 @@
 
 Render complete VIC and Slurm configurations, create isolated run directories, submit VIC-WUR simulations, and record run provenance.
 
+Open decisions due at or before this stage are listed in `docs/decisions/open-decisions.md`; check them before starting work here.
+
 ## Inputs
 
 - Campaign definitions under `configs/campaigns/`.
