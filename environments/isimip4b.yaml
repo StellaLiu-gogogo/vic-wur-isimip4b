@@ -1,0 +1,18 @@
+# Conda environment for the ISIMIP4b workflow and analysis code on Anunna.
+# Create:  conda env create -f environments/isimip4b.yaml
+# Then set ISIMIP4B_WORKDIR and PYTHONPATH as described in environments/README.md.
+# Versions are minimums that the code was run with; pin exact versions with a
+# lock file when the first production forcing is accepted.
+name: isimip4b
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.9
+  - numpy>=1.26
+  - scipy>=1.11
+  - netcdf4>=1.6
+  - pyyaml>=6
+  - matplotlib>=3.7
+  - pandas>=2
+  - cdo
+  - nco

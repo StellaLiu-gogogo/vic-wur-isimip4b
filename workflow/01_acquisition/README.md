@@ -6,6 +6,22 @@ Discover, transfer, inventory, and verify external source data required by the p
 
 Open decisions due at or before this stage are listed in `docs/decisions/open-decisions.md`; check them before starting work here.
 
+## Scripts
+
+| File | Role |
+|---|---|
+| `build_inventory.py` | classify a `find` listing of the DKRZ ISIMIP4b tree into datasets and transfer priorities (A/B/C); writes `dkrz_isimip4b_inventory_<date>.{csv,md}` |
+| `make_batch_lists.py` | split the inventory into the project's transfer batches 1–6; writes `batch_<n>_files.txt` and `batch_<n>_expected_sizes.tsv` |
+| `transfer_batch.sh` | rsync one approved batch from levante into `workdir/raw/ISIMIP4b/`, check remote size stability, md5 on both ends, and write `transfer_manifest_batch_<id>.txt` and `MD5SUMS` into the manifest directory |
+
+Exploratory inventories and batch lists go to `workdir/scratch/`; once a
+batch is approved and transferred, its list, expected sizes, manifest and
+`MD5SUMS` are committed under `manifests/inputs/<dataset-id>/`. The DKRZ
+listing itself is made on levante with
+`find /work/bb0820/ISIMIP/ISIMIP4b -printf "%y\t%s\t%TY-%Tm-%Td\t%p\t%l\n"`
+(plus a `find -L` listing for directory symlinks); an ssh alias `levante`
+with key-based login is required.
+
 ## Inputs
 
 - Authoritative source locations and access instructions.
