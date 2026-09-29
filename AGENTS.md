@@ -202,7 +202,13 @@ explicitly asks for it.
 
 ## Safety
 
-Do not delete, overwrite, or relocate large data collections without explicit
-user authorization and pre-operation inventory checks. Prefer reversible,
+Do not delete, overwrite, or relocate data under `../workdir/` without
+explicit user authorization and pre-operation inventory checks. The only
+exceptions are defined in "Deletion permissions" in
+`docs/directory-contracts.md`: a workflow producer rebuilding the one cache it
+is about to use, and an agent removing `scratch/<task-id>/` of its own current
+task at the end of that task. Present the paths, file counts, and sizes before
+asking for authorization. That a cache or scratch file can be regenerated is
+not an authorization to delete it. Prefer reversible,
 incremental migrations with file-count, size, and checksum verification.
 

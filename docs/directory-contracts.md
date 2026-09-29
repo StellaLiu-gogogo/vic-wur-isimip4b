@@ -494,9 +494,9 @@ Every cache must be reproducible from version-controlled workflow code,
 recorded configuration and parameters, and upstream data that either remains
 available or can be downloaded again using the referenced input manifest.
 
-**Any cache may be deleted at any time without notice.** This directory is not
-backed up, does not take part in delivery, and needs no approval from its
-creator before cleanup.
+**Deleting a cache never loses information.** This directory is not backed
+up and does not take part in delivery. Who may delete a cache is defined in
+[Deletion permissions](#deletion-permissions).
 
 | Situation | Directory |
 |---|---|
@@ -527,7 +527,9 @@ creator before cleanup.
   (`cp`, `mv`, `rsync`, `ln`, editors); ad hoc Python or shell commands,
   notebooks, or analysis code; and any code that bypasses the common cache
   writer.
-- Deleting a cache is always allowed and needs no producer.
+- Before reuse, a producer may delete and immediately rebuild the one cache
+  it is about to use when the fingerprint does not match or `_SUCCESS` is
+  missing. It deletes no other cache.
 - A producer checks the Git state before it starts. Unless the repository is
   clean as defined in `glossary.md` (`git status --porcelain` prints nothing),
   it must write to `scratch/` or stop. Outputs of a repository that is not
@@ -850,13 +852,33 @@ Scratch is a disposable temporary workspace with no reuse value. It may
 contain temporary working files, exploratory trial outputs, and outputs of a
 repository that is not clean. Nothing in scratch is reused: no workflow stage
 reads from scratch, and reusable results belong in `intermediate/` as defined
-above. Scratch content must never be required for production reproducibility
-and may be deleted at any time. Code in scratch is temporary; it is promoted
-to the repository or deleted before the task is complete.
+above. Scratch content must never be required for production reproducibility.
+Code in scratch is temporary; it is promoted to the repository or deleted
+before the task is complete. Who may delete scratch content is defined in
+[Deletion permissions](#deletion-permissions).
 
 Do not organize shared production content by agent or developer name. If an
 owner must be recorded for cleanup, record it in task metadata rather than as
 the primary scientific hierarchy.
+
+## Deletion permissions
+
+Whether deleting something loses information is a property of the data.
+Whether someone may delete it is a permission. This section defines the
+permission for the whole workdir; `AGENTS.md` applies it to coding agents.
+
+| Who | What | User authorization |
+|---|---|---|
+| The user | anything | not needed |
+| A workflow producer | the one cache it is about to rebuild, when the fingerprint does not match or `_SUCCESS` is missing | not needed |
+| A coding agent | `scratch/<task-id>/` of its own current task, at the end of that task | not needed |
+| A coding agent | anything else, including caches, other scratch tasks, analysis products, and raw files | required |
+
+When authorization is required, the agent first presents the paths, file
+counts, and sizes to be deleted and deletes only after the user approves that
+list. Raw files additionally require the conditions in [`raw/`](#raw).
+
+Never delete a cache or run directory that a running job may be reading.
 
 ## Directory density and depth
 
