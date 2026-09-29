@@ -941,49 +941,51 @@ procedure becomes operational.
 └── staging/<staging-id>/
 ```
 
-The backup copy uses the same relative paths as the workdir, and its content
-equals the workdir object at the time of copying. It is a backup, not a
+The backup copy uses the same relative paths as the workdir, and its
+protected content equals the selected workdir content at the time of
+copying. It is a backup, not a
 mirror: a protected backup object may outlive or restore its workdir object,
 and it is never deleted or changed because the workdir object was deleted or
 changed. `staging/` holds objects that are being copied and have not been
 published. The `workdir/` root is available to workflow code as
 `ISIMIP4B_BACKUP`.
 
-A **backup object** is the unit that is copied and published in one step: one
-row of the table below, e.g. one run or one parameter set.
+A **backup object** is one directory-level unit that is copied and published
+atomically. There are exactly five kinds, listed in the table below.
 
 ### What is backed up
 
 Only content of formally accepted production campaigns and parameter sets.
 Smoke, trial, debug, and failed runs are never backed up.
 
-| Workdir path | Backed up |
-|---|---|
-| `parameters/production/<parameter-set-id>/` | yes |
-| `runs/<campaign-id>/<run-id>/config/` (resolved configuration, VIC configuration, Slurm job) | yes |
-| `runs/<campaign-id>/<run-id>/states/` | yes |
-| `runs/<campaign-id>/<run-id>/run_manifest.json` | yes |
-| the same `config/` and `states/` under `chunks/<start-year>-<end-year>/` | yes |
-| `runs/<campaign-id>/<run-id>/output/` and `logs/` | no; reproducible from the backed-up configuration, states, build, and parameters |
-| `builds/vic/<model-commit>/` of builds used by production runs | yes |
-| `postprocessed/<product-set-id>/` of production product sets | yes |
-| `delivery/<delivery-id>/` | yes, until upload to DKRZ is confirmed; afterwards DKRZ holds the reference copy |
-| `raw/`, `intermediate/`, `forcing/`, `parameters/candidates/`, `qc/`, `analysis/`, `logs/`, `scratch/` | no |
+| Backup object | Object root | Selected content |
+|---|---|---|
+| One production parameter set | `parameters/production/<parameter-set-id>/` | the whole directory |
+| One accepted production run | `runs/<campaign-id>/<run-id>/` | `config/`, `states/`, `run_manifest.json`, and `config/` and `states/` of every `chunks/<start-year>-<end-year>/` |
+| One production build | `builds/vic/<model-commit>/` | the whole directory |
+| One postprocessed product set | `postprocessed/<product-set-id>/` | the whole directory |
+| One delivery | `delivery/<delivery-id>/` | the whole directory, until upload to DKRZ is confirmed; afterwards DKRZ holds the reference copy |
 
-Raw model output is deliberately not backed up. The postprocessed products
-are the protected form of the model results.
+A run backup deliberately excludes `output/` and `logs/`, also inside
+chunks. Raw model output is reproducible from the backed-up configuration,
+states, build, and parameters; the postprocessed products are the protected
+form of the model results.
+
+Never backed up: `raw/`, `intermediate/`, `forcing/`, `parameters/candidates/`,
+`qc/`, `analysis/`, `logs/`, `scratch/`, and non-production runs.
 
 ### How content is backed up
 
-- Backing up is copying. Work always happens in the workdir; nothing is
-  created, edited, or computed in the backup copy.
+- No scientific processing or primary project work occurs in the backup area.
+  Only copied payload, copied manifests, checksums, and staging metadata are
+  created there, and only by the backup procedure.
 - An object is copied only after it is complete and accepted, and each backed
   up object is treated as write-once: existing files in the backup copy are
   never modified. A changed object gets a new identity in the workdir first.
 - Each object is backed up in a staging, verify, publish sequence, so that a
   published object never changes afterwards:
-  1. copy the payload (every file of the object except its manifest) to
-     `staging/<staging-id>/`;
+  1. copy the payload (the selected content of the object except its
+     manifest) to `staging/<staging-id>/`;
   2. verify every staged payload file against the workdir;
   3. record the backup path, date, and payload verification result in the
      object's manifest in the workdir;
