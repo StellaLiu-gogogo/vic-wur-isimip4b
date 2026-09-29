@@ -578,8 +578,8 @@ final_destination:
 | `created_at` | Required; UTC ISO 8601. |
 | `inputs` | Required; paths relative to the workdir. |
 | `rebuild_command` | Required; run from the repository root. |
-| `input_manifest` | Required when the inputs are covered by a manifest; a path under `manifests/inputs/`. |
-| `campaign_config` | Optional; omit the key when the cache does not depend on a campaign. |
+| `input_manifest` | Required when the inputs are covered by a manifest; an existing file under `manifests/inputs/`. |
+| `campaign_config` | Optional; an existing file under `configs/campaigns/`. Omit the key when the cache does not depend on a campaign. |
 | `final_destination` | Optional; workdir paths of the products built from this cache, never under `intermediate/`. Omit the key when the cache is only reused by its producer. |
 
 There is no `status` key; completeness is expressed only by `_SUCCESS`.

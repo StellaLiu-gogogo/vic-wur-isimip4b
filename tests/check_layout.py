@@ -515,9 +515,17 @@ def check_cache(report: Report, repo: Path, path: Path, stage: str,
     if created_at is not None and not UTC_TIME.match(created_at):
         report.error(yrel, "created_at must be UTC ISO 8601, e.g. "
                            "2026-09-28T14:30:00Z")
-    manifest = keys.get("input_manifest")
-    if manifest and not manifest.startswith("manifests/inputs/"):
-        report.error(yrel, "input_manifest must be under manifests/inputs/")
+    for key, prefix in (("input_manifest", "manifests/inputs/"),
+                        ("campaign_config", "configs/campaigns/")):
+        ref = keys.get(key)
+        if key in keys and not ref:
+            report.error(yrel, f"{key} is empty; omit the key when it does "
+                               "not apply")
+        elif ref and not ref.startswith(prefix):
+            report.error(yrel, f"{key} must be under {prefix}")
+        elif ref and not (repo / ref).is_file():
+            report.error(yrel, f"{key} '{ref}' does not exist in the "
+                               "repository")
     inputs = block_items(text, "inputs")
     if "inputs" in keys and not inputs and not keys["inputs"]:
         report.error(yrel, "inputs is empty")
