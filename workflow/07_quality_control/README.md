@@ -12,7 +12,7 @@ Determine whether inputs, parameters, forcing, runs, and postprocessed products 
 
 ## Outputs
 
-- Machine-readable and human-readable reports under `workdir/qc/<object-type>/<object-id>/`, where `<object-type>` is the workdir top-level directory of the checked object.
+- Machine-readable and human-readable reports under `workdir/qc/<object path relative to the workdir>/`, e.g. `workdir/qc/runs/<campaign-id>/<run-id>/`.
 - Clear status values such as `passed`, `failed`, `warning`, or `not_checked`.
 - File-level evidence required for delivery decisions.
 

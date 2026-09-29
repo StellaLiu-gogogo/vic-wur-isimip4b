@@ -145,7 +145,9 @@ scenarios, years, or experiments.
 - VIC and Slurm templates belong under `workflow/05_simulation/`.
 - Resolved campaign and segment configuration, VIC configuration, and Slurm
   jobs belong with the corresponding run under
-  `../workdir/runs/<campaign-id>/<run-id>/`.
+  `../workdir/runs/<campaign-id>/<run-id>/`. Slurm jobs of other stages keep
+  their rendered script and output in
+  `../workdir/logs/<stage>/<job-name>_<slurm-job-id>/`, never in scratch.
 - Production configuration must not rely on hidden scientific defaults.
 - Do not distribute personal absolute paths across scripts or configuration.
   Resolve the workdir through `ISIMIP4B_WORKDIR`.

@@ -27,7 +27,7 @@ Accepted outputs of every stage are produced only from a clean repository (rule 
 
 ## Data locations
 
-Workflow code must read and write through `ISIMIP4B_WORKDIR`. Each stage README defines its expected input and output subdirectories. Centralized logs go to `workdir/logs/<stage>/`, using the full stage directory name such as `01_acquisition`. Temporary working files belong under `workdir/scratch/<task-id>/`, never in this repository; workflow stages never read from scratch.
+Workflow code must read and write through `ISIMIP4B_WORKDIR`. Each stage README defines its expected input and output subdirectories. Centralized logs go to `workdir/logs/<stage>/`, using the full stage directory name such as `01_acquisition`. Every Slurm job of a stage other than `05_simulation` keeps its rendered job script, `job.yaml`, and scheduler output in `workdir/logs/<stage>/<job-name>_<slurm-job-id>/`, never in scratch. Temporary working files belong under `workdir/scratch/<task-id>/`, never in this repository; workflow stages never read from scratch.
 
 Workflow code must never read from `analysis/` or `workdir/analysis/`. A result needed by production must be produced by workflow code.
 

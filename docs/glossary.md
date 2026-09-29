@@ -220,7 +220,10 @@ A campaign ID is a short descriptive lowercase identifier such as `smoke` or
 `fasttrack`. It must not be a version label (`v2`, `new`, `final`).
 
 A change of model build or parameter set that alters results requires a new
-campaign; runs from different campaigns are never mixed in one simulation.
+campaign. Runs from different campaigns are combined in one simulation only
+when the newer campaign explicitly declares that it reuses whole periods of an
+earlier accepted production campaign, with a justification (see
+`directory-contracts.md`, `configs/`).
 
 ### Run — project
 

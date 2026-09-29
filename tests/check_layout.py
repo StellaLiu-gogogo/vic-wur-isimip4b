@@ -108,6 +108,7 @@ CACHE_KEY_LINE = re.compile(r"^([a-z_]+):(.*)$")
 CACHE_REQUIRED = ["cache_id", "cache_fingerprint", "producer_stage",
                   "created_by", "code_commit", "code_dirty", "created_at",
                   "inputs", "rebuild_command"]
+JOB_RECORD = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*_(?P<jobid>\d+)$")
 CACHE_ROOT_ENTRIES = {"cache.yaml", "_SUCCESS", "data"}
 MANIFEST_INTERMEDIATE =re.compile(r"(^|[^A-Za-z0-9_])intermediate/")
 RUN_ID = re.compile(
@@ -402,9 +403,28 @@ def check_workdir(workdir: Path, repo: Path, report: Report) -> None:
         if not (repo / "analysis" / task.name / "README.md").exists():
             report.error(rel, "no matching repo/analysis/<task-id>/README.md")
 
-    # logs/<stage>
+    # logs/<stage>[/<job-name>_<slurm-job-id>]
     check_allowed(report, "logs", children(w / "logs"), set(STAGES),
                   "workflow stage name")
+    for stage in subdirs(w / "logs"):
+        for job in subdirs(Path(stage.path)):
+            jrel = f"logs/{stage.name}/{job.name}"
+            m = JOB_RECORD.match(job.name)
+            if not m:
+                report.error(jrel, "job record must be <job-name>_"
+                                   "<slurm-job-id> in lowercase words joined "
+                                   "by hyphens")
+                continue
+            names = {e.name for e in children(Path(job.path))}
+            for missing in ("job.sbatch", "job.yaml"):
+                if missing not in names:
+                    report.error(jrel, f"job record has no {missing}")
+            jid = m.group("jobid")
+            allowed = {"job.sbatch", "job.yaml", f"slurm-{jid}.out",
+                       f"slurm-{jid}.err"}
+            for name in sorted(names - allowed):
+                report.error(f"{jrel}/{name}", "job record allows only "
+                             "job.sbatch, job.yaml, and slurm-<id>.out/.err")
 
     # scratch/<task-id>
     for task in subdirs(w / "scratch"):
@@ -442,7 +462,6 @@ def block_items(text: str, key: str) -> list[str]:
 
 def check_intermediate(w: Path, repo: Path, report: Report) -> None:
     base = w / "intermediate"
-    seen: dict[str, list[str]] = {}
     for e in children(base):
         if not e.is_dir(follow_symlinks=False) and e.name != "README.md":
             report.error(f"intermediate/{e.name}",
@@ -458,11 +477,6 @@ def check_intermediate(w: Path, repo: Path, report: Report) -> None:
         for cache in subdirs(Path(stage.path)):
             check_cache(report, repo, Path(cache.path), stage.name,
                         f"{srel}/{cache.name}")
-            seen.setdefault(cache.name, []).append(stage.name)
-    for cache_id, stages in sorted(seen.items()):
-        if len(stages) > 1:
-            report.error(f"intermediate/*/{cache_id}", "cache ID is used by "
-                         f"several producer stages {stages}; it must be unique")
 
 
 def check_cache(report: Report, repo: Path, path: Path, stage: str,
@@ -578,8 +592,11 @@ def check_experiment_id(report: Report, rel: str, name: str) -> None:
 
 
 def code_allowed(parts: tuple[str, ...]) -> bool:
-    """Rendered run files and build trees may contain scripts."""
+    """Rendered run files, job records, and build trees may contain
+    scripts."""
     if parts[0] in {"scratch", "builds"}:
+        return True
+    if parts[0] == "logs" and len(parts) == 4 and parts[3] == "job.sbatch":
         return True
     return parts[0] == "runs" and "config" in parts
 

@@ -30,8 +30,9 @@ document when you change the project structure.
 | VIC parameters | `workdir/parameters/{candidates,production}/<set>/` | [`parameters/`](#parameters) |
 | a model run | `workdir/runs/<campaign-id>/<run-id>/` | [`runs/`](#runs) |
 | protocol-oriented model products | `workdir/postprocessed/<product-set-id>/…` | [`postprocessed/`](#postprocessed) |
-| QC evidence | `workdir/qc/<object-type>/<object-id>/` | [`qc/`](#qc) |
+| QC evidence | `workdir/qc/<object path>/` | [`qc/`](#qc) |
 | analysis figures and tables | `workdir/analysis/<task-id>/` | [`analysis/`](#analysis-1) |
+| a rendered Slurm job of a non-simulation stage and its output | `workdir/logs/<stage>/<job-name>_<slurm-job-id>/` | [`logs/`](#logs) |
 | temporary files with no reuse value | `workdir/scratch/<task-id>/` | [`scratch/`](#scratch) |
 | something that fits none of these | stop and propose a contract change | [Change procedure](#change-procedure) |
 
@@ -261,6 +262,16 @@ exclusions and their justification. It does not list segments. The segments,
 their periods, and their parent segments are derived by workflow code from the
 experiment definitions of the pinned protocol commit and are saved in the
 resolved configuration of each run.
+
+A campaign may declare that segments of whole periods are reused from one
+earlier accepted production campaign instead of being simulated again, e.g.
+spin-up, pre-industrial, and historical segments when only the future period
+changes. The declaration names the source campaign, the reused periods, and a
+justification of why the change does not affect them. Reused runs stay in the
+source campaign's directory and are referenced, not copied; the resolved
+configuration of each dependent run records the source run path. Reuse is
+never implicit. The configuration keys are defined when campaign resolution
+is implemented.
 
 Allowed: YAML configuration, schemas when introduced, and directory
 documentation.
@@ -565,8 +576,7 @@ up and does not take part in delivery. Who may delete a cache is defined in
 - `<cache-id>` uses lowercase letters, digits, hyphens, and underscores, and
   describes the transformation and target, e.g.
   `climate-regridding_ec-earth3-esm-1-1_esm-hist_pr`. It must not contain a
-  version label or a manual date. A cache ID is unique across all producer
-  stages, so that it also identifies the cache under `qc/intermediate/`.
+  version label or a manual date.
 
 #### Producers
 
@@ -669,7 +679,7 @@ Results of validating a cache have exactly three possible locations:
 | Kind | Location |
 |---|---|
 | Structured results that downstream code reads to decide whether the cache is usable | inside the cache under `data/`, written before `_SUCCESS` |
-| Human-readable or standalone QC evidence | `qc/intermediate/<cache-id>/`, whose `summary.json` records the `cache_fingerprint` it refers to |
+| Human-readable or standalone QC evidence | `qc/intermediate/<producer-stage>/<cache-id>/`, whose `summary.json` records the `cache_fingerprint` it refers to |
 | Routine run information | `logs/<producer-stage>/` |
 
 Validation results are cache content, not fingerprint inputs: the fingerprint
@@ -818,7 +828,8 @@ runs/<campaign-id>/<run-id>/
 ```
 
 Do not create `run_fix`, `run_final`, or similar replacement directories.
-Changed scientific or computational identity requires a new campaign.
+Changed scientific or computational identity requires a new campaign, which
+may reuse unaffected parent segments as defined in [`configs/`](#configs).
 A scheduler retry with identical identity remains associated with the same run
 manifest and records the additional attempt.
 
@@ -846,18 +857,27 @@ Canonical layout:
 
 ```text
 qc/
-└── <object-type>/
-    └── <object-id>/
-        ├── summary.json
-        ├── reports/
-        ├── figures/
-        └── logs/
+└── <object path relative to the workdir>/
+    ├── summary.json
+    ├── reports/
+    ├── figures/
+    └── logs/
 ```
 
-`<object-type>` is the name of the workdir top-level directory that holds the
-checked object: `raw`, `intermediate`, `parameters`, `forcing`, `builds`,
-`runs`, `postprocessed`, or `delivery`. For `intermediate`, `<object-id>` is
-the cache ID.
+The QC directory of an object is `qc/` followed by the object's own workdir
+path, so it can never collide and always shows what was checked:
+
+```text
+qc/runs/fasttrack/ec-earth3-esm-1-1_historical_histsoc_default_historical/
+qc/runs/smoke/ec-earth3-esm-1-1_historical_histsoc_default_historical__rhine-3yr/
+qc/forcing/climate/ec-earth3-esm-1-1/esm-hist/pr/
+qc/parameters/production/<parameter-set-id>/
+qc/intermediate/04_forcing/<cache-id>/
+```
+
+The first level is therefore one of the workdir top-level directories `raw`,
+`intermediate`, `parameters`, `forcing`, `builds`, `runs`, `postprocessed`, or
+`delivery`.
 
 Use explicit statuses including `passed`, `failed`, `warning`, and
 `not_checked`. A path under `qc/` is not proof that checks passed.
@@ -906,6 +926,12 @@ Canonical layout:
 ```text
 logs/
 └── <workflow-stage>/
+    ├── <log files of interactive executions>
+    └── <job-name>_<slurm-job-id>/
+        ├── job.sbatch
+        ├── job.yaml
+        ├── slurm-<slurm-job-id>.out
+        └── slurm-<slurm-job-id>.err
 ```
 
 `<workflow-stage>` is the full stage directory name, e.g. `01_acquisition`.
@@ -913,6 +939,18 @@ logs/
 Use this directory for centralized logs not already owned by a build, run,
 quality-control target, analysis, or delivery. Run-specific logs belong with
 the run; build-specific logs belong with the build.
+
+**Job records.** Every Slurm job of a stage other than `05_simulation` keeps
+its exact rendered job script and its scheduler output in one job record
+directory `<job-name>_<slurm-job-id>/`, never in `scratch/`. `<job-name>` is
+lowercase words joined by hyphens and describes the task, e.g.
+`climate-regrid-ec-earth3-esm-1-1-esm-hist-pr`. A resubmission gets a new
+Slurm job ID and therefore a new job record; records are never overwritten.
+`job.sbatch` is rendered from a template under `workflow/`, which remains the
+source of truth. `job.yaml` records at least the Slurm job ID, the rendering
+workflow script, the code commit and `code_dirty`, the submission time (UTC),
+the inputs, and the output paths. Simulation jobs are recorded with their run
+under `runs/`.
 
 Logs do not replace manifests or structured status records.
 
