@@ -45,6 +45,7 @@ Last reviewed: 2026-09-29.
 | D12 | Whether `2021co2` experiments are reported (VIC-WUR has no CO₂ response) | 08_delivery | | sector coordinators | open |
 | D13 | Location and implementation of the backup procedure | - | first production object accepted | user | open |
 | D14 | Include the ensemble member in project identifiers | - | a second ensemble member is used | user | open |
+| D15 | Migration of the legacy `vic_global/isimip4b/` area into this project | - | approved 2026-09-29 | user | decided ([D15-legacy-migration.md](D15-legacy-migration.md)) |
 
 ## Context
 
