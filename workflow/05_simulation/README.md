@@ -12,7 +12,7 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 - ISIMIP experiment definitions from the protocol commit pinned by the campaign.
 - Resource definitions under `configs/resources/`.
 - Accepted parameters under `workdir/parameters/`.
-- Validated forcing under `workdir/forcing/`.
+- Accepted forcing units under `workdir/forcing/` (`provenance.yaml` with `qc.status: passed`).
 - A pinned VIC-WUR version from `model/vic.lock.yaml`.
 - A verified executable under `workdir/builds/`.
 

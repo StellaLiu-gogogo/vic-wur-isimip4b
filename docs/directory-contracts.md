@@ -26,7 +26,7 @@ document when you change the project structure.
 | a campaign definition | `repo/configs/campaigns/` | [`configs/`](#configs) |
 | a downloaded source file | `workdir/raw/ISIMIP4b/…` or `workdir/raw/external/…` | [`raw/`](#raw) |
 | a rebuildable cache written by workflow code | `workdir/intermediate/<stage>/<cache-id>/` | [`intermediate/`](#intermediate) |
-| VIC-ready forcing | `workdir/forcing/<family>/…` | [`forcing/`](#forcing) |
+| VIC-ready forcing (one unit per leaf directory, with `provenance.yaml`) | `workdir/forcing/<family>/…` | [`forcing/`](#forcing) |
 | VIC parameters | `workdir/parameters/{candidates,production}/<set>/` | [`parameters/`](#parameters) |
 | a model run | `workdir/runs/<campaign-id>/<run-id>/` | [`runs/`](#runs) |
 | protocol-oriented model products | `workdir/postprocessed/<product-set-id>/…` | [`postprocessed/`](#postprocessed) |
@@ -594,9 +594,13 @@ up and does not take part in delivery. Who may delete a cache is defined in
   (`cp`, `mv`, `rsync`, `ln`, editors); ad hoc Python or shell commands,
   notebooks, or analysis code; and any code that bypasses the common cache
   writer.
-- Before reuse, a producer may delete and immediately rebuild the one cache
-  it is about to use when the fingerprint does not match or `_SUCCESS` is
-  missing. It deletes no other cache.
+- Before reuse, a producer may replace the one cache it is about to use when
+  the fingerprint does not match or `_SUCCESS` is missing. It touches no
+  other cache. A rebuild never deletes in place: the producer builds the new
+  cache in a staging location, then renames the old cache directory away and
+  the new one into place, so that a running job that still holds the old
+  files open is not disturbed. The renamed-away directory is removed by the
+  producer once it is no longer in use.
 - A producer checks the Git state before it starts. Unless the repository is
   clean as defined in `glossary.md` (`git status --porcelain` prints nothing),
   it must write to `scratch/` or stop. Outputs of a repository that is not
@@ -674,9 +678,9 @@ The producer computes `cache_fingerprint` as the SHA-256 of:
 - the cache format version declared by the producer.
 
 A workflow reuses a cache only when the requested fingerprint equals the
-recorded fingerprint **and** `_SUCCESS` exists. Otherwise it deletes and
-rebuilds the cache. Cache validity never depends on file names or manual
-judgement.
+recorded fingerprint **and** `_SUCCESS` exists. Otherwise it rebuilds the
+cache as described under Producers (never by deleting in place). Cache
+validity never depends on file names or manual judgement.
 
 #### Validation results
 
@@ -767,12 +771,68 @@ Rules:
 - apply the same dimension order to every GCM and scenario;
 - do not add a redundant project, model, or grid level while only one model and
   production grid exist;
-- record grid, method, workflow commit, and acceptance status in provenance,
-  not in ad hoc version directories.
+- record grid, method, workflow commit, and acceptance status in the
+  provenance record defined below, not in ad hoc version directories.
 
 The climate variable level may be omitted only if each scenario contains a
 small number of files and the decision is applied consistently to every GCM and
 scenario. Changing this choice requires updating this contract first.
+
+#### Forcing unit and provenance record
+
+A **forcing unit** is one leaf directory of the layout above: one
+`climate/<gcm>/<alias>/<variable>/` or one `landuse/<soc-scenario>/` or
+`water_use/<soc-scenario>/` directory. It is the unit that is generated,
+validated, accepted, and referenced by runs.
+
+Every forcing unit contains a `provenance.yaml` written by the workflow code
+that generated it, next to the data files:
+
+```yaml
+forcing_unit: climate/ec-earth3-esm-1-1/esm-hist/pr
+created_by: workflow/04_forcing/climate/regrid_climate.py
+code_commit: 0123456789abcdef0123456789abcdef01234567
+code_dirty: false
+created_at: 2026-10-05T09:12:00Z
+input_manifest: manifests/inputs/example.yaml
+inputs:
+  - raw/ISIMIP4b/InputData/climate/atmosphere/...
+method:
+  target_grid: vic-5arcmin
+  interpolation: conservative
+  mask: <mask identifier>
+caches:
+  - intermediate/04_forcing/<cache-id>
+qc:
+  status: not_checked
+  evidence: qc/forcing/climate/ec-earth3-esm-1-1/esm-hist/pr
+```
+
+| Key | Requirement |
+|---|---|
+| `forcing_unit` | Required; equals the unit's path below `forcing/`. |
+| `created_by`, `code_commit`, `code_dirty`, `created_at` | Required; same meaning and format as in `cache.yaml`. `code_dirty` must be `false`. |
+| `input_manifest` | Required when the inputs are covered by a manifest; an existing file under `manifests/inputs/`. |
+| `inputs` | Required; workdir-relative paths of the raw inputs, so that the unit stays traceable after raw files are deleted. |
+| `method` | Required; the parameters that determine the result (grid, interpolation, masks, unit conversions, calendar handling). |
+| `caches` | Optional; caches used, for information only. A forcing unit never depends on a cache remaining present. |
+| `qc.status` | Required; `not_checked`, `passed`, `warning`, or `failed`, updated only by quality-control code. |
+| `qc.evidence` | Required when `qc.status` is not `not_checked`; the unit's directory under `qc/`. |
+
+A forcing unit is **accepted** when its `provenance.yaml` exists, records
+`code_dirty: false`, and has `qc.status: passed`. Only accepted forcing units
+are used by production runs; the resolved configuration of a run records the
+`forcing_unit`, `code_commit`, and `created_at` of every unit it reads.
+
+A forcing unit is regenerated only as a whole: the workflow writes the new
+unit completely, including its `provenance.yaml`, before it replaces the old
+one, and replacing an accepted unit requires user authorization as defined in
+[Deletion permissions](#deletion-permissions). Data files in a unit are never
+edited in place.
+
+The same global attributes (`code_commit`, `created_by`, `created_at`,
+`forcing_unit`) are also written into every NetCDF file of the unit, so that
+a file copied elsewhere still identifies its origin.
 
 ### `builds/`
 
@@ -993,7 +1053,7 @@ to coding agents.
 | Who | What | User authorization |
 |---|---|---|
 | The user | anything | not needed |
-| A workflow producer | the one cache it is about to rebuild, when the fingerprint does not match or `_SUCCESS` is missing | not needed |
+| A workflow producer | the one cache it is about to rebuild, when the fingerprint does not match or `_SUCCESS` is missing (replaced by rename, never deleted in place) | not needed |
 | A coding agent | `scratch/<task-id>/` of its own current task, at the end of that task | not needed |
 | A coding agent | anything else, including caches, other scratch tasks, analysis products, raw files, and anything in the backup copy | required |
 

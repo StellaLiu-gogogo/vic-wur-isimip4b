@@ -281,6 +281,14 @@ file must match the checksum in the input manifest.
 VIC-ready time-dependent input derived from raw data, stored under
 `workdir/forcing/`.
 
+### Forcing unit — project
+
+One leaf directory under `workdir/forcing/`, e.g.
+`climate/ec-earth3-esm-1-1/esm-hist/pr/` or `landuse/histsoc/`, generated
+and accepted as a whole. Its `provenance.yaml` records how it was made and
+its QC status; it is **accepted** when that record shows `code_dirty: false`
+and `qc.status: passed` (see `directory-contracts.md`, `forcing/`).
+
 ### Clean repository — project
 
 The state in which `git status --porcelain` in the repository prints nothing:

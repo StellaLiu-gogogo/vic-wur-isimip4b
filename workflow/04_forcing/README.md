@@ -15,7 +15,7 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 
 ## Outputs
 
-- VIC-ready forcing under `workdir/forcing/<family>/`, where `<family>` is `climate`, `landuse`, or `water_use` (see `docs/directory-contracts.md`).
+- VIC-ready forcing under `workdir/forcing/<family>/`, where `<family>` is `climate`, `landuse`, or `water_use`. Each forcing unit (leaf directory) carries a `provenance.yaml` as defined under "Forcing unit and provenance record" in `docs/directory-contracts.md`.
 - Processing logs under `workdir/logs/04_forcing/`.
 - Coverage, continuity, range, unit, and metadata checks under `workdir/qc/forcing/`.
 
@@ -34,5 +34,5 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 
 ## Completion criteria
 
-Forcing is simulation-ready only when temporal coverage, grid alignment, variables, units, calendar, missing values, and naming have been validated for the target experiment.
+Forcing is simulation-ready only when temporal coverage, grid alignment, variables, units, calendar, missing values, and naming have been validated for the target experiment and the unit's `provenance.yaml` records `qc.status: passed`.
 

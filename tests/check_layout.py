@@ -111,6 +111,9 @@ CACHE_REQUIRED = ["cache_id", "cache_fingerprint", "producer_stage",
                   "inputs", "rebuild_command"]
 DECISION_ID = re.compile(r"^D\d{2,}$")
 JOB_RECORD = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*_(?P<jobid>\d+)$")
+PROVENANCE_REQUIRED = ["forcing_unit", "created_by", "code_commit",
+                       "code_dirty", "created_at", "inputs", "method", "qc"]
+QC_STATUSES = {"not_checked", "passed", "warning", "failed"}
 CACHE_ROOT_ENTRIES = {"cache.yaml", "_SUCCESS", "data"}
 MANIFEST_INTERMEDIATE =re.compile(r"(^|[^A-Za-z0-9_])intermediate/")
 RUN_ID = re.compile(
@@ -374,6 +377,8 @@ def check_workdir(workdir: Path, repo: Path, report: Report) -> None:
         check_allowed(report, f"forcing/{family}",
                       subdirs(w / "forcing" / family), SOC_SCENARIOS,
                       "soc scenario")
+    for unit, rel in forcing_units(w):
+        check_provenance(report, repo, unit, rel)
 
     # builds/vic/<commit>
     check_allowed(report, "builds", children(w / "builds"), {"vic"}, "build")
@@ -458,6 +463,87 @@ def check_workdir(workdir: Path, repo: Path, report: Report) -> None:
         check_id(report, f"scratch/{task.name}", task.name, "task ID")
 
     walk_workdir(w, report)
+
+
+def forcing_units(w: Path) -> list[tuple[Path, str]]:
+    """Leaf directories of forcing/: climate/<gcm>/<alias>/<var>/ and
+    <family>/<soc>/ for landuse and water_use."""
+    units = []
+    for gcm in subdirs(w / "forcing" / "climate"):
+        for alias in subdirs(Path(gcm.path)):
+            for var in subdirs(Path(alias.path)):
+                units.append((Path(var.path),
+                              f"climate/{gcm.name}/{alias.name}/{var.name}"))
+    for family in ("landuse", "water_use"):
+        for soc in subdirs(w / "forcing" / family):
+            units.append((Path(soc.path), f"{family}/{soc.name}"))
+    return units
+
+
+def check_provenance(report: Report, repo: Path, unit: Path, rel: str) -> None:
+    """Check provenance.yaml of one forcing unit."""
+    frel = f"forcing/{rel}"
+    prov = unit / "provenance.yaml"
+    has_data = any(not e.is_dir(follow_symlinks=False)
+                   and e.name != "provenance.yaml" for e in children(unit))
+    if not prov.exists():
+        if has_data:
+            report.error(frel, "forcing unit has no provenance.yaml")
+        return
+    text = read_text(prov)
+    keys = parse_cache_yaml(text)
+    prel = f"{frel}/provenance.yaml"
+    missing = [k for k in PROVENANCE_REQUIRED if k not in keys]
+    if missing:
+        report.error(prel, f"missing required keys {missing}")
+    if keys.get("forcing_unit", rel) != rel:
+        report.error(prel, "forcing_unit does not match the directory path")
+    created_by = keys.get("created_by")
+    if created_by is not None and not created_by.startswith("workflow/"):
+        report.error(prel, "created_by must be a path under workflow/")
+    commit = keys.get("code_commit")
+    if commit is not None and not COMMIT_SHA.match(commit):
+        report.error(prel, "code_commit must be a full 40-character commit")
+    if "code_dirty" in keys and keys["code_dirty"].lower() != "false":
+        report.error(prel, "code_dirty must be false; outputs of a repository "
+                           "that is not clean belong in scratch/")
+    created_at = keys.get("created_at")
+    if created_at is not None and not UTC_TIME.match(created_at):
+        report.error(prel, "created_at must be UTC ISO 8601")
+    manifest = keys.get("input_manifest")
+    if "input_manifest" in keys and not manifest:
+        report.error(prel, "input_manifest is empty; omit the key when it "
+                           "does not apply")
+    elif manifest and (not manifest.startswith("manifests/inputs/")
+                       or not (repo / manifest).is_file()):
+        report.error(prel, f"input_manifest '{manifest}' must be an existing "
+                           "file under manifests/inputs/")
+    for item in block_items(text, "inputs"):
+        if item.startswith("/"):
+            report.error(prel, f"input '{item}' must be relative to the "
+                               "workdir")
+    status = qc_status(text)
+    if status is None:
+        report.error(prel, "qc.status is missing")
+    elif status not in QC_STATUSES:
+        report.error(prel, f"qc.status '{status}' must be one of "
+                           f"{sorted(QC_STATUSES)}")
+    elif status != "passed":
+        report.warn(frel, f"forcing unit is not accepted (qc.status: "
+                          f"{status})")
+
+
+def qc_status(text: str) -> str | None:
+    """Return the value of the nested 'status' key under 'qc:'."""
+    inside = False
+    for line in text.splitlines():
+        if CACHE_KEY_LINE.match(line):
+            inside = line.startswith("qc:")
+            continue
+        m = re.match(r"^\s+status\s*:\s*(.*)$", line)
+        if inside and m:
+            return m.group(1).strip().strip("'\"")
+    return None
 
 
 def parse_cache_yaml(text: str) -> dict[str, str]:
