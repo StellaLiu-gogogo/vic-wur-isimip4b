@@ -183,7 +183,8 @@ scenario. Segments are the unit that is actually simulated.
 Segments are shared between experiments. For example, the historical segment
 `historical`/`histsoc`/`default` is used by every experiment whose historical
 period is "identical to the historical/histsoc run". Each shared segment is
-simulated once per GCM and campaign.
+simulated at most once per GCM and campaign, and not at all when the
+campaign reuses it from an earlier campaign.
 
 A segment starts from the end state of its parent segment. The parent of each
 segment follows from the protocol's per-period experiment definitions.

@@ -12,8 +12,10 @@ Last reviewed: 2026-09-29.
 
 ## How to use this list
 
-- **Status** is `open` or `decided`. Only the user changes a decision to
-  `decided`.
+- **Status** is `open` or `decided`. A decision becomes `decided` only on
+  the user's explicit instruction; a coding agent then writes the decision
+  record and updates the table on the user's behalf, never on its own
+  judgement.
 - When a decision is taken, write a decision record
   `docs/decisions/<id>-<short-title>.md` (context, options, decision,
   consequences, date) and set the status to `decided` with a link to it.
@@ -53,14 +55,18 @@ generated.
 
 **D02 — Compute scope.** The model capability audit (legacy audit area,
 `VICWUR_ISIMIP4b_WaterGlobal_model_capability_audit_v2_2026-09-20.md`)
-estimated the cost of the core experiment set per GCM and concluded that the
-budget known at that time covered one GCM only. The campaign definitions
-depend on this decision.
+estimated the cost of the core experiment set per GCM. That estimate was made
+against a Snellius budget, whereas this project runs on Anunna only; the
+Anunna allocation available to the project has not been established. The
+campaign definitions depend on this decision.
 
 **D03 — Output storage.** The same audit and the land-use scoping estimated
 several TB of 5′ output per GCM. Raw model output is not backed up (see
 `directory-contracts.md`, "Data protection"), and `/lustre` was 98 % full on
-2026-09-29.
+2026-09-29. If the decision allows deleting raw output after postprocessing,
+the run layout in `directory-contracts.md` and the run-preservation rule in
+`AGENTS.md` must be updated in the same change, because both currently
+require a run to keep its raw output.
 
 **D04 — Land-use harmonization.** Open points listed in
 `VICWUR_ISIMIP4b_annual_landuse_harmonization_plan_15crops_2026-09-23.md`

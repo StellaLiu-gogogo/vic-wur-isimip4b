@@ -157,7 +157,9 @@ scenarios, years, or experiments.
   ISIMIP experiments; segments are derived by workflow code from the pinned
   protocol and are never listed by hand.
 - Resource configuration describes Anunna execution requirements.
-- VIC and Slurm templates belong under `workflow/05_simulation/`.
+- VIC templates and simulation Slurm templates belong under
+  `workflow/05_simulation/templates/`. Other stages keep their own Slurm
+  templates next to their code.
 - Resolved campaign and segment configuration, VIC configuration, and Slurm
   jobs belong with the corresponding run under
   `../workdir/runs/<campaign-id>/<run-id>/`. Slurm jobs of other stages keep
@@ -193,7 +195,8 @@ command, executable checksum, and test result.
 
 Each run must have a stable run identifier and an isolated directory that
 follows the canonical run layout. The run ID is the segment ID defined in
-`docs/glossary.md`. The run must preserve the resolved configuration, exact VIC configuration, exact Slurm job, logs, states, raw
+`docs/glossary.md`, with a `__<label>` suffix only for non-production runs
+that cover part of a segment. The run must preserve the resolved configuration, exact VIC configuration, exact Slurm job, logs, states, raw
 output, and run manifest.
 
 A directory name is not evidence of successful quality control. Use explicit

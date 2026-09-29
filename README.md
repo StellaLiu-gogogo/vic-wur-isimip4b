@@ -10,7 +10,7 @@ Large datasets and generated products are stored outside this Git repository in 
 - `analysis/`: source code of analyses that support decisions but do not feed production; their products live in `workdir/analysis/`.
 - `configs/`: campaign definitions and Anunna resource requests.
 - `manifests/`: version-controlled identities and inventories for accepted inputs, parameter sets, production runs, and deliveries.
-- `model/`: the pinned VIC-WUR source version used for production.
+- `model/`: the record of the pinned VIC-WUR version used for production (no source tree).
 - `environments/`: reproducible software and module specifications.
 - `tests/`: unit, integration, and smoke tests with small fixtures, and the layout check `tests/check_layout.py`.
 - `docs/`: project-wide documentation, terminology, architecture, and operating procedures.

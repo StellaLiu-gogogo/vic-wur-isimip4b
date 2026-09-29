@@ -72,7 +72,9 @@ directory names.
 9. Do not pre-create deep empty directory trees. Create **Created when used**
    and **Dynamic** paths only when real content requires them.
 10. Static repository directories are created and reviewed manually. Dynamic
-    workdir directories should be created by workflow code.
+    workdir directories are created by the code that owns them: workflow
+    code for production directories, analysis code for `analysis/`, and
+    anyone for `scratch/`.
 11. A new production directory pattern requires an approved update to this
     document before use.
 12. Prefer two to five meaningful levels below a major directory. Add depth for
@@ -131,6 +133,7 @@ repo/
 │   ├── experiment-matrix.md
 │   ├── runbook.md
 │   ├── decisions/
+│   │   └── open-decisions.md
 │   └── audits/
 ├── environments/
 ├── manifests/
@@ -167,7 +170,8 @@ repo/
 - `README.md`
 - `analysis/README.md`
 - `configs/`
-- `docs/README.md`, `docs/glossary.md`, `docs/directory-contracts.md`
+- `docs/README.md`, `docs/glossary.md`, `docs/directory-contracts.md`,
+  `docs/decisions/open-decisions.md`
 - `environments/`
 - `manifests/`
 - `model/`
@@ -182,7 +186,7 @@ repo/
 - `analysis/<task-id>/`
 - `docs/architecture.md`, `docs/workflow.md`, `docs/experiment-matrix.md`,
   `docs/runbook.md`
-- `docs/decisions/`
+- `docs/decisions/<id>-<short-title>.md` (decision records)
 - `docs/audits/`
 - `tests/unit/`
 - `tests/integration/`
@@ -395,6 +399,8 @@ Adding an infrastructure module requires a change to this table first.
 Rules:
 
 - `common/` contains no stage-specific logic and no executable entry points;
+- `common/` defines no path under `analysis/`; analysis code resolves its own
+  directories;
 - modules are flat files in `common/`; do not add a language or package layer;
 - workflow code imports it as `from common import <module>` with
   `PYTHONPATH` including `repo/workflow`, as defined in `environments/`.
@@ -950,7 +956,8 @@ Slurm job ID and therefore a new job record; records are never overwritten.
 source of truth. `job.yaml` records at least the Slurm job ID, the rendering
 workflow script, the code commit and `code_dirty`, the submission time (UTC),
 the inputs, and the output paths. Simulation jobs are recorded with their run
-under `runs/`.
+under `runs/`; model build jobs are recorded under
+`builds/vic/<model-commit>/logs/`.
 
 Logs do not replace manifests or structured status records.
 
@@ -1041,7 +1048,7 @@ Smoke, trial, debug, and failed runs are never backed up.
 | One accepted production run | `runs/<campaign-id>/<run-id>/` | `config/`, `states/`, `run_manifest.json`, and `config/` and `states/` of every `chunks/<start-year>-<end-year>/` |
 | One production build | `builds/vic/<model-commit>/` | the whole directory |
 | One postprocessed product set | `postprocessed/<product-set-id>/` | the whole directory |
-| One delivery | `delivery/<delivery-id>/` | the whole directory, until upload to DKRZ is confirmed; afterwards DKRZ holds the reference copy |
+| One delivery | `delivery/<delivery-id>/` | the whole directory. Once upload to DKRZ is confirmed, DKRZ holds the reference copy and the user may delete the backup object |
 
 A run backup deliberately excludes `output/` and `logs/`, also inside
 chunks. Raw model output is reproducible from the backed-up configuration,
@@ -1069,10 +1076,12 @@ implemented. What is backed up and the permissions are binding now.*
      manifest) to `staging/<staging-id>/`;
   2. verify every staged payload file against the workdir;
   3. record the backup path, date, and payload verification result in the
-     object's manifest in the workdir;
-  4. copy the final manifest into staging;
+     object's manifest (see below for where each manifest lives);
+  4. if the manifest lives inside the object, copy the final manifest into
+     staging; a manifest that lives in the repository is committed instead;
   5. write `backup-checksums.sha256` in the staged object, covering the
-     payload and the final manifest but not itself, and verify it;
+     payload and, when present, the final manifest, but not itself, and
+     verify it;
   6. publish by renaming the staged object to its final path under
      `workdir/`. Publishing never replaces an existing object.
 - If any step fails, the final object must not appear, and the backup entry
@@ -1123,6 +1132,10 @@ python3 tests/check_layout.py --workdir  # repository and $ISIMIP4B_WORKDIR
 
 A reported violation is resolved by fixing the path or, if the rule is wrong,
 by the change procedure below. Errors block a commit; warnings do not.
+
+The check flags the name tokens `v<n>`, `old`, `fix`, `fixed`, `final`, and
+`latest`. Whether `new` or a date is being used as a version label needs
+judgement and is not machine-checked; rule 7 and rule 8 still apply.
 
 ## Change procedure
 

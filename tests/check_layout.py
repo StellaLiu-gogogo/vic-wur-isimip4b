@@ -55,7 +55,8 @@ REPO_IGNORED_TOP = {".git", ".claude"}
 REPO_REQUIRED = [
     ".githooks/pre-commit", ".gitignore", "AGENTS.md", "CLAUDE.md",
     "README.md", "analysis/README.md", "configs", "docs/README.md",
-    "docs/glossary.md", "docs/directory-contracts.md", "environments",
+    "docs/glossary.md", "docs/directory-contracts.md",
+    "docs/decisions/open-decisions.md", "environments",
     "manifests", "model", "tests/check_layout.py", "workflow",
 ] + ["workflow/" + s for s in STAGES]
 REPO_CHILDREN = {
