@@ -1,0 +1,69 @@
+dataset_id: vic-coverage-version-a
+version: "5"
+source: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/work/human_impact/landuse_forcing_v5/
+description: VIC-WUR 5 arcmin annual 16-class land-cover fractions (coverage_VersionA_v5) 2003-2022, produced by the vic_parameter project; used as within-parent weights for the ISIMIP land-use conversion
+location: raw/external/vic-coverage-version-a/5/
+acquired: 2026-09-29
+verification: md5 of every copy equals md5 of the source file (see files)
+status: accepted
+files:
+  - path: coverage_VersionA_v5_2003.nc
+    size_bytes: 32615367
+    md5: 2eddf5b95f8004cf7ba7a57f384e9da1
+  - path: coverage_VersionA_v5_2004.nc
+    size_bytes: 32396082
+    md5: de291e5bb5252566f01e532268293aba
+  - path: coverage_VersionA_v5_2005.nc
+    size_bytes: 32237655
+    md5: 968a9cc3f3055f70f0fadbf12eb8dbb6
+  - path: coverage_VersionA_v5_2006.nc
+    size_bytes: 32265444
+    md5: 12d0291eced8031bf11fd190721d350f
+  - path: coverage_VersionA_v5_2007.nc
+    size_bytes: 32371297
+    md5: a8f506e6052e33093ffa649e89a26841
+  - path: coverage_VersionA_v5_2008.nc
+    size_bytes: 32327772
+    md5: c35355d9564c717fbc6e18537ae3fc6c
+  - path: coverage_VersionA_v5_2009.nc
+    size_bytes: 32285027
+    md5: 1d09caf1587a5511626a45e1c0fc0c1c
+  - path: coverage_VersionA_v5_2010.nc
+    size_bytes: 32048254
+    md5: 0cb64cdf0b9b9ee4c465896c6c996d38
+  - path: coverage_VersionA_v5_2011.nc
+    size_bytes: 32372179
+    md5: cef0d71e5b3ce1b82f1322c7c6ff3992
+  - path: coverage_VersionA_v5_2012.nc
+    size_bytes: 32373793
+    md5: b312f9b924d3bc51330ac374c110b7e1
+  - path: coverage_VersionA_v5_2013.nc
+    size_bytes: 32364740
+    md5: 9824d2a2554f152247d0dfc72d3f25e1
+  - path: coverage_VersionA_v5_2014.nc
+    size_bytes: 32454599
+    md5: 902775f895b1bd3410f3ae120ae2cc82
+  - path: coverage_VersionA_v5_2015.nc
+    size_bytes: 32279327
+    md5: 866fb90589a9bef74f3a6e12b28aa00c
+  - path: coverage_VersionA_v5_2016.nc
+    size_bytes: 33182661
+    md5: 1567d67d2d0465f8752b5b6c24aab8f2
+  - path: coverage_VersionA_v5_2017.nc
+    size_bytes: 33133228
+    md5: b6af79b7ecf86244d04cc9feccf40a16
+  - path: coverage_VersionA_v5_2018.nc
+    size_bytes: 33083290
+    md5: 6d5e9596c2014968238bb5bdba7e21e6
+  - path: coverage_VersionA_v5_2019.nc
+    size_bytes: 33002551
+    md5: ae64b4e7ed6f24c6843e454df5b1a3f3
+  - path: coverage_VersionA_v5_2020.nc
+    size_bytes: 32663507
+    md5: 34f01e92c1733b03a910c21913c63aba
+  - path: coverage_VersionA_v5_2021.nc
+    size_bytes: 32489058
+    md5: 59651ec6ed892bc7f8c0693dcddf53d6
+  - path: coverage_VersionA_v5_2022.nc
+    size_bytes: 32141429
+    md5: bb268588d5a24645c59c38b5f00f0343

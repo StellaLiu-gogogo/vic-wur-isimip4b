@@ -1,0 +1,9 @@
+dataset_id: isimip-protocol-4
+version: f9be7b0cdf83409315d9fa7da8581cc6fd6ff3e1
+source: https://github.com/ISI-MIP/isimip-protocol-4
+description: ISIMIP4 protocol repository (experiment, scenario, variable and filename definitions), git checkout without .git
+location: raw/external/isimip-protocol-4/f9be7b0cdf83409315d9fa7da8581cc6fd6ff3e1/
+acquired: 2026-09-29
+file_count: 248
+verification: git commit SHA recorded in COMMIT; checkout of an immutable commit
+status: accepted
