@@ -265,8 +265,10 @@ Atmospheric forcing and atmospheric composition supplied by the GCM.
 ### Raw data — project
 
 Files exactly as downloaded from DKRZ, stored under `workdir/raw/` in the DKRZ
-directory structure. Raw data may be deleted after processing to save space and
-re-downloaded later; it is never edited.
+directory structure. Raw data is immutable: while present, a file is never
+edited, renamed, or replaced. It may be deleted to save space and downloaded
+again later under the conditions in `directory-contracts.md`; the restored
+file must match the checksum in the input manifest.
 
 ### Forcing — project
 

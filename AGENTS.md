@@ -86,7 +86,9 @@ No workdir directory may contain the only copy of source code. Temporary code
 created during exploration must be promoted to the appropriate repository
 location or deleted before the task is considered complete.
 
-Files under `../workdir/raw/` are immutable. Never modify them in place.
+Files under `../workdir/raw/` are immutable: while present, never modify,
+rename, or replace them. Deleting raw files is allowed only under the
+conditions in `docs/directory-contracts.md` and with user authorization.
 
 Files may be written to `../workdir/intermediate/` only by workflow code under
 `workflow/`, and only as reproducible caches with a declared producing

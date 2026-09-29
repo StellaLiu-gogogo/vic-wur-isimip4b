@@ -444,13 +444,24 @@ raw/
   ISIMIP protocol repository at a pinned commit or a third-party dataset used
   for comparison.
 
-Raw files are immutable. Do not rename, rewrite, reformat, subset, or repair
-them in place. Store transformations under `parameters/` or `forcing/`, and
-reusable caches of transformation steps under `intermediate/`.
+Raw files are immutable: while a file is present, its path and content never
+change. Do not rename, rewrite, reformat, subset, or repair raw files in place.
+Store transformations under `parameters/` or `forcing/`, and reusable caches of
+transformation steps under `intermediate/`.
 
-Raw files may be deleted after processing to recover space, provided that the
-accepted input manifest records their identity and checksums so that the same
-files can be downloaded again and verified.
+Immutability does not mean permanence. A raw file may be deleted to recover
+space when all of the following hold:
+
+- the accepted input manifest records its path, size, and checksum;
+- the same file remains available from its source, so it can be downloaded
+  again;
+- the user has authorized the deletion, as required for large data
+  collections in `AGENTS.md`.
+
+A re-downloaded file must be restored to the same path and must match the
+recorded checksum. A file with different content is a different dataset
+version and must not be placed at the old path; it requires an updated input
+manifest.
 
 ### `intermediate/`
 
