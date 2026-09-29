@@ -26,7 +26,8 @@ rules in `docs/directory-contracts.md` are mandatory.
 ## Directory placement
 
 - Store version-controlled workflow source code under `workflow/`. Store
-  Python modules shared by two or more stages under `workflow/common/`.
+  Python modules shared by two or more stages, and the infrastructure modules
+  listed in `docs/directory-contracts.md`, under `workflow/common/`.
 - Store analysis source code under `analysis/<task-id>/` and its generated
   products under `../workdir/analysis/<task-id>/`.
 - Store campaign definitions and Anunna resource definitions under

@@ -15,7 +15,7 @@ This directory contains the complete version-controlled workflow. It is organize
 
 ## Shared code
 
-`common/` holds Python modules used by at least two stages, such as workdir path resolution, grid utilities, NetCDF metadata handling, checksum and manifest writing, and map plotting. It contains no stage-specific logic and no entry points. Stage code imports it as `from common import <module>` with `PYTHONPATH` including `repo/workflow`. Stage directory names start with a digit and cannot be imported as Python modules; shared code must therefore live in `common/`, not in another stage.
+`common/` holds Python modules used by at least two stages, and the infrastructure modules listed in `docs/directory-contracts.md` (currently `cache.py`), such as workdir path resolution, grid utilities, NetCDF metadata handling, checksum and manifest writing, and map plotting. It contains no stage-specific logic and no entry points. Stage code imports it as `from common import <module>` with `PYTHONPATH` including `repo/workflow`. Stage directory names start with a digit and cannot be imported as Python modules; shared code must therefore live in `common/`, not in another stage.
 
 ## General contract
 

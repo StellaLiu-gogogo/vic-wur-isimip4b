@@ -328,11 +328,26 @@ personal notebooks, and any reference to `analysis/` or `workdir/analysis/`.
 
 Shared Python modules used by two or more workflow stages, for example workdir
 path resolution, grid utilities, NetCDF metadata handling, checksum and
-manifest writing, and map plotting.
+manifest writing, and map plotting, and the project infrastructure modules
+listed below.
+
+Admission: code belongs in `common/` when either condition holds:
+
+1. at least two stages use it; or
+2. it implements a project-wide rule of this contract and is listed as an
+   infrastructure module below. Such a module is created in `common/` when
+   its first user needs it, never first inside a stage.
+
+Infrastructure modules:
+
+| Module | Implements |
+|---|---|
+| `cache.py` | the `intermediate/` cache rules: cache creation, fingerprinting, Git-state checks, `cache.yaml`, and `_SUCCESS` |
+
+Adding an infrastructure module requires a change to this table first.
 
 Rules:
 
-- a function moves to `common/` only when at least two stages use it;
 - `common/` contains no stage-specific logic and no executable entry points;
 - modules are flat files in `common/`; do not add a language or package layer;
 - workflow code imports it as `from common import <module>` with
@@ -539,8 +554,9 @@ up and does not take part in delivery. Who may delete a cache is defined in
   (`O_CREAT | O_EXCL`), which is atomic and leaves no temporary file in the
   cache root.
 - Cache creation, fingerprinting, Git-state checks, and `_SUCCESS` handling
-  are implemented once in `workflow/common/cache.py` when the first producer
-  needs them.
+  (the common cache writer)
+  are implemented once in the infrastructure module `workflow/common/cache.py`
+  when the first producer needs them (see `workflow/common/`).
 
 #### `cache.yaml`
 
