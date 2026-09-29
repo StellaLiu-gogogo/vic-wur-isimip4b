@@ -69,9 +69,9 @@ isimip4b/
 - `workdir/` is the large-data and runtime area outside Git, on the
   non-backed-up filesystem `/lustre/nobackup/`.
 
-A backup copy of selected workdir content lives outside the project root, in
-`/lustre/backup/WUR/ESG/liu297/isimip4b/workdir/` (see
-[Data protection](#data-protection)).
+The approved backup root for selected workdir content is outside the project
+root, in `/lustre/backup/WUR/ESG/liu297/isimip4b/workdir/` (see
+[Data protection](#data-protection)). No backup exists yet.
 
 The complete project runs on Anunna.
 
@@ -922,16 +922,35 @@ Never delete a cache or run directory that a running job may be reading.
 ## Data protection
 
 `/lustre/nobackup/` is not backed up but is not purged automatically. The Git
-repository is protected by its GitHub remote. Selected workdir content is
-copied to the backup copy:
+repository is protected by its GitHub remote.
+
+### Status
+
+The approved backup root is
+`/lustre/backup/WUR/ESG/liu297/isimip4b/workdir/`, inside the user's existing
+directory `/lustre/backup/WUR/ESG/liu297/`. It is created when the first
+production object is backed up. The backup procedure is not yet implemented,
+so **no workdir content is currently backed up**. Update this status when the
+procedure becomes operational.
+
+### Backup copy
 
 ```text
-/lustre/backup/WUR/ESG/liu297/isimip4b/workdir/<same relative path>
+/lustre/backup/WUR/ESG/liu297/isimip4b/
+├── workdir/<same relative path as in the workdir>
+└── staging/<staging-id>/
 ```
 
-The backup copy mirrors workdir paths exactly and contains nothing that is not
-also in the workdir, except the checksum files defined below. Its root is
-available to workflow code as `ISIMIP4B_BACKUP`.
+The backup copy uses the same relative paths as the workdir, and its content
+equals the workdir object at the time of copying. It is a backup, not a
+mirror: a protected backup object may outlive or restore its workdir object,
+and it is never deleted or changed because the workdir object was deleted or
+changed. `staging/` holds objects that are being copied and have not been
+published. The `workdir/` root is available to workflow code as
+`ISIMIP4B_BACKUP`.
+
+A **backup object** is the unit that is copied and published in one step: one
+row of the table below, e.g. one run or one parameter set.
 
 ### What is backed up
 
@@ -961,10 +980,28 @@ are the protected form of the model results.
 - An object is copied only after it is complete and accepted, and each backed
   up object is treated as write-once: existing files in the backup copy are
   never modified. A changed object gets a new identity in the workdir first.
-- After copying, the backup procedure writes `backup-checksums.sha256` at the
-  root of the object in the backup copy, verifies every file against the
-  workdir, and records the backup path, date, and verification result in the
-  object's manifest (run manifest, parameter manifest, or delivery manifest).
+- Each object is backed up in a staging, verify, publish sequence, so that a
+  published object never changes afterwards:
+  1. copy the payload (every file of the object except its manifest) to
+     `staging/<staging-id>/`;
+  2. verify every staged payload file against the workdir;
+  3. record the backup path, date, and payload verification result in the
+     object's manifest in the workdir;
+  4. copy the final manifest into staging;
+  5. write `backup-checksums.sha256` in the staged object, covering the
+     payload and the final manifest but not itself, and verify it;
+  6. publish by renaming the staged object to its final path under
+     `workdir/`. Publishing never replaces an existing object.
+- If any step fails, the final object must not appear, and the backup entry
+  added in step 3 is removed from the workdir manifest. The staged object
+  remains for recovery; removing it follows
+  [Deletion permissions](#deletion-permissions).
+- The manifest of an object is: `run_manifest.json` for a run,
+  `build_manifest.json` for a build, and `delivery-manifest.yaml` for a
+  delivery. A parameter set's manifest is in `manifests/parameters/` in the
+  repository; it records the backup there, is protected by Git, and is not
+  copied. A postprocessed product set records its backup in its product-set
+  manifest, which is defined when postprocessing is implemented.
 - The backup procedure is implemented as workflow code when the first
   production object is accepted; its location requires an update to this
   contract first.
