@@ -4,7 +4,7 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-if ! python3 "${repo_root}/tests/check_layout.py" --repo "${repo_root}" --quiet; then
+if ! python3 "${repo_root}/tests/check_layout.py" --repo "${repo_root}" --tracked-only --quiet; then
     echo "pre-commit: layout check failed; see docs/directory-contracts.md." >&2
     exit 1
 fi

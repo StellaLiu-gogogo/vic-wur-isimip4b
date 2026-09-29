@@ -41,7 +41,7 @@ A production result is reproducible only when all of the following are known:
 ## Working rules
 
 - Run AI coding sessions from this repository root.
-- Keep production source code in `workflow/`, analysis source code in `analysis/`, and all tests in `tests/`.
+- Keep production source code in `workflow/` and analysis source code in `analysis/`. Keep tests in `tests/`; a stage may keep tests next to its code only when the contract allows it.
 - Do not commit model outputs, forcing files, logs, caches, compiled executables, or large scientific data.
 - Do not create parallel code versions using names such as `v2`, `new`, `fix`, or `final`.
 - Use Git commits and tags for code versions and meaningful campaign identifiers for scientific variants.

@@ -13,6 +13,31 @@ creating, moving, renaming, copying, or generating files and directories.
 Terms such as experiment, segment, chunk, campaign, and run are defined in
 `glossary.md`.
 
+## Quick reference
+
+Read this table first, then only the sections you need. Read the whole
+document when you change the project structure.
+
+| I have… | It goes to | Section |
+|---|---|---|
+| production workflow code | `repo/workflow/<stage>/` | [`workflow/`](#workflow) |
+| code used by two or more stages, or a listed infrastructure module | `repo/workflow/common/` | [`workflow/common/`](#workflowcommon) |
+| analysis code (decision support; user decides) | `repo/analysis/<task-id>/` | [`analysis/`](#analysis) |
+| a campaign definition | `repo/configs/campaigns/` | [`configs/`](#configs) |
+| a downloaded source file | `workdir/raw/ISIMIP4b/…` or `workdir/raw/external/…` | [`raw/`](#raw) |
+| a rebuildable cache written by workflow code | `workdir/intermediate/<stage>/<cache-id>/` | [`intermediate/`](#intermediate) |
+| VIC-ready forcing | `workdir/forcing/<family>/…` | [`forcing/`](#forcing) |
+| VIC parameters | `workdir/parameters/{candidates,production}/<set>/` | [`parameters/`](#parameters) |
+| a model run | `workdir/runs/<campaign-id>/<run-id>/` | [`runs/`](#runs) |
+| protocol-oriented model products | `workdir/postprocessed/<product-set-id>/…` | [`postprocessed/`](#postprocessed) |
+| QC evidence | `workdir/qc/<object-type>/<object-id>/` | [`qc/`](#qc) |
+| analysis figures and tables | `workdir/analysis/<task-id>/` | [`analysis/`](#analysis-1) |
+| temporary files with no reuse value | `workdir/scratch/<task-id>/` | [`scratch/`](#scratch) |
+| something that fits none of these | stop and propose a contract change | [Change procedure](#change-procedure) |
+
+Deleting data: [Deletion permissions](#deletion-permissions). Backups:
+[Data protection](#data-protection).
+
 ## Status vocabulary
 
 Directory entries in this document use three lifecycle classes:
@@ -53,6 +78,11 @@ directory names.
     stable semantics, not merely to hide a large unstructured collection.
 13. Files and directories created by the project use ASCII names. Upstream
     names under `workdir/raw/` are kept exactly as delivered.
+14. Reusable caches, accepted forcing, production parameter sets, production
+    runs, postprocessed product sets, and deliveries are produced only from a
+    clean repository (see `glossary.md`), and record the commit they were
+    produced from. Outputs of a repository that is not clean go to
+    `scratch/`.
 
 Rules that can be checked automatically are enforced by
 `tests/check_layout.py` (see [Automated layout check](#automated-layout-check)).
@@ -475,8 +505,8 @@ space when all of the following hold:
 - the accepted input manifest records its path, size, and checksum;
 - the same file remains available from its source, so it can be downloaded
   again;
-- the user has authorized the deletion, as required for large data
-  collections in `AGENTS.md`.
+- the user has authorized the deletion, as defined in
+  [Deletion permissions](#deletion-permissions).
 
 A re-downloaded file must be restored to the same path and must match the
 recorded checksum. A file with different content is a different dataset
@@ -596,7 +626,7 @@ final_destination:
 | `cache_id` | Required; equals the directory name. |
 | `cache_fingerprint` | Required; SHA-256 defined below. |
 | `producer_stage` | Required; equals the parent directory name. |
-| `created_by` | Required; a path under `workflow/` that exists in the repository. |
+| `created_by` | Required; a path under `workflow/`. If the file no longer exists in the repository, the cache is stale and is never reused (reported as a warning). |
 | `code_commit` | Required; full 40-character Git commit, for provenance. |
 | `code_dirty` | Required; must be `false`, i.e. the repository was clean. |
 | `created_at` | Required; UTC ISO 8601. |
@@ -609,6 +639,11 @@ final_destination:
 There is no `status` key; completeness is expressed only by `_SUCCESS`.
 
 #### Fingerprint and reuse
+
+*Design status: the fingerprint composition below is specified before
+`workflow/common/cache.py` exists. It is refined through the change procedure
+when the module is implemented. The directory boundaries and producer rules
+above are binding now.*
 
 The producer computes `cache_fingerprint` as the SHA-256 of:
 
@@ -761,6 +796,10 @@ runs/
 - `<campaign-id>` identifies the campaign defined in `configs/campaigns/`.
 - `<run-id>` is the segment ID defined in `glossary.md`:
   `<climate-forcing>_<climate-scenario>_<soc-scenario>_<sens-scenario>_<period>`.
+  Runs of non-production campaigns (smoke, debug, trial) that cover only part
+  of a segment's domain or period append a label: `<segment-id>__<label>`,
+  e.g. `ec-earth3-esm-1-1_historical_histsoc_default_historical__rhine-3yr`.
+  Production runs never carry a label.
 
 `config/` must preserve the resolved campaign and segment configuration, the
 exact VIC configuration, and the exact Slurm job used for the run.
@@ -976,6 +1015,10 @@ Never backed up: `raw/`, `intermediate/`, `forcing/`, `parameters/candidates/`,
 
 ### How content is backed up
 
+*Design status: this procedure is specified before any backup code exists. It
+is refined through the change procedure when the backup procedure is
+implemented. What is backed up and the permissions are binding now.*
+
 - No scientific processing or primary project work occurs in the backup area.
   Only copied payload, copied manifests, checksums, and staging metadata are
   created there, and only by the backup procedure.
@@ -1034,7 +1077,9 @@ python3 tests/check_layout.py            # repository only
 python3 tests/check_layout.py --workdir  # repository and $ISIMIP4B_WORKDIR
 ```
 
-- The pre-commit hook runs the repository check before every commit.
+- The pre-commit hook runs the repository check on tracked and staged files
+  before every commit (`--tracked-only`); untracked drafts do not block a
+  commit.
 - Coding agents run the full check before completing any task that creates or
   moves files, as required by `AGENTS.md`.
 

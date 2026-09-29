@@ -15,13 +15,16 @@ for another computing platform.
 Before creating, moving, renaming, copying, or generating any file or
 directory, read:
 
-1. `docs/directory-contracts.md`;
+1. the "Quick reference" table in `docs/directory-contracts.md` and the
+   contract sections for every directory you touch;
 2. the README in the affected top-level directory;
 3. the README for the affected workflow stage, when applicable;
 4. `docs/glossary.md` when introducing or interpreting project terminology.
 
-The layouts, naming rules, allowed contents, forbidden contents, and lifecycle
-rules in `docs/directory-contracts.md` are mandatory.
+Read the whole of `docs/directory-contracts.md` before proposing any change to
+the project structure. The layouts, naming rules, allowed contents, forbidden
+contents, and lifecycle rules in `docs/directory-contracts.md` are
+mandatory.
 
 ## Directory placement
 
@@ -147,6 +150,15 @@ scenarios, years, or experiments.
 - Do not distribute personal absolute paths across scripts or configuration.
   Resolve the workdir through `ISIMIP4B_WORKDIR`.
 
+## Clean repository
+
+Reusable caches, accepted forcing, production parameter sets, production
+runs, postprocessed product sets, and deliveries are produced only from a
+clean repository (rule 14 in `docs/directory-contracts.md`). When such an
+output is needed and the repository is not clean, propose a commit to the user
+and wait; do not produce the output from uncommitted code and do not commit
+without the user's agreement.
+
 ## Model version and builds
 
 Treat a VIC-WUR version as frozen only when `model/vic.lock.yaml` identifies an
@@ -210,8 +222,12 @@ and only after the user has approved the list of objects, file counts, and
 sizes. Never modify or delete anything in the backup copy without explicit
 user authorization.
 
-Do not delete, overwrite, or relocate data under `../workdir/` without
-explicit user authorization and pre-operation inventory checks. The only
+Running workflow code that writes its own outputs to their contract
+locations is allowed, including a scheduler retry of the same run. Do not
+delete or relocate data under `../workdir/`, and do not overwrite an existing
+accepted object (raw files, accepted forcing, production parameter sets,
+accepted runs, postprocessed product sets, deliveries), without explicit user
+authorization and pre-operation inventory checks. The only
 exceptions are defined in "Deletion permissions" in
 `docs/directory-contracts.md`: a workflow producer rebuilding the one cache it
 is about to use, and an agent removing `scratch/<task-id>/` of its own current

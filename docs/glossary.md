@@ -225,7 +225,9 @@ campaign; runs from different campaigns are never mixed in one simulation.
 ### Run — project
 
 One execution record of one segment within one campaign. The run ID equals the
-segment ID; the campaign provides the rest of the identity. A scheduler retry
+segment ID; the campaign provides the rest of the identity. Runs of
+non-production campaigns that cover only part of a segment's domain or period
+append a label, `<segment-id>__<label>` (see `directory-contracts.md`). A scheduler retry
 with identical inputs is an additional attempt of the same run, recorded in the
 run manifest.
 
@@ -279,8 +281,9 @@ VIC-ready time-dependent input derived from raw data, stored under
 
 The state in which `git status --porcelain` in the repository prints nothing:
 no modified, staged, deleted, or untracked non-ignored files anywhere in the
-repository. Only a clean repository can produce reusable caches, production
-runs, or delivery products, because only then does the recorded commit
+repository. Only a clean repository can produce reusable caches, accepted
+forcing, production parameter sets, production runs, postprocessed product
+sets, or deliveries, because only then does the recorded commit
 identify the exact code, configuration, manifests, model lock, and environment
 definitions that were used.
 

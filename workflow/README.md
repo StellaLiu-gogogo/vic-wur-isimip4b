@@ -23,7 +23,7 @@ Allowed content includes source code, small text templates, Slurm templates, wor
 
 Each script must have one canonical responsibility. Before adding a script, search for an existing implementation and extend it when appropriate. Code variants must be represented by Git history or configuration, not by copied files with version-like suffixes.
 
-All stages must fail clearly when required inputs are missing or invalid. Production workflows must not silently substitute scientific defaults.
+Accepted outputs of every stage are produced only from a clean repository (rule 14 in `docs/directory-contracts.md`). All stages must fail clearly when required inputs are missing or invalid. Production workflows must not silently substitute scientific defaults.
 
 ## Data locations
 

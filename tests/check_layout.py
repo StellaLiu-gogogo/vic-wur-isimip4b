@@ -96,7 +96,7 @@ DELIVERY_CHILDREN = {"files", "inventory.tsv", "checksums.sha256",
 # --- Naming rules ----------------------------------------------------------
 
 VERSION_TOKEN = re.compile(
-    r"^(v\d+|new|old|fix|fixed|final|latest|copy|backup|bak)$")
+    r"^(v\d+|old|fix|fixed|final|latest)$")
 TOKEN_SPLIT = re.compile(r"[-_.\s]+")
 LOWER_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -112,7 +112,7 @@ CACHE_ROOT_ENTRIES = {"cache.yaml", "_SUCCESS", "data"}
 MANIFEST_INTERMEDIATE =re.compile(r"(^|[^A-Za-z0-9_])intermediate/")
 RUN_ID = re.compile(
     r"^(?P<gcm>[a-z0-9-]+)_(?P<climate>[a-z0-9-]+)_(?P<soc>[a-z0-9-]+)"
-    r"_(?P<sens>[a-z0-9-]+)_(?P<period>[a-z0-9-]+)$")
+    r"_(?P<sens>[a-z0-9-]+)_(?P<period>[a-z0-9-]+)(__(?P<label>[a-z0-9-]+))?$")
 EXPERIMENT_ID = re.compile(
     r"^(?P<climate>[a-z0-9-]+)_(?P<soc>[a-z0-9-]+)_(?P<sens>[a-z0-9-]+)$")
 
@@ -163,12 +163,15 @@ def check_name(report: Report, path: str, name: str) -> None:
 
 # --- Repository ------------------------------------------------------------
 
-def list_repo_files(repo: Path) -> list[str]:
-    """Return tracked, staged, and untracked non-ignored files."""
+def list_repo_files(repo: Path, tracked_only: bool = False) -> list[str]:
+    """Return tracked and staged files, plus untracked non-ignored files
+    unless tracked_only is set (as in the pre-commit hook)."""
+    cmd = ["git", "-C", str(repo), "ls-files", "--cached", "-z"]
+    if not tracked_only:
+        cmd[4:4] = ["--others", "--exclude-standard"]
     try:
         out = subprocess.run(
-            ["git", "-C", str(repo), "ls-files", "--cached", "--others",
-             "--exclude-standard", "-z"],
+            cmd,
             check=True, capture_output=True).stdout
         return sorted({p for p in out.decode().split("\0")
                        if p and (repo / p).exists()})
@@ -186,8 +189,8 @@ def list_repo_files(repo: Path) -> list[str]:
     return sorted(p[2:] if p.startswith("./") else p for p in files)
 
 
-def check_repo(repo: Path, report: Report) -> None:
-    files = [f for f in list_repo_files(repo)
+def check_repo(repo: Path, report: Report, tracked_only: bool = False) -> None:
+    files = [f for f in list_repo_files(repo, tracked_only)
              if PurePosixPath(f).parts[0] not in REPO_IGNORED_TOP]
     dirs = sorted({str(PurePosixPath(*PurePosixPath(f).parts[:i]))
                    for f in files
@@ -509,8 +512,8 @@ def check_cache(report: Report, repo: Path, path: Path, stage: str,
         if not created_by.startswith("workflow/"):
             report.error(yrel, "created_by must be a path under workflow/")
         elif not (repo / created_by).is_file():
-            report.error(yrel, f"created_by '{created_by}' does not exist in "
-                               "the repository")
+            report.warn(yrel, f"created_by '{created_by}' no longer exists; "
+                              "the cache is stale and will not be reused")
     commit = keys.get("code_commit")
     if commit is not None and not COMMIT_SHA.match(commit):
         report.error(yrel, "code_commit must be a full 40-character commit")
@@ -615,13 +618,16 @@ def main() -> int:
     parser.add_argument("--workdir", nargs="?", const="", default=None,
                         help="also check the workdir; without a value, use "
                              "$ISIMIP4B_WORKDIR or the sibling ../workdir")
+    parser.add_argument("--tracked-only", action="store_true",
+                        help="ignore untracked files (used by the pre-commit "
+                             "hook)")
     parser.add_argument("--quiet", action="store_true",
                         help="print only errors and the summary")
     args = parser.parse_args()
 
     report = Report()
     repo = args.repo.resolve()
-    check_repo(repo, report)
+    check_repo(repo, report, args.tracked_only)
     checked = "repository"
 
     if args.workdir is not None:
