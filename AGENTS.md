@@ -70,7 +70,7 @@ Workflow code must never read from `analysis/` or `../workdir/analysis/`.
 ## Repository and workdir boundary
 
 The repository defines how results are produced. The workdir contains inputs,
-builds, runs, logs, intermediate data, and generated products.
+builds, runs, logs, reusable caches, and generated products.
 
 Never commit or place the following in the repository:
 

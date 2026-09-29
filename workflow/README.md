@@ -5,7 +5,7 @@ This directory contains the complete version-controlled workflow. It is organize
 ## Stages
 
 1. `01_acquisition`: discover, transfer, inventory, and verify source data.
-2. `02_preprocessing`: convert accepted source data into reusable intermediate products.
+2. `02_preprocessing`: convert accepted source data into reusable caches under `workdir/intermediate/` for later stages.
 3. `03_parameters`: generate and validate VIC-WUR parameter datasets.
 4. `04_forcing`: generate VIC-ready time-dependent forcing.
 5. `05_simulation`: render run files, build run directories, and submit VIC-WUR simulations.

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Transform accepted raw datasets into reusable intermediate products without modifying the original source files.
+Transform accepted raw datasets into reusable caches for later stages, without modifying the original source files. These caches are a performance optimization, not scientific products: later stages must produce their accepted outputs under `workdir/parameters/` or `workdir/forcing/`.
 
 ## Inputs
 
@@ -19,7 +19,7 @@ Transform accepted raw datasets into reusable intermediate products without modi
 ## Allowed content
 
 - Scripts for subsetting, remapping, unit conversion, harmonization, and format conversion.
-- Reusable libraries and Slurm templates.
+- Stage-specific helper modules and Slurm templates. Code used by more than one stage belongs in `workflow/common/`.
 - Small grid definitions and text templates when they are source-controlled project assets.
 
 ## Forbidden content
