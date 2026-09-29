@@ -530,7 +530,8 @@ up and does not take part in delivery. Who may delete a cache is defined in
 - `<cache-id>` uses lowercase letters, digits, hyphens, and underscores, and
   describes the transformation and target, e.g.
   `climate-regridding_ec-earth3-esm-1-1_esm-hist_pr`. It must not contain a
-  version label or a manual date.
+  version label or a manual date. A cache ID is unique across all producer
+  stages, so that it also identifies the cache under `qc/intermediate/`.
 
 #### Producers
 
@@ -620,6 +621,21 @@ A workflow reuses a cache only when the requested fingerprint equals the
 recorded fingerprint **and** `_SUCCESS` exists. Otherwise it deletes and
 rebuilds the cache. Cache validity never depends on file names or manual
 judgement.
+
+#### Validation results
+
+Results of validating a cache have exactly three possible locations:
+
+| Kind | Location |
+|---|---|
+| Structured results that downstream code reads to decide whether the cache is usable | inside the cache under `data/`, written before `_SUCCESS` |
+| Human-readable or standalone QC evidence | `qc/intermediate/<cache-id>/`, whose `summary.json` records the `cache_fingerprint` it refers to |
+| Routine run information | `logs/<producer-stage>/` |
+
+Validation results are cache content, not fingerprint inputs: the fingerprint
+is computed before the cache is built and never depends on its own outputs.
+QC evidence whose `cache_fingerprint` differs from the current cache refers to
+an earlier cache and must not be used for the current one.
 
 #### Forbidden
 
@@ -796,7 +812,8 @@ qc/
 
 `<object-type>` is the name of the workdir top-level directory that holds the
 checked object: `raw`, `intermediate`, `parameters`, `forcing`, `builds`,
-`runs`, `postprocessed`, or `delivery`.
+`runs`, `postprocessed`, or `delivery`. For `intermediate`, `<object-id>` is
+the cache ID.
 
 Use explicit statuses including `passed`, `failed`, `warning`, and
 `not_checked`. A path under `qc/` is not proof that checks passed.

@@ -14,7 +14,7 @@ Transform accepted raw datasets into reusable caches for later stages, without m
 
 - Reusable caches under `workdir/intermediate/02_preprocessing/<cache-id>/`, each with `cache.yaml` and `_SUCCESS` as defined in `docs/directory-contracts.md`.
 - Processing logs under `workdir/logs/02_preprocessing/`.
-- Validation summaries required by downstream stages.
+- Validation results, placed as defined under "Validation results" in `docs/directory-contracts.md`: structured results read by downstream code in the cache `data/` directory, human-readable QC evidence in `workdir/qc/intermediate/<cache-id>/`, and routine information in `workdir/logs/02_preprocessing/`.
 
 ## Allowed content
 

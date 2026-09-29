@@ -439,6 +439,7 @@ def block_items(text: str, key: str) -> list[str]:
 
 def check_intermediate(w: Path, repo: Path, report: Report) -> None:
     base = w / "intermediate"
+    seen: dict[str, list[str]] = {}
     for e in children(base):
         if not e.is_dir(follow_symlinks=False) and e.name != "README.md":
             report.error(f"intermediate/{e.name}",
@@ -454,6 +455,11 @@ def check_intermediate(w: Path, repo: Path, report: Report) -> None:
         for cache in subdirs(Path(stage.path)):
             check_cache(report, repo, Path(cache.path), stage.name,
                         f"{srel}/{cache.name}")
+            seen.setdefault(cache.name, []).append(stage.name)
+    for cache_id, stages in sorted(seen.items()):
+        if len(stages) > 1:
+            report.error(f"intermediate/*/{cache_id}", "cache ID is used by "
+                         f"several producer stages {stages}; it must be unique")
 
 
 def check_cache(report: Report, repo: Path, path: Path, stage: str,
