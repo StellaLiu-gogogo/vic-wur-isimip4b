@@ -28,6 +28,24 @@ Each run must be isolated under `workdir/runs/<campaign-id>/<run-id>/`, where `<
 - a run manifest;
 - logs, state files, and raw output in dedicated subdirectories.
 
+## Build
+
+`build/build_vic.sh` builds the image driver at the commit of
+`model/vic.lock.yaml` and records it under `workdir/builds/vic/<commit>/`
+with `build_manifest.json`, logs and checks (see `build/README.md`):
+
+```bash
+export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
+workflow/05_simulation/build/build_vic.sh            # records the build
+workflow/05_simulation/build/build_vic.sh --scratch  # test run under scratch/
+```
+
+It uses the Anunna module bucket `2025` with `netCDF/4.9.3-gompi-2025a`;
+jobs that run the executable must load the same modules (manifest key
+`runtime_modules`). With a provisional lock (D01 open) the result is a
+candidate build; its status is `built` (the VIC test suite cannot run
+here, see `build/README.md`).
+
 ## Allowed content
 
 - Run-directory creation and submission code.
