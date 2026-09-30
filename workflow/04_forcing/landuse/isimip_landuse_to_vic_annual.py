@@ -20,7 +20,8 @@ Algorithm per parent j (3x3 children i):
   fallback chain when sum_i W_k(i) == 0 (recorded):  paddy: paddy->nonpaddy->rainfed->lowveg->uniform ;
         nonpaddy: nonpaddy->paddy->rainfed->lowveg->uniform ; rainfed: rainfed->irrigated->lowveg->uniform ;
         urban: urban->crop->lowveg->uniform
-  single-child rule: fallback parent with T_k/A_full < SMALL -> whole target into one child
+  single-child rule: fallback parent with T_k/A_full < SMALL -> whole target into one child (D04: SMALL = inf,
+        i.e. every fallback parent; a finite --small reproduces the 2026-09-23 prototypes)
   joint water-filling: all classes get E_k(i) = T_k W_k(i)/sum W_k simultaneously; saturated children scale all
         classes' increments equally; deficits are redistributed within the parent; spill to uniform land weights
         when a class has no free weighted child; parents whose total target exceeds capacity are cut proportionally
@@ -39,7 +40,9 @@ not clean, everything is written under scratch/landuse-converter/<soc>/ instead 
 code_dirty: true.
 
 Usage: isimip_landuse_to_vic_annual.py --scenario histsoc --years 1850-2021 [--parameter-set ID]
-       [--parameter-status candidates|production] [--small 1e-3] [--union-mask file.nc] [--max-iter 60]
+       [--parameter-status candidates|production] [--small inf] [--union-mask file.nc] [--max-iter 60]
+D04 (docs/decisions/D04-landuse-harmonization.md): every fallback parent uses a single child (--small inf,
+the default); rice_rainfed and the *_bf bioenergy variables are part of the rainfed/irrigated sums.
 """
 import argparse, datetime, hashlib, json, os, subprocess, sys, time
 
@@ -70,7 +73,7 @@ NATIDX = list(range(0, 11)) + [15]; LOWVEG = [5, 6, 7, 8, 9]
 CHAIN = {'urban': ['urban', 'crop_any', 'low', 'uni'], 'paddy': ['paddy', 'nonpaddy', 'rf', 'low', 'uni'],
          'nonpaddy': ['nonpaddy', 'paddy', 'rf', 'low', 'uni'], 'rf': ['rf', 'irr_any', 'low', 'uni']}
 R = 6371000.0; RK = 6371.0088; ROW0, ROW1 = 24, 584      # ISIMIP rows covered by the VIC domain (N->S)
-METHOD_VERSION = '1.1'   # allocation method; bump when results change for identical inputs
+METHOD_VERSION = '1.2'   # allocation method; bump when results change for identical inputs (1.2: D04 default --small inf)
 
 
 def sha256(path, n=1 << 24):
@@ -255,7 +258,8 @@ def main():
     ap.add_argument('--years', required=True, help='single year or START-END')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
-    ap.add_argument('--small', type=float, default=1e-3, help='single-child threshold on parent share')
+    ap.add_argument('--small', type=float, default=float('inf'),
+                    help='single-child threshold on parent share; inf (default, D04) = every fallback parent')
     ap.add_argument('--union-mask', default=None, help='optional NetCDF with class_union_bits(lat,lon); coverage>0 outside it aborts')
     ap.add_argument('--max-iter', type=int, default=60)
     a = ap.parse_args(); t0 = time.time()

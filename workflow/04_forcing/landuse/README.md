@@ -10,8 +10,11 @@ contract), one forcing unit per soc scenario under
 | `isimip_landuse_to_vic_annual.py` | producer: allocation (joint order-free water-filling, fallback chains, single-child rule, natural remainder by the VIC 2003–2022 mean composition), writes `coverage_<soc>_<year>.nc`, `provenance.yaml`, and per-year ledger and QA JSON under `qc/forcing/landuse/<soc>/reports/` |
 | `verify_forcing.py` | independent verification with its own code path; writes `verify_<year>.{json,png}` and `summary.json` under `qc/forcing/landuse/<soc>/` and sets `qc.status` in the unit's `provenance.yaml` (`passed` only when every file of the unit passes) |
 
-Method version `1.1` is recorded in every file; bump `METHOD_VERSION` when
-results change for identical inputs.
+Method version `1.2` is recorded in every file; bump `METHOD_VERSION` when
+results change for identical inputs. Version 1.2 applies D04: every fallback
+parent (no VIC weight for the class) receives its whole target in a single
+child (`--small inf`, the default); `--small 1e-3` reproduces the 2026-09-23
+prototypes.
 
 ## Inputs
 
@@ -39,8 +42,10 @@ If the repository is not clean, the producer writes to
 `scratch/landuse-converter/<soc>/` instead of the forcing unit and records
 `code_dirty: true`; verify such output with `--unit-dir`.
 
-## Open decisions
+## Decisions
 
-D01 (model commit) and D04 (tile-count threshold, `rice_rainfed`, paddy
-area) must be decided before a unit is promoted for production; the code
-runs without them.
+D04 (decided 2026-09-30, `docs/decisions/D04-landuse-harmonization.md`) is
+implemented here: single child for every fallback parent, `rice_rainfed` in
+class 12, `*_bf` merged into the rainfed and irrigated sums, ISIMIP paddy
+area accepted. D01 (model commit) is provisional; a unit is promoted for
+production only after D01 is frozen.

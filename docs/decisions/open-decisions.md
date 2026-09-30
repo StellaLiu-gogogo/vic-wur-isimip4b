@@ -8,7 +8,7 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-09-29.
+Last reviewed: 2026-09-30.
 
 D05 is being handled outside this session by another agent (user, 2026-09-29).
 
@@ -36,7 +36,7 @@ D05 is being handled outside this session by another agent (user, 2026-09-29).
 | D01 | Which VIC-WUR commit is frozen for production | 03_parameters | | user | open (provisional: branch `fix-restart-luapply-snow-state`, head `39e21ff5` on 2026-09-29, recorded in `model/vic.lock.yaml` with `freeze_status: provisional`) |
 | D02 | Compute scope: which GCMs, experiments, and priorities fit the available compute, and whether to apply for more | 05_simulation | | user | open |
 | D03 | Storage plan for 5′ model output: where it lives during a campaign and when it is deleted after postprocessing | 05_simulation | | user | open |
-| D04 | Land use: tile-count threshold for fallback tiles, treatment of `rice_rainfed`, and acceptance of the paddy area change | 03_parameters | | user | open |
+| D04 | Land use: single-child rule for fallback parents, `rice_rainfed`, ISIMIP paddy area, `*_bf` variables, Köppen period for parameter backfill | 03_parameters | | user | decided 2026-09-30 ([D04-landuse-harmonization.md](D04-landuse-harmonization.md)) |
 | D05 | Non-irrigation water use: how to proceed while the ISIMIP4b dataset is not released | 04_forcing | | user, sector coordinators | open |
 | D06 | Composition of the `extrasoc` sensitivity experiments (which additional direct human forcings) | 05_simulation | | user, sector coordinators | open |
 | D07 | 5′ to 0.5° aggregation method, `dis` outlet mapping, and `contfrac` derivation | 06_postprocessing | | user | open |
