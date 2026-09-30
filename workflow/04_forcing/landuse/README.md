@@ -38,9 +38,11 @@ About 2 min per year on a login node (one core, ≈6 GB); full histsoc
 (172 years) belongs in a Slurm job with a job record under
 `logs/04_forcing/` (template to be added with the first production run).
 
-If the repository is not clean, the producer writes to
-`scratch/landuse-converter/<soc>/` instead of the forcing unit and records
-`code_dirty: true`; verify such output with `--unit-dir`.
+If the repository is not clean, or with `--scratch`, the producer writes to
+`scratch/landuse-converter/<soc>/` instead of the forcing unit (and records
+`code_dirty: true` when not clean); verify such output with `--unit-dir`.
+Use `--scratch` for every test run so that no test ever lands in
+`forcing/`.
 
 ## Decisions
 

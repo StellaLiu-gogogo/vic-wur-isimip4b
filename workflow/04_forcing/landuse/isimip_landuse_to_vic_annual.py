@@ -40,7 +40,7 @@ not clean, everything is written under scratch/landuse-converter/<soc>/ instead 
 code_dirty: true.
 
 Usage: isimip_landuse_to_vic_annual.py --scenario histsoc --years 1850-2021 [--parameter-set ID]
-       [--parameter-status candidates|production] [--small inf] [--union-mask file.nc] [--max-iter 60]
+       [--parameter-status candidates|production] [--small inf] [--union-mask file.nc] [--max-iter 60] [--scratch]
 D04 (docs/decisions/D04-landuse-harmonization.md): every fallback parent uses a single child (--small inf,
 the default); rice_rainfed and the *_bf bioenergy variables are part of the rainfed/irrigated sums.
 """
@@ -262,14 +262,17 @@ def main():
                     help='single-child threshold on parent share; inf (default, D04) = every fallback parent')
     ap.add_argument('--union-mask', default=None, help='optional NetCDF with class_union_bits(lat,lon); coverage>0 outside it aborts')
     ap.add_argument('--max-iter', type=int, default=60)
+    ap.add_argument('--scratch', action='store_true',
+                    help='test run: write under scratch/landuse-converter/ even from a clean repository')
     a = ap.parse_args(); t0 = time.time()
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
     commit, dirty = git_state()
     unit = f'landuse/{a.scenario}'
-    out = f'{WORKDIR}/forcing/{unit}' if not dirty else f'{WORKDIR}/scratch/landuse-converter/{a.scenario}'
-    qcdir = f'{WORKDIR}/qc/forcing/{unit}/reports' if not dirty else f'{out}/qc'
-    if dirty:
-        print(f'repository is not clean: writing to {out} (not a forcing unit)', file=sys.stderr)
+    to_scratch = dirty or a.scratch
+    out = f'{WORKDIR}/forcing/{unit}' if not to_scratch else f'{WORKDIR}/scratch/landuse-converter/{a.scenario}'
+    qcdir = f'{WORKDIR}/qc/forcing/{unit}/reports' if not to_scratch else f'{out}/qc'
+    if to_scratch:
+        print(f'{"repository is not clean" if dirty else "--scratch"}: writing to {out} (not a forcing unit)', file=sys.stderr)
     os.makedirs(out, exist_ok=True); os.makedirs(qcdir, exist_ok=True)
     f15, furb, _ = SCEN[a.scenario]; f15 = f'{RAW}/{f15}'; furb = f'{RAW}/{furb}'
     f_dom = f'{WORKDIR}/parameters/{a.parameter_status}/{a.parameter_set}/domain/vic_global_5min_domain_nogl.nc'
