@@ -15,5 +15,6 @@ dependencies:
   - pyyaml>=6
   - matplotlib>=3.7
   - pandas>=2
+  - xarray>=2024
   - cdo
   - nco

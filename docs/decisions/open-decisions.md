@@ -40,7 +40,7 @@ D05 is being handled outside this session by another agent (user, 2026-09-29).
 | D05 | Non-irrigation water use: how to proceed while the ISIMIP4b dataset is not released | 04_forcing | | user, sector coordinators | open |
 | D06 | Composition of the `extrasoc` sensitivity experiments (which additional direct human forcings) | 05_simulation | | user, sector coordinators | open |
 | D07 | 5′ to 0.5° aggregation method, `dis` outlet mapping, and `contfrac` derivation | 06_postprocessing | | user | open |
-| D08 | Simulated domain versus the ISIMIP `water_global` mask: keep the VIC domain and report uncovered mask cells as missing, or extend the domain (fully or partially) | 03_parameters | | user, sector coordinators | open |
+| D08 | Simulated domain versus the ISIMIP `water_global` mask: keep the VIC domain and report uncovered mask cells as missing, or extend the domain (fully or partially) | 03_parameters | | user, sector coordinators | decided 2026-09-30 ([D08-mask-coverage.md](D08-mask-coverage.md)): option (a), keep the domain, report uncovered cells as missing |
 | D09 | ISIMIP4b `water_global` output filename pattern (not yet published by ISIMIP) | 06_postprocessing | | ISIMIP | open |
 | D10 | VIC-WUR model name and version suffix for ISIMIP4b filenames | 06_postprocessing | | user | open |
 | D11 | Structure of the postprocessed product-set manifest | 06_postprocessing | | user | open |
@@ -93,8 +93,11 @@ outlet mapping for discharge, and the derivation of `contfrac` as gaps.
 mainly in Greenland and the Arctic, that the VIC domain does not cover, and
 VIC cells outside the mask. Because extending the domain changes the
 parameter set and every forcing unit, the decision is due before
-`03_parameters`, not at postprocessing. An analysis task establishes the
-numbers first (2026-09-30).
+`03_parameters`, not at postprocessing. The analysis task
+`isimip-mask-coverage` established the numbers on 2026-09-30: 3 310 of the
+67 420 mask cells (2.2 % of the mask area) have no active VIC cell, 2 970 of
+them in Greenland. Decided the same day: the domain is kept and the
+uncovered cells are reported as missing.
 
 **D09, D10 — Filenames.** See `glossary.md`, "Output naming".
 
