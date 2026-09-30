@@ -24,8 +24,11 @@ defined by `environments/isimip4b.yaml` and created once per user with:
 conda env create -f environments/isimip4b.yaml
 ```
 
-Update it after a change to the file with `conda env update -f
-environments/isimip4b.yaml --prune`. No other environment (personal or
+It uses Python 3.12 (pinned). Update it after a change to the file with
+`conda env update -f environments/isimip4b.yaml --prune`. The layout check
+`tests/check_layout.py` and the pre-commit hook run outside this
+environment with the system `python3` (3.9 on Anunna) and must stay
+compatible with it. No other environment (personal or
 project) is used for production work; the environment name and package
 versions are recorded in every provenance record, build manifest, and run
 manifest. VIC-WUR itself is compiled with the Anunna modules recorded in the

@@ -2,13 +2,13 @@
 # Create once:  conda env create -f environments/isimip4b.yaml
 # Update:       conda env update -f environments/isimip4b.yaml --prune
 # Then set ISIMIP4B_WORKDIR and PYTHONPATH as described in environments/README.md.
-# Versions are minimums that the code was run with; pin exact versions with a
+# Python is pinned to 3.12; package versions are minimums the code was run with. Pin exact versions with a
 # lock file when the first production forcing is accepted.
 name: isimip4b
 channels:
   - conda-forge
 dependencies:
-  - python>=3.9
+  - python=3.12
   - numpy>=1.26
   - scipy>=1.11
   - netcdf4>=1.6
