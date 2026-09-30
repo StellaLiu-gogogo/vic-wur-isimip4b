@@ -1,5 +1,6 @@
-# Conda environment for the ISIMIP4b workflow and analysis code on Anunna.
-# Create:  conda env create -f environments/isimip4b.yaml
+# The project conda environment `isimip4b` for all workflow and analysis code on Anunna.
+# Create once:  conda env create -f environments/isimip4b.yaml
+# Update:       conda env update -f environments/isimip4b.yaml --prune
 # Then set ISIMIP4B_WORKDIR and PYTHONPATH as described in environments/README.md.
 # Versions are minimums that the code was run with; pin exact versions with a
 # lock file when the first production forcing is accepted.

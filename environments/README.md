@@ -15,6 +15,30 @@ Do not store an installed environment, package cache, credentials, user-specific
 Production run and build manifests must record the relevant environment or module versions rather than assuming that the current login environment is equivalent.
 
 
+## Project environment
+
+The workflow and analysis code runs in the conda environment **`isimip4b`**,
+defined by `environments/isimip4b.yaml` and created once per user with:
+
+```bash
+conda env create -f environments/isimip4b.yaml
+```
+
+Update it after a change to the file with `conda env update -f
+environments/isimip4b.yaml --prune`. No other environment (personal or
+project) is used for production work; the environment name and package
+versions are recorded in every provenance record, build manifest, and run
+manifest. VIC-WUR itself is compiled with the Anunna modules recorded in the
+build manifest, not with this environment.
+
+Activate it and set the variables below in every shell and Slurm job:
+
+```bash
+conda activate isimip4b
+export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
+export PYTHONPATH=/lustre/nobackup/WUR/ESG/liu297/isimip4b/repo/workflow
+```
+
 ## Required variables
 
 Every environment used to run workflow or analysis code sets:
