@@ -12,14 +12,19 @@ For every file <variable>_<gcm>_<alias>_<year>.nc of a unit (or the years given)
   mean        land-area-weighted mean over the active cells (domain `area`) versus the 0.5 degree input,
               whose cells are weighted by the area of their active 5' cells, every day:
                 prec                    |relative difference| <= 1e-6 (conservative remapping)
-                swdown, lwdown, wind    |relative difference| <= 5e-3 (bilinear)
+                swdown, wind            |relative difference| <= 5e-3 (bilinear)
+                lwdown                  |difference| <= 0.5 W m-2 (the ratio correction nearly conserves)
                 tair                    |difference - lapse-rate term| <= 1e-3 K, where the lapse-rate term
                                         -0.0065 K/m * mean(dz) is computed from an independent dz
                 psurf                   |relative difference| <= 5e-3;  vp  |relative difference| <= 2e-2
   sample days on the first, middle and last day the 5' field is recomputed with cdo (remapcon for pr and the
               ERA5 orography, remapnn for tas and ps, remapbil for huss, rsds, rlds, sfcwind) and the physics
               coded again here; max |difference| on active cells <= 1e-3 in the file's units
-              (relative 1e-5 for prec)
+              (relative 1e-5 for prec, relative 5e-3 for lwdown, whose ratio R (D16, Cosgrove et al. 2003) is
+              computed here from the input files and the elevations without the producer's code)
+  lwdown      on the sample days: R = lwdown / bilinear rlds equals 1 within 1e-6 where |dz| < R1_DZ_M (the
+              lapse-rate term alone changes R by about 1e-4 per metre); the regression slope of
+              (lwdown - bilinear rlds) on dz is reported (expected -25 to -50 W m-2 km-1), not checked
   saturation  vp only: no active cell-day with vp > saturated vapour pressure at tair (VIC's svp) beyond
               float32 rounding (relative 1e-5); the producer caps vp at saturation
 Writes <qc>/reports/verify_<year>.json, <qc>/figures/verify_<year>.png, and <qc>/summary.json, where <qc> is
@@ -27,8 +32,8 @@ qc/forcing/climate/<gcm>/<alias>/<variable>/, and sets qc.status in the unit's p
 file fails, `passed` or `warning` when every file of the unit is checked, `not_checked` otherwise.
 
 Usage: verify_forcing.py --gcm ec-earth3-esm-1-1 --alias esm-hist --variables tair,prec [--years 2011-2020]
-       [--scratch] [--processes N]
-  --scratch verifies the test output under scratch/climate-forcing/ and writes its QC next to it.
+       [--scratch [--scratch-label LABEL]] [--processes N]
+  --scratch verifies the test output under scratch/climate-forcing/[runs/<LABEL>/] and writes its QC next to it.
 """
 import argparse, datetime, glob, json, os, re, shutil, subprocess, sys, tempfile
 from multiprocessing import Pool
@@ -51,10 +56,12 @@ SPEC = {   # units, sources, physical range, mean check (kind, tolerance)
     'psurf':  ('kPa', ('ps',), (30, 110), ('rel', 5e-3)),
     'vp':     ('kPa', ('huss', 'ps'), (0, 8), ('rel', 2e-2)),
     'swdown': ('W m-2', ('rsds',), (0, 600), ('rel', 5e-3)),
-    'lwdown': ('W m-2', ('rlds',), (30, 600), ('rel', 5e-3)),
+    'lwdown': ('W m-2', ('rlds',), (30, 600), ('abs', 0.5)),
     'wind':   ('m s-1', ('sfcwind',), (0, 60), ('rel', 5e-3)),
 }
 SAMPLE_TOL = 1e-3
+LWDOWN_SAMPLE_RTOL = 5e-3
+R1_DZ_M, R1_TOL = 0.005, 1e-6     # |dz| below which R must equal 1 within R1_TOL
 SUPERSAT_RTOL = 1e-5
 
 
@@ -137,18 +144,26 @@ def recompute_day(ctx, var, gcm, alias, year, step_in_file, tmpd):
         cdo('-f', 'nc4', f'-{op},{ctx.griddes}', f'-seltimestep,{first + step_in_file + 1}', f, out)
         return to_array(out, src_var)
     if var == 'prec':
-        return remap('pr', 'remapcon') * 86400.0
-    if var in ('swdown', 'lwdown', 'wind'):
-        return remap({'swdown': 'rsds', 'lwdown': 'rlds', 'wind': 'sfcwind'}[var], 'remapbil')
+        return remap('pr', 'remapcon') * 86400.0, None
+    if var in ('swdown', 'wind'):
+        return remap({'swdown': 'rsds', 'wind': 'sfcwind'}[var], 'remapbil'), None
     tas = remap('tas', 'remapnn'); t1 = tas - 0.0065 * ctx.dz
     if var == 'tair':
-        return t1 - 273.15
+        return t1 - 273.15, None
     ps = remap('ps', 'remapnn'); q = remap('huss', 'remapbil'); r = q / (1 - q)
     tvm = 0.5 * (tas + t1) * (1 + 0.61 * r)
     p = ps * np.exp(-ctx.dz * 9.80665 / (287.05 * tvm))
     if var == 'psurf':
-        return p / 1000.0
-    return np.minimum(r / (0.622 + r) * p / 1000.0, svp(t1 - 273.15))
+        return p / 1000.0, None
+    vp_kpa = np.minimum(r / (0.622 + r) * p / 1000.0, svp(t1 - 273.15))
+    if var == 'vp':
+        return vp_kpa, None
+    # lwdown: Satterlund emissivity, e in hPa, T in K, ratio of the 5' and 0.5 degree levels
+    rl = remap('rlds', 'remapbil')
+    emis = lambda tk, e_hpa: 1.08 * (1.0 - np.exp(-e_hpa ** (tk / 2016.0)))
+    e0 = np.minimum(r / (0.622 + r) * ps / 1000.0, svp(tas - 273.15)) * 10.0
+    ratio = emis(t1, vp_kpa * 10.0) * t1 ** 4 / (emis(tas, e0) * tas ** 4)
+    return ratio * rl, rl
 
 
 CTX = None     # Context, set before the worker pool is forked
@@ -207,6 +222,8 @@ def verify_file(args):
             m05 = ctx.mean05(s05['pr'] * 86400.0); err = m5 / m05 - 1
         elif var == 'psurf':
             m05 = ctx.mean05(s05['ps'] / 1000.0); err = m5 / m05 - 1
+        elif var == 'lwdown':
+            m05 = ctx.mean05(s05['rlds']); err = m5 - m05
         elif var == 'vp':
             q = s05['huss']; r = q / (1 - q); m05 = ctx.mean05(r / (0.622 + r) * s05['ps'] / 1000.0); err = m5 / m05 - 1
         else:
@@ -219,7 +236,8 @@ def verify_file(args):
     C['mask'] = {'days_with_mask_mismatch': mask_bad, 'ok': mask_bad == 0}
     C['range'] = {'bounds': [lo, hi], 'min': float(vmin), 'max': float(vmax), 'values_outside': range_bad,
                   'ok': range_bad == 0}
-    C['mean'] = {'kind': 'difference minus lapse-rate term [K]' if kind == 'lapse' else 'relative difference',
+    C['mean'] = {'kind': {'lapse': 'difference minus lapse-rate term [K]', 'abs': f'difference [{units}]'}.get(
+                     kind, 'relative difference'),
                  'tolerance': tol, 'max_abs': float(np.abs(mean_err).max()), 'annual_mean': float(mean_err.mean()),
                  'ok': bool(np.abs(mean_err).max() <= tol)}
     if var == 'tair':
@@ -229,18 +247,33 @@ def verify_file(args):
                             'ok': supersat == 0} if ncell else
                            {'note': 'tair file not found; not checked', 'ok': False})
     # sample days recomputed independently
-    samples = {}
+    samples = {}; r1_dev = []; r1m_dev = []; dz_pool = []; dl_pool = []
+    small = ctx.mask & (np.abs(ctx.dz) < R1_DZ_M); onem = ctx.mask & (np.abs(ctx.dz) < 1.0)
     with tempfile.TemporaryDirectory(dir=ctx.tmp) as tmpd:
         for k in (0, n // 2, n - 1):
-            ref = recompute_day(ctx, var, gcm, alias, year, k, tmpd)
+            ref, rl = recompute_day(ctx, var, gcm, alias, year, k, tmpd)
             got = np.array(x[k], 'f8')
             diff = np.abs(got - ref)[ctx.mask]
             if var == 'prec':
                 diff = diff / np.maximum(np.abs(ref[ctx.mask]), 1.0)
+            if var == 'lwdown':
+                diff = diff / np.abs(ref[ctx.mask])
+                ratio = got / rl
+                r1_dev.append(float(np.abs(ratio[small] - 1).max())); r1m_dev.append(float(np.abs(ratio[onem] - 1).max()))
+                dz_pool.append(ctx.dz[ctx.mask] / 1000.0); dl_pool.append((got - rl)[ctx.mask])
             samples[str(k)] = float(diff.max())
             if k == n // 2:
                 fig_day, fig_got, fig_ref = k, got, ref
-    stol = 1e-5 if var == 'prec' else SAMPLE_TOL
+    if var == 'lwdown':
+        slope = float(np.polyfit(np.concatenate(dz_pool), np.concatenate(dl_pool), 1)[0])
+        C['lwdown_physics'] = {
+            'r_equals_1': {'dz_abs_below_m': R1_DZ_M, 'cells': int(small.sum()), 'max_abs_r_minus_1': max(r1_dev),
+                           'tolerance': R1_TOL, 'ok': max(r1_dev) <= R1_TOL},
+            'max_abs_r_minus_1_for_dz_abs_below_1m': max(r1m_dev),
+            'slope_lwdown_minus_rlds_on_dz_W_m2_per_km': slope, 'slope_expected_range': [-50, -25],
+            'slope_note': 'reported, not checked; Marty et al. (2002) observed -29 W m-2 km-1 in the Alps'}
+        C['lwdown_physics']['ok'] = C['lwdown_physics']['r_equals_1']['ok']
+    stol = 1e-5 if var == 'prec' else LWDOWN_SAMPLE_RTOL if var == 'lwdown' else SAMPLE_TOL
     C['sample_days'] = {'max_abs_diff_by_day_index': samples, 'tolerance': stol,
                         'ok': all(v <= stol for v in samples.values())}
     ok = all(c.get('ok', True) for c in C.values())
@@ -295,6 +328,7 @@ def main():
     ap.add_argument('--variables', required=True, help='comma-separated VIC variables')
     ap.add_argument('--years', default=None, help='single year or START-END (default: every file of the unit)')
     ap.add_argument('--scratch', action='store_true', help='verify the test output under scratch/climate-forcing/')
+    ap.add_argument('--scratch-label', default=None, help='with --scratch: scratch/climate-forcing/runs/<label>/')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--processes', type=int, default=None)
@@ -311,7 +345,8 @@ def main():
     jobs, dirs = [], {}
     for v in variables:
         unit = f'climate/{a.gcm}/{a.alias}/{v}'
-        unit_dir = f'{W}/scratch/climate-forcing/{a.gcm}/{a.alias}/{v}' if a.scratch else f'{W}/forcing/{unit}'
+        sbase = f'{W}/scratch/climate-forcing' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')
+        unit_dir = f'{sbase}/{a.gcm}/{a.alias}/{v}' if a.scratch else f'{W}/forcing/{unit}'
         qc = f'{unit_dir}/qc' if a.scratch else f'{W}/qc/forcing/{unit}'
         reports, figs = f'{qc}/reports', f'{qc}/figures'
         os.makedirs(reports, exist_ok=True); os.makedirs(figs, exist_ok=True)

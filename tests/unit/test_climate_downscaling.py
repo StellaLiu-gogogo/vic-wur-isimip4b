@@ -164,6 +164,66 @@ class PhysicsTests(unittest.TestCase):
         np.testing.assert_allclose(vp, dc.svp_vic(tair), rtol=1e-12)
 
 
+def independent_lwdown(src, dz, clat, clon, flat, flon):
+    """lwdown written out here without the producer's helpers: np.repeat for replication, np.interp for
+    bilinear, Satterlund emissivity, Cosgrove ratio."""
+    k = 6
+    i0 = int(round((flat[0] - (clat[0] - 1.5)) / 0.5)) // k          # first coarse row of the fine grid
+    rep = lambda c: np.repeat(np.repeat(c[i0:i0 + len(flat) // k], k, axis=0), k, axis=1)
+    def bil(c):
+        ext_lon = np.concatenate([[clon[-1] - 360], clon, [clon[0] + 360]])
+        t = np.array([np.interp(flon, ext_lon, np.concatenate([[row[-1]], row, [row[0]]])) for row in c])
+        return np.array([np.interp(flat, clat, t[:, j]) for j in range(len(flon))]).T
+    tas, ps, q, rl = rep(src['tas']), rep(src['ps']), bil(src['huss']), bil(src['rlds'])
+    r = q / (1 - q); t1 = tas - 0.0065 * dz
+    p1 = ps * np.exp(-dz * 9.80665 / (287.05 * 0.5 * (tas + t1) * (1 + 0.61 * r)))
+    t1c = t1 - 273.15
+    es = 0.61078 * np.exp(17.269 * t1c / (237.3 + t1c)); es = np.where(t1c < 0, es * (1 + 0.00972 * t1c + 0.000042 * t1c ** 2), es)
+    e1 = np.minimum(r / (0.622 + r) * p1 / 1000.0, es) * 10.0
+    t0c = tas - 273.15
+    es0 = 0.61078 * np.exp(17.269 * t0c / (237.3 + t0c)); es0 = np.where(t0c < 0, es0 * (1 + 0.00972 * t0c + 0.000042 * t0c ** 2), es0)
+    e0 = np.minimum(r / (0.622 + r) * ps / 1000.0, es0) * 10.0
+    eps = lambda T, e: 1.08 * (1 - np.exp(-e ** (T / 2016.0)))
+    return eps(t1, e1) * t1 ** 4 / (eps(tas, e0) * tas ** 4) * rl
+
+
+class LongwaveTests(unittest.TestCase):
+    def test_emissivity_hand_values(self):
+        # eps = 1.08 (1 - exp(-e^(T/2016))): e = 1 hPa gives e^x = 1 for any T, so eps = 1.08 (1 - 1/e)
+        self.assertAlmostEqual(float(dc.emissivity(253.15, 1.0)), 1.08 * (1 - np.exp(-1.0)), places=12)
+        self.assertAlmostEqual(float(dc.emissivity(253.15, 1.0)), 0.682690, places=6)
+        self.assertAlmostEqual(float(dc.emissivity(273.15, 6.11)), 0.779093, places=6)   # 6.11^0.135491 = 1.277914
+        self.assertAlmostEqual(float(dc.emissivity(293.15, 23.4)), 0.857905, places=6)   # 23.4^0.145412 = 1.581612
+        self.assertAlmostEqual(float(dc.emissivity(300.0, 30.0)), 0.874416, places=6)    # 30^0.148810 = 1.658860
+
+    def test_ratio_sign_in_a_column(self):
+        clat, clon, flat, flon = synthetic_grids(); rel = dc.GridRelation(clat, clon, flat, flon)
+        shape = (60, 120)
+        src = {'tas': np.full(shape, 285.0), 'ps': np.full(shape, 95000.0), 'huss': np.full(shape, 0.005),
+               'rlds': np.full(shape, 320.0)}
+        for h, cmp in ((0.0, 'eq'), (800.0, 'lt'), (-800.0, 'gt')):
+            if h == 0.0:   # also with a supersaturated 0.5 degree level: both levels are capped alike
+                src_sat = dict(src, huss=np.full(shape, 0.03))
+                np.testing.assert_allclose(dc.compute('lwdown', src_sat, rel, np.zeros((len(flat), len(flon)))),
+                                           320.0, rtol=1e-12)
+            lw = dc.compute('lwdown', src, rel, np.full((len(flat), len(flon)), h))
+            if cmp == 'eq':
+                np.testing.assert_allclose(lw, 320.0, rtol=1e-12)
+            elif cmp == 'lt':
+                self.assertTrue(np.all(lw < 320.0))
+            else:
+                self.assertTrue(np.all(lw > 320.0))
+
+    def test_lwdown_against_independent_implementation(self):
+        clat, clon, flat, flon = synthetic_grids(); rel = dc.GridRelation(clat, clon, flat, flon)
+        rng = np.random.default_rng(4); shape = (60, 120)
+        src = {'tas': 250 + 45 * rng.random(shape), 'ps': 70000 + 32000 * rng.random(shape),
+               'huss': 0.0005 + 0.018 * rng.random(shape), 'rlds': 150 + 300 * rng.random(shape)}
+        dz = rng.normal(0, 600, (len(flat), len(flon)))
+        np.testing.assert_allclose(dc.compute('lwdown', src, rel, dz),
+                                   independent_lwdown(src, dz, clat, clon, flat, flon), rtol=1e-10)
+
+
 class TimeAndSelectionTests(unittest.TestCase):
     def _time(self, days):
         d = nc.Dataset('t.nc', 'w', diskless=True)
@@ -184,11 +244,10 @@ class TimeAndSelectionTests(unittest.TestCase):
             dc.year_indices(d['time'], 2015)
         d.close()
 
-    def test_lwdown_only_in_scratch(self):
-        self.assertNotIn('lwdown', dc.select_variables(None, to_scratch=False))
-        self.assertIn('lwdown', dc.select_variables(None, to_scratch=True))
-        with self.assertRaises(SystemExit):
-            dc.select_variables('tair,lwdown', to_scratch=False)
+    def test_variable_selection(self):
+        # D16 decided: lwdown is a forcing unit like the others
+        self.assertEqual(dc.select_variables(None, to_scratch=False), list(dc.VARIABLES))
+        self.assertEqual(dc.select_variables('tair,lwdown', to_scratch=False), ['tair', 'lwdown'])
         with self.assertRaises(SystemExit):
             dc.select_variables('tas', to_scratch=True)
 

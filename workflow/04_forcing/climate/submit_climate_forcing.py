@@ -25,6 +25,7 @@ def main():
     ap.add_argument('--years', required=True)
     ap.add_argument('--variables', default=None)
     ap.add_argument('--scratch', action='store_true')
+    ap.add_argument('--scratch-label', default=None, help='with --scratch: scratch/climate-forcing/runs/<label>/')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--time', default='08:00:00')
@@ -38,11 +39,13 @@ def main():
     variables = dc.select_variables(a.variables, to_scratch)
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
     span = f'{years[0]}' if len(years) == 1 else f'{years[0]}-{years[-1]}'
-    job_name = f'climate-forcing-{a.gcm}-{a.alias}-{span}' + ('-scratch' if to_scratch else '')
+    job_name = f'climate-forcing-{a.gcm}-{a.alias}-{span}' + ('-scratch' if to_scratch else '') + \
+        (f'-{a.scratch_label}' if a.scratch_label else '')
     common = f'--gcm {a.gcm} --alias {a.alias} --variables {",".join(variables)} --years {years[0]}-{years[-1]}'
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
-    producer = f'{common} {params} --processes {min(a.cpus, len(variables))}' + (' --scratch' if a.scratch else '')
-    verifier = f'{common} {params} --processes {a.cpus}' + (' --scratch' if to_scratch else '')
+    label = f' --scratch-label {a.scratch_label}' if a.scratch_label else ''
+    producer = f'{common} {params} --processes {min(a.cpus, len(variables))}' + (' --scratch' + label if a.scratch else '')
+    verifier = f'{common} {params} --processes {a.cpus}' + (' --scratch' + label if to_scratch else '')
     conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
         os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
     stage_logs = f'{W}/logs/04_forcing'
@@ -65,7 +68,8 @@ def main():
     os.makedirs(job_dir, exist_ok=True)
     with open(f'{job_dir}/job.sbatch', 'w') as fh:
         fh.write(text)
-    base = f'{W}/scratch/climate-forcing' if to_scratch else f'{W}/forcing/climate'
+    base = (f'{W}/scratch/climate-forcing' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')) if to_scratch \
+        else f'{W}/forcing/climate'
     record = {
         'slurm_job_id': int(job_id), 'job_name': job_name,
         'rendered_by': 'workflow/04_forcing/climate/submit_climate_forcing.py',

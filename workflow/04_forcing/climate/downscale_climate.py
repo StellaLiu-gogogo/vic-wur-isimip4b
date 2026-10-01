@@ -16,7 +16,14 @@ Method (version METHOD_VERSION):
   psurf  [kPa]    = ps_rep * exp(-dz / ((Rd/g) * Tv_mean)) / 1000        (hypsometric equation)
   vp     [kPa]    = min(r / (0.622 + r) * psurf, svp(tair)),  r = huss_bil / (1 - huss_bil) (mixing ratio
                     constant with height, capped at saturation with VIC's own svp formula, as VIC itself does)
-  swdown, lwdown [W m-2], wind [m s-1] = bilinear interpolation of rsds, rlds, sfcwind
+  swdown [W m-2], wind [m s-1] = bilinear interpolation of rsds, sfcwind
+  lwdown [W m-2]  = R * rlds_bil, ratio method of Cosgrove et al. (2003, eq. 15) as used by WATCH/WFDE5
+                    (Weedon et al. 2010, WATCH Technical Report 22, eqs. 30-32):
+                    R = eps(T1, e1) T1^4 / (eps(T0, e0) T0^4),  eps(T, e) = 1.08 (1 - exp(-e^(T / 2016)))
+                    (Satterlund 1979; T in K, e in hPa), with T0 = tas_rep, e0 = min(r / (0.622 + r) * ps_rep,
+                    svp(T0)) (0.5 degree level, the vp method without elevation change), T1 = corrected tair [K]
+                    and e1 = vp [hPa] exactly as written to the tair and vp units; R = 1 where dz = 0
+                    (D16, decided 2026-10-01; cap at both levels, user 2026-10-01)
   with dz = elev (5' mean cell elevation, `elev` of the parameter bundle, the elevation VIC uses)
           - ERA5 surface height (geopotential / g, first-order conservative to the 0.5 degree grid,
             block-replicated to 5'),
@@ -28,14 +35,15 @@ Method (version METHOD_VERSION):
 
 Rule 14 of the contract: accepted forcing is produced only from a clean repository. With --scratch or
 from a repository that is not clean, everything is written under scratch/climate-forcing/ instead.
-`lwdown` is written only with --scratch while decision D16 is open.
 
 An existing unit is never overwritten; it may be extended with years it does not contain yet under
 the conditions in docs/directory-contracts.md, "Forcing unit and provenance record".
 
 Usage: downscale_climate.py --gcm ec-earth3-esm-1-1 --alias esm-hist --years 2011-2020
        [--variables tair,prec,...] [--parameter-set ID] [--parameter-status candidates|production]
-       [--processes N] [--scratch]
+       [--processes N] [--scratch [--scratch-label LABEL]]
+  --scratch-label puts a test run under scratch/climate-forcing/runs/<LABEL>/ so that it does not replace
+  an earlier test run.
 """
 import argparse, calendar, datetime, glob, hashlib, json, os, platform, re, subprocess, sys, time
 from multiprocessing import Pool
@@ -46,7 +54,7 @@ import yaml
 
 CREATED_BY = 'workflow/04_forcing/climate/downscale_climate.py'
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
-METHOD_VERSION = '1.0'   # bump when results change for identical inputs
+METHOD_VERSION = '1.1'   # bump when results change for identical inputs (1.1: lwdown elevation correction, D16)
 
 ISIMIP_DIR = 'raw/ISIMIP4b/InputData/climate/atmosphere/bias-adjusted/global/daily/{alias}/{gcm_dir}'
 ISIMIP_MANIFEST = 'manifests/inputs/isimip4b-dkrz-2026-09-21/inventory.tsv'
@@ -78,12 +86,12 @@ VARIABLES = {
                'long_name': 'near-surface vapour pressure, elevation-corrected'},
     'swdown': {'sources': ('rsds',), 'horizontal': 'bilinear', 'units': 'W m-2',
                'long_name': 'surface downwelling shortwave radiation'},
-    'lwdown': {'sources': ('rlds',), 'horizontal': 'bilinear', 'units': 'W m-2',
-               'long_name': 'surface downwelling longwave radiation'},
+    'lwdown': {'sources': ('rlds', 'tas', 'ps', 'huss'), 'horizontal': 'bilinear (rlds, huss), replication (tas, ps)',
+               'units': 'W m-2', 'long_name': 'surface downwelling longwave radiation, elevation-corrected'},
     'wind':   {'sources': ('sfcwind',), 'horizontal': 'bilinear', 'units': 'm s-1',
                'long_name': 'near-surface wind speed'},
 }
-BLOCKED_OUTSIDE_SCRATCH = {'lwdown': 'D16 (lwdown elevation correction) is open'}
+BLOCKED_OUTSIDE_SCRATCH = {}   # variable -> open decision that keeps it out of forcing/ (empty since D16)
 
 
 # ----------------------------------------------------------------------------------------------- utilities
@@ -251,21 +259,43 @@ def svp_vic(t_c):
     return np.where(t_c < 0, es * (1.0 + 0.00972 * t_c + 0.000042 * t_c * t_c), es)
 
 
+def emissivity(t_k, e_hpa):
+    """Clear-sky atmospheric emissivity of Satterlund (1979), T in K, e in hPa."""
+    return 1.08 * (1.0 - np.exp(-e_hpa ** (t_k / 2016.0)))
+
+
+def lwdown_ratio(t1_k, e1_hpa, t0_k, e0_hpa):
+    """R of Cosgrove et al. (2003, eq. 15): longwave at the 5' level over longwave at the 0.5 degree level."""
+    return (emissivity(t1_k, e1_hpa) * t1_k ** 4) / (emissivity(t0_k, e0_hpa) * t0_k ** 4)
+
+
+def thermo(src, rel, dz):
+    """0.5 degree level (tas, ps, huss on the 5' grid) and corrected 5' level (tair [K], psurf [Pa], vp [kPa])."""
+    tas = rel.replicate(src['tas']); t1 = tair_downscaled(tas, dz)
+    if 'ps' not in src:
+        return {'tas': tas, 't1': t1}
+    ps = rel.replicate(src['ps']); q = rel.bilinear(src['huss'])
+    p1 = psurf_downscaled(ps, tas, q, dz)
+    vp1 = np.minimum(vapour_pressure(q, p1) / 1000.0, svp_vic(t1 - 273.15))
+    return {'tas': tas, 't1': t1, 'ps': ps, 'q': q, 'p1': p1, 'vp1': vp1}
+
+
 def compute(var, src, rel, dz):
     """5' field (float64, unmasked) of VIC variable `var` from 0.5 degree fields `src` (south to north)."""
     if var == 'prec':
         return rel.replicate(src['pr']) * SECONDS_PER_DAY
-    if var in ('swdown', 'lwdown', 'wind'):
+    if var in ('swdown', 'wind'):
         return rel.bilinear(src[VARIABLES[var]['sources'][0]])
-    tas = rel.replicate(src['tas'])
+    th = thermo(src, rel, dz)
     if var == 'tair':
-        return tair_downscaled(tas, dz) - 273.15
-    ps = rel.replicate(src['ps']); q = rel.bilinear(src['huss'])
-    p = psurf_downscaled(ps, tas, q, dz)
+        return th['t1'] - 273.15
     if var == 'psurf':
-        return p / 1000.0
+        return th['p1'] / 1000.0
     if var == 'vp':
-        return np.minimum(vapour_pressure(q, p) / 1000.0, svp_vic(tair_downscaled(tas, dz) - 273.15))
+        return th['vp1']
+    if var == 'lwdown':
+        e0_hpa = np.minimum(vapour_pressure(th['q'], th['ps']) / 1000.0, svp_vic(th['tas'] - 273.15)) * 10.0
+        return lwdown_ratio(th['t1'], th['vp1'] * 10.0, th['tas'], e0_hpa) * rel.bilinear(src['rlds'])
     raise KeyError(var)
 
 
@@ -455,7 +485,7 @@ def method_record(var, rel_paths):
                       '(ISIMIP stamps 12:00)',
          'fill_value': float(FILL), 'dtype': 'float32', 'chunking': [1, 1680, 4320],
          'compression': 'zlib level 5 with shuffle'}
-    if var in ('tair', 'psurf', 'vp'):
+    if var in ('tair', 'psurf', 'vp', 'lwdown'):
         m['elevation_correction'] = {
             'target_elevation': f'{rel_paths["bundle"]}: elev (5 arcmin mean cell elevation used by VIC)',
             'reference_elevation': f'{rel_paths["era5"]}: z / {G}, first-order conservative to the ISIMIP 0.5 degree '
@@ -467,6 +497,21 @@ def method_record(var, rel_paths):
                                'at the saturated vapour pressure of the corrected tair with the VIC 5 svp formula '
                                '(0.61078 exp(17.269 T / (237.3 + T)) kPa, ice factor below 0 degC), as VIC applies '
                                'when reading forcing (drivers/image/src/vic_force.c)'}
+    if var == 'lwdown':
+        m['corrections'] = {'lwdown': {
+            'decision': 'D16, option A (user, 2026-10-01), docs/decisions/D16-lwdown-elevation-correction.md',
+            'formula': 'lwdown = R * rlds_bil, R = eps(T1, e1) T1^4 / (eps(T0, e0) T0^4)',
+            'emissivity': 'eps(T, e) = 1.08 (1 - exp(-e^(T / 2016))), T in K, e in hPa (Satterlund 1979)',
+            'level_0p5deg': 'T0 = tas block-replicated [K]; e0 = min(r / (0.622 + r) * ps_rep, svp(T0)) [hPa], r from '
+                            'bilinear huss: the vp method at the 0.5 degree level, capped like vp so that R = 1 '
+                            'where dz = 0',
+            'level_5arcmin': 'T1 = corrected tair [K], e1 = vp [hPa] (capped at saturation), as written to the tair '
+                             'and vp units',
+            'horizontal': 'rlds bilinear as in method 1.0; R = 1 where dz = 0',
+            'references': ['Cosgrove et al. (2003), J. Geophys. Res. 108(D22), 8842, doi:10.1029/2002JD003118, eq. 15',
+                           'Weedon et al. (2010), WATCH Technical Report 22, eqs. 30-32',
+                           'Satterlund (1979), Water Resour. Res. 15(6), 1649-1650, doi:10.1029/WR015i006p01649',
+                           'Cucchi et al. (2020), Earth Syst. Sci. Data 12, 2097-2120 (WFDE5)']}}
     conv = {'tair': 'K -> degC (- 273.15)', 'prec': 'kg m-2 s-1 -> mm/day (* 86400)', 'psurf': 'Pa -> kPa (/ 1000)',
             'vp': 'Pa -> kPa (/ 1000)', 'swdown': 'none', 'lwdown': 'none', 'wind': 'none'}
     m['unit_conversion'] = conv[var]
@@ -517,11 +562,13 @@ def main():
     ap.add_argument('--alias', required=True, help='climate-scenario input alias, e.g. esm-hist')
     ap.add_argument('--years', required=True, help='single year or START-END')
     ap.add_argument('--variables', default=None,
-                    help='comma-separated VIC variables (default: all; lwdown only with --scratch while D16 is open)')
+                    help='comma-separated VIC variables (default: all)')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--processes', type=int, default=None, help='parallel workers (default: one per variable)')
     ap.add_argument('--scratch', action='store_true', help=f'test run: write under {SCRATCH}/ even from a clean repository')
+    ap.add_argument('--scratch-label', default=None,
+                    help=f'with --scratch: write under {SCRATCH}/runs/<label>/ (lowercase words joined by hyphens)')
     a = ap.parse_args(); t0 = time.time(); W = workdir()
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
     commit, dirty = git_state(); to_scratch = dirty or a.scratch
@@ -529,7 +576,10 @@ def main():
     if to_scratch:
         print(f'{"repository is not clean" if dirty else "--scratch"}: writing under {W}/{SCRATCH}/ (not forcing units)',
               file=sys.stderr)
-    base = f'{W}/{SCRATCH}' if to_scratch else f'{W}/forcing/climate'
+    if a.scratch_label and not (to_scratch and re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', a.scratch_label)):
+        raise SystemExit('--scratch-label needs a scratch run and lowercase words joined by hyphens')
+    base = (f'{W}/{SCRATCH}' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')) if to_scratch \
+        else f'{W}/forcing/climate'
     unit = {v: f'climate/{a.gcm}/{a.alias}/{v}' for v in variables}
     out_dir = {v: f'{base}/{a.gcm}/{a.alias}/{v}' if to_scratch else f'{W}/forcing/{unit[v]}' for v in variables}
 
@@ -644,7 +694,8 @@ def main():
             'years': f'{yrs[0]}-{yrs[-1]}' if yrs else None,
             'rebuild_command': f'python3 {CREATED_BY} --gcm {a.gcm} --alias {a.alias} --variables {v} '
                                f'--years {yrs[0]}-{yrs[-1]} --parameter-set {a.parameter_set} '
-                               f'--parameter-status {a.parameter_status}' + (' --scratch' if a.scratch else ''),
+                               f'--parameter-status {a.parameter_status}' + (' --scratch' if a.scratch else '')
+                               + (f' --scratch-label {a.scratch_label}' if a.scratch_label else ''),
             'caches': [],
             'files': files,
             'qc': {'status': 'not_checked', 'evidence': qc_evidence}}

@@ -13,9 +13,9 @@ read by `05_simulation`.
 | `verify_forcing.py` | independent verification (own code path, cdo for the remapping of sample days); writes `qc/forcing/climate/<gcm>/<alias>/<variable>/{summary.json,reports/,figures/}` and sets `qc.status` in `provenance.yaml` |
 | `climate_forcing.sbatch` | Slurm job template (producer, then verifier) |
 | `submit_climate_forcing.py` | renders the template, submits on hold, writes the job record `logs/04_forcing/<job-name>_<slurm-job-id>/{job.sbatch,job.yaml}`, releases the job |
-| `../../../tests/unit/test_climate_downscaling.py` | unit tests (grid relation, bilinear and conservative remapping against cdo, physics, time axis, variable selection) |
+| `../../../tests/unit/test_climate_downscaling.py` | unit tests (grid relation, bilinear and conservative remapping against cdo, physics including the `lwdown` ratio against an independent implementation, time axis, variable selection) |
 
-## Method (version 1.0)
+## Method (version 1.1)
 
 The VIC 5′ grid is an exact 6 × 6 subdivision of the ISIMIP 0.5° grid; the
 producer derives this from the coordinates and stops otherwise. ISIMIP
@@ -30,7 +30,7 @@ position.
 | `psurf` | kPa | `ps`, `tas`, `huss` | replication of `ps`; hypsometric equation over dz with the mean virtual temperature T(1 + 0.61 r) of both levels; ÷ 1000 |
 | `vp` | kPa | `huss`, `ps`, `tas` | r / (0.622 + r) × psurf, r = q / (1 − q) from bilinear `huss` (mixing ratio constant with height), capped at svp(`tair`) with VIC's svp formula |
 | `swdown` | W m-2 | `rsds` | bilinear |
-| `lwdown` | W m-2 | `rlds` | bilinear; **scratch only while D16 is open** |
+| `lwdown` | W m-2 | `rlds`, `tas`, `ps`, `huss` | R × bilinear `rlds`, R = ε(T₁, e₁) T₁⁴ / (ε(T₀, e₀) T₀⁴), ε(T, e) = 1.08 (1 − exp(−e^(T/2016))) with T in K and e in hPa (Satterlund 1979; Cosgrove et al. 2003, eq. 15; WATCH/WFDE5); level 0: replicated `tas` and e₀ = min(e(r, replicated `ps`), svp(`tas`)), the `vp` method without elevation change; level 1: the written `tair` and `vp`; R = 1 where dz = 0 (D16) |
 | `wind` | m s-1 | `sfcwind` | bilinear |
 
 - dz = `elev` of the parameter bundle (5′ mean cell elevation, the one VIC
@@ -83,7 +83,9 @@ every variable instead of the HydroSHEDS mask for four variables and the DEM
 extent for three; no `REMAP_EXTRAPOLATE`, `setmisstonn`, or `setmisstodis`;
 no weight files (the remapping weights follow from the exact subdivision and
 are checked against cdo); Rd/g = 29.27 m/K instead of 29.3; `prec` in
-`mm/day`; explicit calendar, time axis, lat/lon, chunking, and provenance.
+`mm/day`; `vp` capped at saturation; `lwdown` elevation-corrected with the
+WFDE5 ratio method (the 5′ reference interpolated it only); explicit
+calendar, time axis, lat/lon, chunking, and provenance.
 
 ## Inputs
 
@@ -114,7 +116,9 @@ python3 workflow/04_forcing/climate/submit_climate_forcing.py --gcm ec-earth3-es
 The producer runs one worker per variable; the verifier checks files in
 parallel. With `--scratch` or from a repository that is not clean, output
 goes to `scratch/climate-forcing/<gcm>/<alias>/<variable>/` with its QC in
-`qc/` next to it. Use `--scratch` for every test run.
+`qc/` next to it; `--scratch-label <label>` puts a test run under
+`scratch/climate-forcing/runs/<label>/` instead, so that it does not replace
+an earlier one. Use `--scratch` for every test run.
 
 An existing unit is never overwritten. Running the producer for years a unit
 does not contain extends it when the conditions in
@@ -129,8 +133,8 @@ is rewritten, with `qc.status: not_checked` until the verifier has run.
 
 - D08 (domain) and its amendment of 2026-09-30 (VIC cells outside the ISIMIP
   mask use their own 0.5° cell).
-- D16 (open): `lwdown` elevation correction; until decided, `lwdown` is
-  produced only with `--scratch`, and the unit is generated as a whole after
-  the decision.
+- D16 (decided 2026-10-01, `docs/decisions/D16-lwdown-elevation-correction.md`):
+  `lwdown` ratio correction, method 1.1. No unit was produced with 1.0, so
+  all seven units are produced with 1.1.
 - D01 (open) does not block the smoke-campaign climate units (user,
   2026-09-30).

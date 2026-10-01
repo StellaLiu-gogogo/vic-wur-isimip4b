@@ -23,7 +23,7 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 
 | Directory | Units | State |
 |---|---|---|
-| `climate/` | `forcing/climate/<gcm>/<input-alias>/<variable>/`, VIC variables `tair`, `prec`, `psurf`, `vp`, `swdown`, `lwdown`, `wind`; one file per year | producer, verifier, Slurm template and unit tests implemented (method 1.0); `lwdown` only to scratch while D16 is open |
+| `climate/` | `forcing/climate/<gcm>/<input-alias>/<variable>/`, VIC variables `tair`, `prec`, `psurf`, `vp`, `swdown`, `lwdown`, `wind`; one file per year | producer, verifier, Slurm template and unit tests implemented (method 1.1, `lwdown` elevation correction of D16) |
 | `landuse/` | `forcing/landuse/<soc-scenario>/`, 16-class annual coverage | producer and verifier implemented (method 1.2, D04) |
 | `water_use/` | `forcing/water_use/<soc-scenario>/` | blocked by D05 |
 

@@ -52,7 +52,7 @@ as accepted forcing while D01 is open (user, 2026-09-30).
 | D13 | Location and implementation of the backup procedure | - | first production object accepted | user | open |
 | D14 | Include the ensemble member in project identifiers | - | a second ensemble member is used | user | open |
 | D15 | Migration of the legacy `vic_global/isimip4b/` area into this project | - | approved 2026-09-29 | user | decided ([D15-legacy-migration.md](D15-legacy-migration.md)) |
-| D16 | Elevation correction of downward longwave radiation (`lwdown`) in the climate forcing, consistent with the lapse-rate correction of `tair` | 04_forcing | | user | open |
+| D16 | Elevation correction of downward longwave radiation (`lwdown`) in the climate forcing, consistent with the lapse-rate correction of `tair` | 04_forcing | | user | decided 2026-10-01 ([D16-lwdown-elevation-correction.md](D16-lwdown-elevation-correction.md)): option A, ratio method of Cosgrove et al. (2003) as in WATCH/WFDE5 |
 
 ## Context
 
@@ -118,11 +118,8 @@ its location requires a contract change.
 
 **D16 — `lwdown` elevation correction.** The climate forcing corrects `tair`,
 `psurf`, and `vp` from the ERA5 0.5° orography to the 5′ VIC cell
-elevation, but `lwdown` is only interpolated bilinearly, as in the WFDE5 5′
-reference method; at high elevations it is therefore too large for the
-corrected air temperature. The correction method (for example an
-emissivity-based adjustment to the corrected temperature and vapour
-pressure) is not yet chosen. While D16 is open, `lwdown` is produced only
-as a test output in `scratch/`, never as a forcing unit; once decided, the
-`lwdown` unit is generated as a whole with the chosen method (user,
-2026-09-30).
+elevation; method 1.0 only interpolated `lwdown` bilinearly. Decided
+2026-10-01: `lwdown` is scaled with the ratio of Satterlund clear-sky
+emission at the corrected and the 0.5° level (Cosgrove et al. 2003, as in
+WATCH/WFDE5); climate forcing method 1.1. Until then `lwdown` was produced
+only in `scratch/`.
