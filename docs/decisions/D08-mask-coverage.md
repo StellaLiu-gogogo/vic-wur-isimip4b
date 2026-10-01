@@ -76,8 +76,9 @@ fields.
 - `03_parameters`: no change to the domain component; the vegetation and
   other components are generated for the current domain only.
 - `04_forcing`: forcing units are downscaled for the current domain; the
-  VIC cells outside the mask take their 0.5° forcing from the nearest mask
-  cell (method to be fixed in the climate-downscaling design).
+  VIC cells outside the mask take the climate forcing of their own 0.5°
+  cell, which the ISIMIP4b climate files populate over the ocean as well
+  (amended 2026-09-30, see below).
 - `06_postprocessing` (D07): products are masked with
   `landseamask_water-global.nc`; the 3 310 uncovered cells are `1e+20`
   and are never filled from neighbours; `contfrac` and `landfrac` are
@@ -95,3 +96,18 @@ fields.
   files remain the reference list of uncovered cells, but no workflow
   stage reads them (a QC check must derive the list from the mask and the
   domain itself).
+
+## Amendment 2026-09-30: forcing of VIC cells outside the mask
+
+The first version of this record stated that the 11 328 active VIC cells
+outside the mask take their 0.5° forcing from the nearest mask cell. During
+the climate-forcing design (`workflow/04_forcing/climate/`) the user
+decided instead (2026-09-30) that they use the climate forcing of their own
+0.5° cell, i.e. the ISIMIP4b value over the ocean, without substitution.
+Evidence for EC-Earth3-ESM-1-1 `esm-hist` 2015 (own cell minus nearest mask
+cell, weighted by the number of VIC cells): annual-mean `tas` +0.26 °C
+(mean absolute 0.36 °C, extremes −3.9 to +4.8 °C), `pr` −0.14 mm/day,
+`sfcwind` +0.64 m/s, `rsds` +2.0 W m⁻²; distance to the nearest mask cell
+median 54 km, maximum 1 069 km. The same values also enter the bilinear
+interpolation of coastal VIC cells inside the mask. The decision itself
+(option (a)) is unchanged.

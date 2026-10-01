@@ -3,8 +3,9 @@ status: candidate
 adopted: true
 description: >-
   VIC-WUR global 5 arcmin parameter set adopted from the sibling vic_coupled
-  and vic_parameter projects. Only the domain component is present; the
-  vegetation component is added when decisions D01 and D04 are taken.
+  and vic_parameter projects. Present: the domain and the assembled natural
+  static parameter bundle (soil, vegetation, snow bands); the land-use
+  vegetation component with the full union of tiles (D04) is still to come.
 location: parameters/candidates/vic-global-5arcmin-version-a/
 adopted_on: 2026-09-29
 components:
@@ -17,5 +18,32 @@ components:
         md5: 8a50b807b83db364a3db0d23e1ed3849
     verification: md5 of the copy equals md5 of the source (2026-09-29)
     qc_status: not_checked
+  bundle:
+    description: >-
+      Assembled VIC image-driver parameter file (soil SoilGrids2 continuous
+      Cosby v10, root variant Root-B Zeng 2001, vegetation VIC-14 static with
+      the static/dynamic 2003-2022 tile union, snow bands from the HydroSHEDS
+      30 arcsec DEM). Its elev variable is the target elevation of the climate
+      forcing (workflow/04_forcing/climate/). The copy was renamed because
+      version-like tokens are not allowed in the workdir; content unchanged.
+    source: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/outputs/natural/bundles/v3/vic_global_5min_natural_static_soil-v10_root-b-zeng2001_v3.nc
+    source_build_report: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/outputs/natural/bundles/v3/build_report_root-b_v3.json
+    source_mtime: 2026-08-22
+    adopted_on: 2026-09-30
+    files:
+      - path: bundle/vic_global_5min_natural_static_root-b-zeng2001.nc
+        size_bytes: 2085769070
+        md5: e5cf464691020bc5ac40a293a13e3eef
+    verification: >-
+      md5 of the copy equals md5 of the source and the output_md5 of the
+      source build report (2026-09-30); lat and lon equal the domain file
+      exactly; run_cell equals the domain mask (2 188 551 cells)
+    notes: >-
+      The source file carries the global attributes
+      not_authorized_for_global_production = "true" and
+      product_stage = "image_driver_smoke_candidate". Its vegetation has 14
+      VIC classes, whereas the land-use forcing (04_forcing/landuse) has 16;
+      a run that combines both must resolve this first.
+    qc_status: not_checked
   vegetation:
-    status: deferred until D01 and D04 are decided
+    status: land-use vegetation with the full tile union (D04) deferred until D01 is frozen

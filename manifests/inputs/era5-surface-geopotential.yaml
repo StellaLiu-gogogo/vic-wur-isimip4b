@@ -1,0 +1,36 @@
+dataset_id: era5-surface-geopotential
+version: cds-2026-09-30
+source: >-
+  Copernicus Climate Data Store, dataset reanalysis-era5-single-levels
+  (https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels),
+  downloaded manually through the web form by the user on 2026-09-30
+request:
+  product_type: reanalysis
+  variable: geopotential
+  date: 2015-01-01
+  time: "00:00"
+  area: whole available region
+  data_format: netcdf
+  download_format: unarchived
+description: >-
+  ERA5 surface geopotential (GRIB paramId 129, invariant in time) on the native
+  0.25 degree regular grid (721 x 1440, latitude 90 to -90, longitude 0 to
+  359.75), converted from GRIB to NetCDF by the CDS (cfgrib 0.9.15.1, ecCodes
+  2.48.2). Used by workflow/04_forcing/climate/ as the reference elevation of the
+  ISIMIP4b 0.5 degree bias-adjusted climate (surface height = z / 9.80665,
+  first-order conservative remapping to the ISIMIP grid). The file name is kept
+  as delivered by the CDS.
+location: raw/external/era5-surface-geopotential/cds-2026-09-30/
+acquired: 2026-09-30
+licence: Licence to use Copernicus products
+verification: >-
+  md5 of the copy equals md5 of the downloaded file; the remapped 0.5 degree
+  height matches the elevation implied by ISIMIP4b EC-Earth3-ESM-1-1 esm-hist
+  2015 mean surface pressure with RMSE 28 m over the 66 642 0.5 degree cells
+  that contain active VIC cells (WFDE5 CRU elevation: 66 m).
+status: accepted
+files:
+  - path: 6a36300ce2ed8bb87d44c30f32304dcd.nc
+    size_bytes: 2633076
+    md5: ba1baf30a1ef204e02d4b1420d61c588
+    sha256: fb6ff7651d5d88afb02999ead734c3c27df81692a2604d4c62c4a6053f2057b0

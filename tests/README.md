@@ -11,6 +11,12 @@ Recommended structure:
 - `smoke/`: a minimal end-to-end workflow using a small spatial and temporal subset.
 - `fixtures/`: small, version-controlled test inputs with documented origins.
 
+Unit tests use the standard-library `unittest` module (no extra package) and run in the `isimip4b` environment from the repository root:
+
+```bash
+python -m unittest discover -s tests/unit -v
+```
+
 Tests must not depend on full production datasets unless explicitly marked and documented. Large NetCDF files, model output, caches, and temporary test products do not belong in this repository.
 
 A production workflow change should include tests proportional to its scientific and operational risk. Tests must verify failure behavior as well as successful behavior.

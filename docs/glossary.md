@@ -284,8 +284,10 @@ VIC-ready time-dependent input derived from raw data, stored under
 ### Forcing unit — project
 
 One leaf directory under `workdir/forcing/`, e.g.
-`climate/ec-earth3-esm-1-1/esm-hist/pr/` or `landuse/histsoc/`, generated
-and accepted as a whole. Its `provenance.yaml` records how it was made and
+`climate/ec-earth3-esm-1-1/esm-hist/prec/` or `landuse/histsoc/`, generated
+and accepted as a whole (a unit of yearly files may be extended with new
+years under the conditions in `directory-contracts.md`, `forcing/`). Its
+`provenance.yaml` records how it was made and
 its QC status; it is **accepted** when that record shows `code_dirty: false`
 and `qc.status: passed` (see `directory-contracts.md`, `forcing/`).
 

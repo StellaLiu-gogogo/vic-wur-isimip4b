@@ -581,7 +581,7 @@ up and does not take part in delivery. Who may delete a cache is defined in
   created the cache, e.g. `04_forcing`.
 - `<cache-id>` uses lowercase letters, digits, hyphens, and underscores, and
   describes the transformation and target, e.g.
-  `climate-regridding_ec-earth3-esm-1-1_esm-hist_pr`. It must not contain a
+  `climate-regridding_ec-earth3-esm-1-1_esm-hist_prec`. It must not contain a
   version label or a manual date.
 
 #### Producers
@@ -617,11 +617,11 @@ up and does not take part in delivery. Who may delete a cache is defined in
 #### `cache.yaml`
 
 ```yaml
-cache_id: climate-regridding_ec-earth3-esm-1-1_esm-hist_pr
+cache_id: climate-regridding_ec-earth3-esm-1-1_esm-hist_prec
 cache_fingerprint: <sha256>
 
 producer_stage: 04_forcing
-created_by: workflow/04_forcing/climate/regrid_climate.py
+created_by: workflow/04_forcing/climate/downscale_climate.py
 code_commit: 0123456789abcdef0123456789abcdef01234567
 code_dirty: false
 created_at: 2026-09-28T14:30:00Z
@@ -632,13 +632,13 @@ inputs:
   - raw/ISIMIP4b/InputData/...
 
 rebuild_command: >-
-  python3 workflow/04_forcing/climate/regrid_climate.py
+  python3 workflow/04_forcing/climate/downscale_climate.py
   --manifest manifests/inputs/example.yaml
 
 campaign_config: configs/campaigns/example.yaml
 
 final_destination:
-  - forcing/climate/ec-earth3-esm-1-1/esm-hist/pr
+  - forcing/climate/ec-earth3-esm-1-1/esm-hist/prec
 ```
 
 | Key | Requirement |
@@ -726,8 +726,13 @@ parameters/
         └── <component>/
 ```
 
-Valid components include those implemented under
-`workflow/03_parameters/`. Promotion from `candidates/` to `production/` must
+Valid components are those implemented under `workflow/03_parameters/`
+and `bundle`. A `bundle` component holds an adopted, already assembled VIC
+image-driver parameter file that combines several components (soil,
+vegetation, snow bands) in one file; it is used until `03_parameters`
+assembles its own. Files copied into a parameter set follow the workdir
+naming rules; when an upstream name contains a version-like token, the copy
+is renamed and the manifest records the source path and name. Promotion from `candidates/` to `production/` must
 be explicit, reproducible, and supported by quality-control evidence and an
 accepted parameter manifest.
 
@@ -761,9 +766,9 @@ forcing/
 Examples:
 
 ```text
-forcing/climate/ec-earth3-esm-1-1/esm-picontrol/pr/
-forcing/climate/ec-earth3-esm-1-1/esm-hist/tas/
-forcing/climate/ukesm1-3-ll/esm-hist/pr/
+forcing/climate/ec-earth3-esm-1-1/esm-picontrol/prec/
+forcing/climate/ec-earth3-esm-1-1/esm-hist/tair/
+forcing/climate/ukesm1-3-ll/esm-hist/prec/
 forcing/landuse/histsoc/
 forcing/landuse/ssp3hsoc-noadapt/
 ```
@@ -774,6 +779,11 @@ Rules:
   `water_use`);
 - climate forcing is organized by GCM, then climate-scenario input alias as
   used in the DKRZ path (e.g. `esm-hist`, see `glossary.md`), then variable;
+- the climate variable level uses the VIC-WUR forcing variable names `tair`,
+  `prec`, `psurf`, `vp`, `swdown`, `lwdown`, and `wind`, because the products
+  are VIC variables and `vp` has no ISIMIP counterpart; the ISIMIP source
+  variables of each unit are recorded in its `provenance.yaml`
+  (`method.source_variables`);
 - DHF forcing is organized by soc scenario;
 - use official lowercase identifiers;
 - apply the same dimension order to every GCM and scenario;
@@ -797,8 +807,8 @@ Every forcing unit contains a `provenance.yaml` written by the workflow code
 that generated it, next to the data files:
 
 ```yaml
-forcing_unit: climate/ec-earth3-esm-1-1/esm-hist/pr
-created_by: workflow/04_forcing/climate/regrid_climate.py
+forcing_unit: climate/ec-earth3-esm-1-1/esm-hist/prec
+created_by: workflow/04_forcing/climate/downscale_climate.py
 code_commit: 0123456789abcdef0123456789abcdef01234567
 code_dirty: false
 created_at: 2026-10-05T09:12:00Z
@@ -807,13 +817,14 @@ inputs:
   - raw/ISIMIP4b/InputData/climate/atmosphere/...
 method:
   target_grid: vic-5arcmin
+  source_variables: [pr]
   interpolation: conservative
   mask: <mask identifier>
 caches:
   - intermediate/04_forcing/<cache-id>
 qc:
   status: not_checked
-  evidence: qc/forcing/climate/ec-earth3-esm-1-1/esm-hist/pr
+  evidence: qc/forcing/climate/ec-earth3-esm-1-1/esm-hist/prec
 ```
 
 | Key | Requirement |
@@ -837,6 +848,29 @@ unit completely, including its `provenance.yaml`, before it replaces the old
 one, and replacing an accepted unit requires user authorization as defined in
 [Deletion permissions](#deletion-permissions). Data files in a unit are never
 edited in place.
+
+A unit made of one file per year may instead be **extended** with years it
+does not yet contain, without regenerating it, when all of the following
+hold (checked by the producer, which stops otherwise):
+
+1. the fingerprint of the producing code is unchanged: the Git tree hashes of
+   the producer's directory under `workflow/` and of `workflow/common/`, and
+   the method version declared by the producer, equal the values recorded in
+   `provenance.yaml`, and the repository is clean;
+2. every input used by the existing files that is used again (static inputs
+   such as the domain, parameter files, and reference datasets, and source
+   files shared with existing years) has the SHA-256 recorded in
+   `provenance.yaml`, and every new source file matches its input manifest;
+3. the versions of the key software recorded in `provenance.yaml` are
+   unchanged.
+
+Existing data files are not touched, not even rewritten with identical
+content. The producer verifies their recorded SHA-256 before adding files,
+writes the new files completely, and then rewrites `provenance.yaml`, the
+only file of the unit that changes, with one entry per data file (year,
+size, SHA-256, `created_at`, `code_commit`) and `qc.status: not_checked`,
+until quality-control code has checked the extended unit. Extending an
+accepted unit requires user authorization.
 
 The same global attributes (`code_commit`, `created_by`, `created_at`,
 `forcing_unit`) are also written into every NetCDF file of the unit, so that
@@ -944,7 +978,7 @@ path, so it can never collide and always shows what was checked:
 ```text
 qc/runs/fasttrack/ec-earth3-esm-1-1_historical_histsoc_default_historical/
 qc/runs/smoke/ec-earth3-esm-1-1_historical_histsoc_default_historical__rhine-3yr/
-qc/forcing/climate/ec-earth3-esm-1-1/esm-hist/pr/
+qc/forcing/climate/ec-earth3-esm-1-1/esm-hist/prec/
 qc/parameters/production/<parameter-set-id>/
 qc/intermediate/04_forcing/<cache-id>/
 ```

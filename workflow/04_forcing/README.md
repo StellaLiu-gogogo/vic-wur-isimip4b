@@ -19,6 +19,16 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 - Processing logs under `workdir/logs/04_forcing/`.
 - Coverage, continuity, range, unit, and metadata checks under `workdir/qc/forcing/`.
 
+## Forcing families
+
+| Directory | Units | State |
+|---|---|---|
+| `climate/` | `forcing/climate/<gcm>/<input-alias>/<variable>/`, VIC variables `tair`, `prec`, `psurf`, `vp`, `swdown`, `lwdown`, `wind`; one file per year | producer, verifier, Slurm template and unit tests implemented (method 1.0); `lwdown` only to scratch while D16 is open |
+| `landuse/` | `forcing/landuse/<soc-scenario>/`, 16-class annual coverage | producer and verifier implemented (method 1.2, D04) |
+| `water_use/` | `forcing/water_use/<soc-scenario>/` | blocked by D05 |
+
+Each family README lists its inputs, method, and commands.
+
 ## Allowed content
 
 - Forcing conversion and validation source code.
