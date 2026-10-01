@@ -13,11 +13,12 @@ Pass criteria per file: max |sum(Cv) - 1| <= 1e-6 on active cells, no negative o
 inactive values, conservation error <= 1e-3 km2 for every parent within capacity, and no area allocated where
 the target is zero.
 
-Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--unit-dir DIR]
+Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--unit-dir DIR] [--processes N]
   --unit-dir overrides the unit location (for outputs written to scratch by a dirty repository); results then
   go to <unit-dir>/qc/ and provenance is not updated.
 """
 import argparse, datetime, json, os, sys
+from multiprocessing import get_context
 
 import numpy as np
 import netCDF4 as nc
@@ -94,6 +95,11 @@ def verify_file(fn, scen, f_dom, out_reports, out_figs):
     return yr, res['status']
 
 
+def verify_one(job):
+    yr, st = verify_file(*job); print(f'{os.path.basename(job[0])}: {st}', flush=True)
+    return yr, st
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--scenario', required=True, choices=list(FILES))
@@ -101,6 +107,7 @@ def main():
     ap.add_argument('--unit-dir', default=None, help='verify outputs in this directory instead of the forcing unit')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
+    ap.add_argument('--processes', type=int, default=1, help='files verified in parallel (about 5 GB each)')
     a = ap.parse_args()
     unit = f'landuse/{a.scenario}'; unit_dir = a.unit_dir or f'{WORKDIR}/forcing/{unit}'
     qc = f'{unit_dir}/qc' if a.unit_dir else f'{WORKDIR}/qc/forcing/{unit}'
@@ -111,8 +118,13 @@ def main():
         y = a.years.split('-'); want = set(range(int(y[0]), int(y[-1]) + 1))
         files = [f for f in files if int(f[:-3].rsplit('_', 1)[1]) in want]
     if not files: raise SystemExit(f'no coverage files in {unit_dir}')
-    for f in files:
-        yr, st = verify_file(f'{unit_dir}/{f}', a.scenario, f_dom, reports, figs); print(f'{f}: {st}', flush=True)
+    jobs = [(f'{unit_dir}/{f}', a.scenario, f_dom, reports, figs) for f in files]
+    nproc = max(1, min(a.processes, len(jobs)))
+    if nproc == 1:
+        done = [verify_one(j) for j in jobs]
+    else:
+        with get_context('fork').Pool(nproc) as pool:
+            done = pool.map(verify_one, jobs, chunksize=1)
     # unit summary from every verify_<year>.json present
     all_files = sorted(f for f in os.listdir(unit_dir) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc'))
     per_year = {}

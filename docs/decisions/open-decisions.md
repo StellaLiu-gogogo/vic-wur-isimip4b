@@ -8,13 +8,17 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-09-30.
+Last reviewed: 2026-10-01.
 
 D05 is being handled outside this session by another agent (user, 2026-09-29).
 
 D01 does not block the climate forcing units of the smoke campaign: the user
 allowed producing the EC-Earth3-ESM-1-1 `esm-hist` 2011–2020 climate units
-as accepted forcing while D01 is open (user, 2026-09-30).
+as accepted forcing while D01 is open (user, 2026-09-30). The same holds
+for the land-use forcing units of all five soc scenarios (`histsoc`,
+`1850soc`, `2021soc`, `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`): they do not
+depend on the VIC commit and may be accepted while D01 is open (user,
+2026-10-01).
 
 ## How to use this list
 

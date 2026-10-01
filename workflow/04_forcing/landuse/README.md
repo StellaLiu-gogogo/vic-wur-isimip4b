@@ -9,6 +9,8 @@ contract), one forcing unit per soc scenario under
 |---|---|
 | `isimip_landuse_to_vic_annual.py` | producer: allocation (joint order-free water-filling, fallback chains, single-child rule, natural remainder by the VIC 2003–2022 mean composition), writes `coverage_<soc>_<year>.nc`, `provenance.yaml`, and per-year ledger and QA JSON under `qc/forcing/landuse/<soc>/reports/` |
 | `verify_forcing.py` | independent verification with its own code path; writes `verify_<year>.{json,png}` and `summary.json` under `qc/forcing/landuse/<soc>/` and sets `qc.status` in the unit's `provenance.yaml` (`passed` only when every file of the unit passes) |
+| `landuse_forcing.sbatch` | Slurm template: producer, then verifier, in one job |
+| `submit_landuse_forcing.py` | renders the template, submits it on hold, writes the job record `logs/04_forcing/<job-name>_<slurm-job-id>/` (`job.sbatch`, `job.yaml`, scheduler output), releases the job |
 
 Method version `1.2` is recorded in every file; bump `METHOD_VERSION` when
 results change for identical inputs. Version 1.2 applies D04: every fallback
@@ -28,26 +30,36 @@ exists.
 
 ## Running
 
+A unit is produced and verified by one Slurm job per soc scenario; years are converted in parallel, one
+process per year (about 2 min and 6 GB per year on one core; the result does not depend on the number of
+processes):
+
 ```bash
 export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
-python3 workflow/04_forcing/landuse/isimip_landuse_to_vic_annual.py --scenario histsoc --years 1850-2021
-python3 workflow/04_forcing/landuse/verify_forcing.py --scenario histsoc
+export PYTHONPATH=$PWD/workflow
+python3 workflow/04_forcing/landuse/submit_landuse_forcing.py --scenario histsoc --years 1850-2021
+python3 workflow/04_forcing/landuse/submit_landuse_forcing.py --scenario histsoc --years 2015-2016 --scratch --scratch-label test
 ```
 
-About 2 min per year on a login node (one core, ≈6 GB); full histsoc
-(172 years) belongs in a Slurm job with a job record under
-`logs/04_forcing/` (template to be added with the first production run).
+`--processes` (default 16) sets the parallel years and `--mem` defaults to 7 GB per process; `--dry-run`
+prints the rendered job. The producer and verifier can also be run directly with the same arguments
+(`--processes N` on both).
+
+A unit is generated as a whole: the producer refuses to write into an existing, non-empty
+`forcing/landuse/<soc>/`; replacing an accepted unit needs the user's authorization. Coverage files are
+written under a temporary name and renamed when complete; `provenance.yaml` is written last.
 
 If the repository is not clean, or with `--scratch`, the producer writes to
-`scratch/landuse-converter/<soc>/` instead of the forcing unit (and records
-`code_dirty: true` when not clean); verify such output with `--unit-dir`.
-Use `--scratch` for every test run so that no test ever lands in
-`forcing/`.
+`scratch/landuse-converter/<soc>/` (with `--scratch-label L`: `scratch/landuse-converter/runs/L/<soc>/`)
+instead of the forcing unit (and records `code_dirty: true` when not clean); the submit script then points
+the verifier at that directory with `--unit-dir`. Use `--scratch` for every test run so that no test ever
+lands in `forcing/`.
 
 ## Decisions
 
 D04 (decided 2026-09-30, `docs/decisions/D04-landuse-harmonization.md`) is
 implemented here: single child for every fallback parent, `rice_rainfed` in
 class 12, `*_bf` merged into the rainfed and irrigated sums, ISIMIP paddy
-area accepted. D01 (model commit) is provisional; a unit is promoted for
-production only after D01 is frozen.
+area accepted. D01 (model commit) is provisional; the land-use units do not
+depend on it and may be accepted while it is open (user, 2026-10-01; see
+`docs/decisions/open-decisions.md`).

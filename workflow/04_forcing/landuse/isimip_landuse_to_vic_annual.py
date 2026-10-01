@@ -37,14 +37,21 @@ Outputs:
       intermediate cache once workflow/common/cache.py exists)
 Rule 14 of the contract: accepted forcing is produced only from a clean repository. If the repository is
 not clean, everything is written under scratch/landuse-converter/<soc>/ instead and provenance records
-code_dirty: true.
+code_dirty: true. A forcing unit is generated as a whole: the producer refuses to write into an existing
+forcing/landuse/<soc>/ (replacing an accepted unit needs the user's authorization; move it away first).
+Years are converted in parallel with --processes (one year per process, about 6 GB each); the result does
+not depend on the number of processes.
 
 Usage: isimip_landuse_to_vic_annual.py --scenario histsoc --years 1850-2021 [--parameter-set ID]
-       [--parameter-status candidates|production] [--small inf] [--union-mask file.nc] [--max-iter 60] [--scratch]
+       [--parameter-status candidates|production] [--small inf] [--union-mask file.nc] [--max-iter 60]
+       [--processes N] [--scratch [--scratch-label LABEL]]
+  --scratch-label puts a test run under scratch/landuse-converter/runs/<LABEL>/<soc>/ so that it does not
+  replace another test run.
 D04 (docs/decisions/D04-landuse-harmonization.md): every fallback parent uses a single child (--small inf,
 the default); rice_rainfed and the *_bf bioenergy variables are part of the rainfed/irrigated sums.
 """
-import argparse, datetime, hashlib, json, os, subprocess, sys, time
+import argparse, datetime, hashlib, json, os, re, subprocess, sys, time
+from multiprocessing import get_context
 
 import numpy as np
 import netCDF4 as nc
@@ -252,6 +259,24 @@ def write_coverage(fn, Cv, vlat, vlon, scen, year, attrs):
     o.close()
 
 
+# set by main() before the worker processes are forked; read-only in the workers
+_JOB = {}
+
+
+def produce_year(year):
+    """Convert, write, and record one year (runs in a worker process); returns (year, runtime_s, closure)."""
+    j = _JOB; a = j['args']
+    Cv, qa, ledger = convert_year(a.scenario, year, j['P'], j['grid'], a, j['f15'], j['furb'])
+    fn = f"{j['out']}/coverage_{a.scenario}_{year}.nc"
+    write_coverage(fn + '.part', Cv, j['grid'][0], j['grid'][1], a.scenario, year, j['attrs'])
+    os.replace(fn + '.part', fn)   # a file under its final name is always complete
+    with open(f"{j['qcdir']}/ledger_{year}.csv", 'w') as fh:
+        fh.write('parent_row,parent_col,lat,lon,class,target_km2,allocated_km2,unplaced_km2,fallback_level,single_child\n' + '\n'.join(ledger) + '\n')
+    json.dump(qa, open(f"{j['qcdir']}/qa_{year}.json", 'w'), indent=1)
+    print(f'{a.scenario} {year}: {qa["runtime_s"]:.0f} s, closure {qa["closure"]["max_abs_sum_minus_1_active"]:.1e}', flush=True)
+    return year, qa['runtime_s'], qa['closure']['max_abs_sum_minus_1_active']
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--scenario', required=True, choices=list(SCEN), help='ISIMIP soc-scenario specifier')
@@ -262,17 +287,29 @@ def main():
                     help='single-child threshold on parent share; inf (default, D04) = every fallback parent')
     ap.add_argument('--union-mask', default=None, help='optional NetCDF with class_union_bits(lat,lon); coverage>0 outside it aborts')
     ap.add_argument('--max-iter', type=int, default=60)
+    ap.add_argument('--processes', type=int, default=1, help='years converted in parallel (about 6 GB each)')
     ap.add_argument('--scratch', action='store_true',
                     help='test run: write under scratch/landuse-converter/ even from a clean repository')
+    ap.add_argument('--scratch-label', default=None,
+                    help='with --scratch: write under scratch/landuse-converter/runs/<LABEL>/<soc>/')
     a = ap.parse_args(); t0 = time.time()
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
+    y0 = SCEN[a.scenario][2]; y1 = 2021 if y0 == 1850 else 2100
+    if years[0] < y0 or years[-1] > y1:
+        raise SystemExit(f'{a.scenario} covers {y0}-{y1}, not {a.years}')
     commit, dirty = git_state()
     unit = f'landuse/{a.scenario}'
     to_scratch = dirty or a.scratch
-    out = f'{WORKDIR}/forcing/{unit}' if not to_scratch else f'{WORKDIR}/scratch/landuse-converter/{a.scenario}'
+    if a.scratch_label and not (a.scratch and re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', a.scratch_label)):
+        raise SystemExit('--scratch-label needs --scratch and lowercase words joined by hyphens')
+    sbase = f'{WORKDIR}/scratch/landuse-converter' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')
+    out = f'{WORKDIR}/forcing/{unit}' if not to_scratch else f'{sbase}/{a.scenario}'
     qcdir = f'{WORKDIR}/qc/forcing/{unit}/reports' if not to_scratch else f'{out}/qc'
     if to_scratch:
         print(f'{"repository is not clean" if dirty else "--scratch"}: writing to {out} (not a forcing unit)', file=sys.stderr)
+    elif os.path.exists(out) and os.listdir(out):
+        raise SystemExit(f'{out} exists and is not empty: a forcing unit is generated as a whole and an existing '
+                         f'unit is replaced only with the user\'s authorization (move it away first)')
     os.makedirs(out, exist_ok=True); os.makedirs(qcdir, exist_ok=True)
     f15, furb, _ = SCEN[a.scenario]; f15 = f'{RAW}/{f15}'; furb = f'{RAW}/{furb}'
     f_dom = f'{WORKDIR}/parameters/{a.parameter_status}/{a.parameter_set}/domain/vic_global_5min_domain_nogl.nc'
@@ -285,13 +322,14 @@ def main():
              'forcing_unit': unit, 'method_version': METHOD_VERSION,
              'source_isimip': f'{os.path.relpath(f15, WORKDIR)}; {os.path.relpath(furb, WORKDIR)}',
              'source_weights': 'raw/external/vic-coverage-version-a/5 (2003-2022 mean class pattern)'}
-    for year in years:
-        Cv, qa, ledger = convert_year(a.scenario, year, P, (vlat, vlon, mask), a, f15, furb)
-        write_coverage(f'{out}/coverage_{a.scenario}_{year}.nc', Cv, vlat, vlon, a.scenario, year, attrs)
-        with open(f'{qcdir}/ledger_{year}.csv', 'w') as fh:
-            fh.write('parent_row,parent_col,lat,lon,class,target_km2,allocated_km2,unplaced_km2,fallback_level,single_child\n' + '\n'.join(ledger) + '\n')
-        json.dump(qa, open(f'{qcdir}/qa_{year}.json', 'w'), indent=1)
-        print(f'{a.scenario} {year}: {qa["runtime_s"]:.0f} s, closure {qa["closure"]["max_abs_sum_minus_1_active"]:.1e}', flush=True)
+    _JOB.update(args=a, P=P, grid=(vlat, vlon, mask), f15=f15, furb=furb, out=out, qcdir=qcdir, attrs=attrs)
+    nproc = max(1, min(a.processes, len(years)))
+    if nproc == 1:
+        done = [produce_year(yy) for yy in years]
+    else:
+        with get_context('fork').Pool(nproc) as pool:
+            done = pool.map(produce_year, years, chunksize=1)
+    print(f'{len(done)} year(s), {nproc} process(es), {sum(d[1] for d in done) / len(done):.0f} s per year', flush=True)
     # ---------------- provenance of the whole unit (all coverage files present)
     files = sorted(f for f in os.listdir(out) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc'))
     prov = {
@@ -304,11 +342,13 @@ def main():
                    'weights': 'VIC coverage 2003-2022 mean class pattern', 'single_child_threshold': a.small,
                    'union_mask': os.path.relpath(a.union_mask, WORKDIR) if a.union_mask else None, 'max_iter': a.max_iter,
                    'parameter_set': f'{a.parameter_status}/{a.parameter_set}'},
-        'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario} --years {years[0]}-{years[-1]} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status} --small {a.small}',
+        'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario} --years {years[0]}-{years[-1]} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status} --small {a.small}'
+                           + (' --scratch' if a.scratch else '') + (f' --scratch-label {a.scratch_label}' if a.scratch_label else ''),
         'files': [{'path': f, 'size_bytes': os.path.getsize(f'{out}/{f}'), 'sha256': sha256(f'{out}/{f}')} for f in files],
         'qc': {'status': 'not_checked', 'evidence': f'qc/forcing/{unit}'}}
-    with open(f'{out}/provenance.yaml', 'w') as fh:
+    with open(f'{out}/provenance.yaml.part', 'w') as fh:
         yaml.safe_dump(prov, fh, sort_keys=False)
+    os.replace(f'{out}/provenance.yaml.part', f'{out}/provenance.yaml')
     print(f'done: {len(years)} year(s) in {time.time() - t0:.0f} s -> {out}')
 
 
