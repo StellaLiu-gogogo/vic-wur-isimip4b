@@ -1,0 +1,40 @@
+dataset_id: koppen-geiger
+version: beck2023
+source: >-
+  Beck, H. E., T. R. McVicar, N. Vergopolan, A. Berg, N. J. Lutsko, A. Dufour,
+  Z. Zeng, X. Jiang, A. I. J. M. van Dijk, and D. G. Miralles: High-resolution
+  (1 km) Koppen-Geiger maps for 1901-2099 based on constrained CMIP6
+  projections, Scientific Data 10, 724 (2023). Official GeoTIFF archive
+  downloaded by the user (2026-03) and kept unpacked in
+  /lustre/nobackup/WUR/ESG/liu297/vic_global/01oc_natural/10Analysis/01paper/05SwGwInteraction/koppen_geiger_tif/;
+  copied from there on 2026-10-01 (user, 2026-10-01: that copy is the official
+  download).
+description: >-
+  Koppen-Geiger climate classes 1-30 (legend.txt; 0 = no data / ocean) for the
+  period 1991-2020 on regular latitude-longitude grids from 90N and 180W at
+  1/120, 0.1, 0.5 and 1 degree. Only the 1991-2020 subset is copied (D04 item
+  5); directory and file names are kept as delivered. Used by
+  workflow/03_parameters/vegetation/ (donor level L3 of the parameter backfill
+  for tiles added by the land-use tile union), from the 1/120 degree map
+  reduced to the 5 arcmin VIC grid by majority.
+location: raw/external/koppen-geiger/beck2023/
+acquired: 2026-10-01
+licence: CC BY 4.0 (cite Beck et al. 2023)
+verification: md5 of every copy equals md5 of the source file
+status: accepted
+files:
+  - path: legend.txt
+    size_bytes: 2410
+    md5: c4f4b1e0298c63b2397874fd662efb04
+  - path: 1991_2020/koppen_geiger_0p00833333.tif
+    size_bytes: 12494241
+    md5: b80dfe14bb83933e28b9ccf483ededc1
+  - path: 1991_2020/koppen_geiger_0p1.tif
+    size_bytes: 216858
+    md5: 6d13140524fa66149bcd71f40faf716e
+  - path: 1991_2020/koppen_geiger_0p5.tif
+    size_bytes: 21538
+    md5: 01ee82cdb9885766742f3e02955a2ea0
+  - path: 1991_2020/koppen_geiger_1p0.tif
+    size_bytes: 9570
+    md5: 0027ea09ac24402ecdcc2639ac7c4bc9

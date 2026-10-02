@@ -10,6 +10,14 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 
 This stage may include domain, soil, vegetation, land-use, routing, reservoir, irrigation, and water-use parameters. Subdirectories should be created by parameter family only when implementation work begins.
 
+## Components
+
+| Directory | Component | State |
+|---|---|---|
+| `vegetation/` | `parameters/<status>/<set>/vegetation/`: 16-class vegetation variables with the full land-use tile union (D04) and donor backfill of added tiles | producer, verifier, Slurm template and unit tests implemented (method 1.0) |
+
+The domain and the adopted image-driver bundles of `vic-global-5arcmin-version-a` are adopted files (`manifests/parameters/`), not generated here.
+
 ## Inputs
 
 - Verified source data from `workdir/raw/`.
