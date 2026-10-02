@@ -51,6 +51,7 @@ D04 (docs/decisions/D04-landuse-harmonization.md): every fallback parent uses a 
 the default); rice_rainfed and the *_bf bioenergy variables are part of the rainfed/irrigated sums.
 """
 import argparse, datetime, hashlib, json, os, re, subprocess, sys, time
+from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
 import numpy as np
@@ -327,8 +328,9 @@ def main():
     if nproc == 1:
         done = [produce_year(yy) for yy in years]
     else:
-        with get_context('fork').Pool(nproc) as pool:
-            done = pool.map(produce_year, years, chunksize=1)
+        # an executor (not a Pool) fails at once if a worker is killed, e.g. by the memory limit
+        with ProcessPoolExecutor(nproc, mp_context=get_context('fork')) as ex:
+            done = list(ex.map(produce_year, years))
     print(f'{len(done)} year(s), {nproc} process(es), {sum(d[1] for d in done) / len(done):.0f} s per year', flush=True)
     # ---------------- provenance of the whole unit (all coverage files present)
     files = sorted(f for f in os.listdir(out) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc'))

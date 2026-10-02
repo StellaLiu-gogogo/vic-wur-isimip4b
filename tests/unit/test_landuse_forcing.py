@@ -75,14 +75,14 @@ class SubmitRenderTest(unittest.TestCase):
         text = self.dry_run('--scenario', 'histsoc', '--years', '2015-2016', '--scratch', '--scratch-label', 'test')
         self.assertNotIn('{{', text)
         self.assertIn('--processes 2', text)                     # capped at the number of years
-        self.assertIn('#SBATCH --mem=14G', text)
+        self.assertIn('#SBATCH --mem=18G', text)
         self.assertIn('#SBATCH --job-name=landuse-forcing-histsoc-2015-2016-scratch-test', text)
         self.assertIn('--unit-dir /nonexistent/workdir/scratch/landuse-converter/runs/test/histsoc', text)
 
     def test_unit_job(self):
         text = self.dry_run('--scenario', 'ssp1vlsoc-noadapt', '--years', '2022-2100')
         self.assertIn('--processes 16', text)
-        self.assertIn('#SBATCH --mem=112G', text)
+        self.assertIn('#SBATCH --mem=144G', text)
         if '-scratch' not in text:                               # clean repository: production unit
             self.assertNotIn('--unit-dir', text)
 

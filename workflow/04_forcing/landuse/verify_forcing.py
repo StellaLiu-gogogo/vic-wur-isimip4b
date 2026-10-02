@@ -18,6 +18,7 @@ Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--unit-dir DIR]
   go to <unit-dir>/qc/ and provenance is not updated.
 """
 import argparse, datetime, json, os, sys
+from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
 import numpy as np
@@ -107,7 +108,7 @@ def main():
     ap.add_argument('--unit-dir', default=None, help='verify outputs in this directory instead of the forcing unit')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
-    ap.add_argument('--processes', type=int, default=1, help='files verified in parallel (about 5 GB each)')
+    ap.add_argument('--processes', type=int, default=1, help='files verified in parallel (up to about 7.4 GB each)')
     a = ap.parse_args()
     unit = f'landuse/{a.scenario}'; unit_dir = a.unit_dir or f'{WORKDIR}/forcing/{unit}'
     qc = f'{unit_dir}/qc' if a.unit_dir else f'{WORKDIR}/qc/forcing/{unit}'
@@ -123,8 +124,9 @@ def main():
     if nproc == 1:
         done = [verify_one(j) for j in jobs]
     else:
-        with get_context('fork').Pool(nproc) as pool:
-            done = pool.map(verify_one, jobs, chunksize=1)
+        # an executor (not a Pool) fails at once if a worker is killed, e.g. by the memory limit
+        with ProcessPoolExecutor(nproc, mp_context=get_context('fork')) as ex:
+            done = list(ex.map(verify_one, jobs))
     # unit summary from every verify_<year>.json present
     all_files = sorted(f for f in os.listdir(unit_dir) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc'))
     per_year = {}

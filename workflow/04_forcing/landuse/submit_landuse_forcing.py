@@ -6,10 +6,11 @@ one process per year) and then verifies them with verify_forcing.py. The job is 
 (job.sbatch, job.yaml) is written, and the job is then released; the job moves its scheduler output into the
 record when it starts (docs/directory-contracts.md, `logs/`).
 
-Memory: about 6 GB per producer process and 5 GB per verifier process; --mem defaults to 7 GB per process.
+Memory: up to about 6 GB per producer process and 7.4 GB per verifier process (16 verifier processes
+exceeded 112 GB on 2026-10-01); --mem defaults to 9 GB per process.
 
 Usage: submit_landuse_forcing.py --scenario histsoc --years 1850-2021 [--scratch [--scratch-label LABEL]]
-       [--processes 16] [--time 06:00:00] [--mem 112G] [--partition main] [--dry-run]
+       [--processes 16] [--time 06:00:00] [--mem 144G] [--partition main] [--dry-run]
 """
 import argparse, datetime, os, re, subprocess, sys
 
@@ -23,7 +24,7 @@ import isimip_landuse_to_vic_annual as lu   # noqa: E402  (scenario files, paths
 
 PRODUCER = 'workflow/04_forcing/landuse/isimip_landuse_to_vic_annual.py'
 VERIFIER = 'workflow/04_forcing/landuse/verify_forcing.py'
-GB_PER_PROCESS = 7
+GB_PER_PROCESS = 9   # observed peaks: producer about 6 GB, verifier about 7.4 GB per process
 
 
 def render(values):

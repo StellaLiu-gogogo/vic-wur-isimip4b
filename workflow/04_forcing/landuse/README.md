@@ -41,7 +41,8 @@ python3 workflow/04_forcing/landuse/submit_landuse_forcing.py --scenario histsoc
 python3 workflow/04_forcing/landuse/submit_landuse_forcing.py --scenario histsoc --years 2015-2016 --scratch --scratch-label test
 ```
 
-`--processes` (default 16) sets the parallel years and `--mem` defaults to 7 GB per process; `--dry-run`
+`--processes` (default 16) sets the parallel years and `--mem` defaults to 9 GB per process (the
+verifier peaks at about 7.4 GB per process); a worker killed by the memory limit stops the job with an error; `--dry-run`
 prints the rendered job. The producer and verifier can also be run directly with the same arguments
 (`--processes N` on both).
 
