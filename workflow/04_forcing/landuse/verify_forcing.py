@@ -54,7 +54,8 @@ def verify_file(fn, scen, f_dom, out_reports, out_figs):
     c = np.nan_to_num(cov); s = c.sum(axis=0)
     res = {'file': os.path.basename(fn), 'scenario': scen, 'year': yr, 'checked_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}
     res['closure'] = {'max_abs_sum_minus_1_active': float(np.abs(s[mask] - 1).max()), 'min_value_active': float(c[:, mask].min()),
-                      'nan_in_active': int(np.isnan(cov[:, mask]).sum()), 'finite_in_inactive': int(np.isfinite(cov[:, ~mask]).sum())}
+                      'nan_in_active': int(np.isnan(cov[:, mask]).sum()), 'finite_in_inactive': int(np.isfinite(cov[:, ~mask]).sum()),
+                      'values_between_0_and_1e-12': int(((c[:, mask] > 0) & (c[:, mask] < 1e-12)).sum())}   # reported only
     res['conservation'] = {}
     for k, Tn in T.items():
         got = psum(c[k - 1] * land); okp = (Tn > 0) & (tot <= capn + 1e-6); err = np.abs(got - Tn)

@@ -14,6 +14,8 @@ Class mapping (ISIMIP -> VIC 1-based class):
   pastures                   -> not mapped (natural remainder)
   1-11, 16                   = natural remainder r(i) = 1 - sum(12,13,14,15), split by the cell's VIC 2003-2022 mean
                                composition (nearest cell with composition <= 100 km if the cell has none; else 16 barren)
+  closure                    the rounding residual 1 - sum goes to the largest class the cell already has (natural
+                               first), never to a class with zero cover (method 1.3)
 Algorithm per parent j (3x3 children i):
   T_k(j) = f_k(j) * A_full(j)                        (whole-cell fraction x spherical 15' area)
   W_k(i) = P_k(i) * land_i, P_k = VIC 2003-2022 mean fraction of class k; land_i = spherical 5' area x mask
@@ -81,7 +83,7 @@ NATIDX = list(range(0, 11)) + [15]; LOWVEG = [5, 6, 7, 8, 9]
 CHAIN = {'urban': ['urban', 'crop_any', 'low', 'uni'], 'paddy': ['paddy', 'nonpaddy', 'rf', 'low', 'uni'],
          'nonpaddy': ['nonpaddy', 'paddy', 'rf', 'low', 'uni'], 'rf': ['rf', 'irr_any', 'low', 'uni']}
 R = 6371000.0; RK = 6371.0088; ROW0, ROW1 = 24, 584      # ISIMIP rows covered by the VIC domain (N->S)
-METHOD_VERSION = '1.2'   # allocation method; bump when results change for identical inputs (1.2: D04 default --small inf)
+METHOD_VERSION = '1.3'   # bump when results change for identical inputs (1.2: D04 default --small inf; 1.3: residual to an existing class)
 
 
 def sha256(path, n=1 << 24):
@@ -124,6 +126,23 @@ def build_weights_cache(path, vlat, vlon, mask):
     P = P.astype('f4')  # stored and used at float32 so that results do not depend on whether the cache existed
     np.savez_compressed(path, P=P, years=np.array(WEIGHT_YEARS), source=COVERAGE)
     return P.astype('f8')
+
+
+def close_cells(Cv, mask):
+    """Closure guard: cells whose managed classes exceed 1 are rescaled (natural set to 0); in every other active
+    cell the rounding residual 1 - sum(Cv) goes to a class the cell already has: the largest natural class, or the
+    largest class when the cell has no natural class (method 1.3; 1.2 gave it to class 1 in such cells, creating
+    class-1 cover of about 1e-16 that VIC must allocate as a tile). Returns (Cv, rescaled cells, cells whose
+    residual went to a managed class)."""
+    man = list(CL.values()); msum = Cv[man].sum(axis=0); over1 = mask & (msum > 1)
+    Cv[man] = np.where(over1[None], Cv[man] / np.where(msum > 1, msum, 1)[None], Cv[man]); Cv[NATIDX] = np.where(over1[None], 0.0, Cv[NATIDX])
+    resid = 1 - Cv.sum(axis=0)
+    big_nat = np.argmax(np.where(np.isin(np.arange(16), NATIDX)[:, None, None], Cv, -1), axis=0)
+    has_nat = np.take_along_axis(Cv, big_nat[None], 0)[0] > 0
+    big = np.where(has_nat, big_nat, np.argmax(Cv, axis=0))
+    present = np.take_along_axis(Cv, big[None], 0)[0] > 0
+    add = np.where(mask & ~over1 & present, resid, 0); np.put_along_axis(Cv, big[None], np.take_along_axis(Cv, big[None], 0) + add[None], 0)
+    return Cv, over1, int((mask & ~over1 & present & ~has_nat).sum())
 
 
 def convert_year(scen, year, P, dom_grid, a, f15, furb):
@@ -201,11 +220,7 @@ def convert_year(scen, year, P, dom_grid, a, f15, furb):
         comp[:, ni[~use], nj[~use]] = 0; comp[11, ni[~use], nj[~use]] = 1.0     # index 11 in NATIDX = class 16 barren
         n_borrow, n_barren = int(use.sum()), int((~use).sum())
     for a_, ki in enumerate(NATIDX): Cv[ki] += r * comp[a_]
-    # closure guard
-    man = list(CL.values()); msum = Cv[man].sum(axis=0); over1 = mask & (msum > 1)
-    Cv[man] = np.where(over1[None], Cv[man] / np.where(msum > 1, msum, 1)[None], Cv[man]); Cv[NATIDX] = np.where(over1[None], 0.0, Cv[NATIDX])
-    resid = 1 - Cv.sum(axis=0); big = np.argmax(np.where(np.isin(np.arange(16), NATIDX)[:, None, None], Cv, -1), axis=0)
-    add = np.where(mask & ~over1, resid, 0); np.put_along_axis(Cv, big[None], np.take_along_axis(Cv, big[None], 0) + add[None], 0)
+    Cv, over1, n_resid_managed = close_cells(Cv, mask)
     assert Cv[:, mask].min() > -1e-9, f'negative coverage {Cv[:, mask].min()}'
     Cv = np.maximum(Cv, 0); Cv = np.where(mask[None], Cv, np.nan).astype('f4')
     # ---------------- QA numbers and ledger
@@ -225,7 +240,7 @@ def convert_year(scen, year, P, dom_grid, a, f15, furb):
                           'max_abs_conservation_error_km2_capacity_ok': cons[c]} for c in cls},
           'parents_over_total_capacity': int((tot > capn + 1e-6).sum()), 'children_saturated': int(sat.sum()),
           'natural': {'natural_Mkm2': float((r * land).sum() * 1e-12), 'cells_borrowed_composition_le100km': n_borrow, 'cells_barren_fallback': n_barren},
-          'closure': {'cells_managed_sum_gt1_rescaled': int(over1.sum()), 'max_abs_sum_minus_1_active': float(np.abs(closure[mask] - 1).max()),
+          'closure': {'cells_managed_sum_gt1_rescaled': int(over1.sum()), 'cells_residual_to_managed_class': n_resid_managed, 'max_abs_sum_minus_1_active': float(np.abs(closure[mask] - 1).max()),
                       'negative_values': int((Cv[:, mask] < 0).sum()), 'nan_active': int(np.isnan(Cv[:, mask]).sum()),
                       'finite_inactive': int(np.isfinite(Cv[:, ~mask]).sum())},
           'tiles_gt0': {c: int((Cv[ki][mask] > 0).sum()) for c, ki in CL.items()}, 'runtime_s': time.time() - t0}

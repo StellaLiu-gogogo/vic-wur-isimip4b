@@ -63,6 +63,27 @@ class ProducerDriverTest(unittest.TestCase):
                                                                '--scratch-label', 'Bad_Label']))
 
 
+class ClosureTest(unittest.TestCase):
+    def test_residual_goes_to_existing_class(self):
+        lu = load_producer('/nonexistent')
+        import numpy as np
+        mask = np.array([[True, True, True, False]])
+        Cv = np.zeros((16, 1, 4))
+        Cv[11, 0, 0] = 0.6; Cv[13, 0, 0] = 0.4 - 2e-16           # no natural class: residual to class 12 (largest)
+        Cv[11, 0, 1] = 0.5; Cv[4, 0, 1] = 0.3; Cv[9, 0, 1] = 0.2 - 1e-16   # natural present: residual to class 5
+        Cv[12, 0, 2] = 0.7; Cv[14, 0, 2] = 0.5                     # managed sum > 1: rescaled, natural zero
+        out, over1, n_man = lu.close_cells(Cv.copy(), mask)
+        self.assertEqual(out[0, 0, 0], 0.0)                         # class 1 never gets the residual
+        self.assertEqual(int((out[:, 0, 0] > 0).sum()), 2)          # no new class in the cell
+        self.assertEqual(int((out[:, 0, 1] > 0).sum()), 3)
+        self.assertGreater(out[11, 0, 0], 0.6)                      # residual added to the largest class
+        self.assertGreater(out[4, 0, 1], 0.3)
+        self.assertTrue(over1[0, 2] and not over1[0, 0])
+        self.assertAlmostEqual(out[:, 0, 2].sum(), 1.0, places=15)
+        self.assertEqual(n_man, 1)
+        self.assertTrue(np.allclose(out[:, 0, :3].sum(axis=0), 1, atol=1e-15))
+
+
 class SubmitRenderTest(unittest.TestCase):
     def dry_run(self, *args):
         env = dict(os.environ, ISIMIP4B_WORKDIR='/nonexistent/workdir')

@@ -12,11 +12,15 @@ contract), one forcing unit per soc scenario under
 | `landuse_forcing.sbatch` | Slurm template: producer, then verifier, in one job |
 | `submit_landuse_forcing.py` | renders the template, submits it on hold, writes the job record `logs/04_forcing/<job-name>_<slurm-job-id>/` (`job.sbatch`, `job.yaml`, scheduler output), releases the job |
 
-Method version `1.2` is recorded in every file; bump `METHOD_VERSION` when
+Method version `1.3` is recorded in every file; bump `METHOD_VERSION` when
 results change for identical inputs. Version 1.2 applies D04: every fallback
 parent (no VIC weight for the class) receives its whole target in a single
 child (`--small inf`, the default); `--small 1e-3` reproduces the 2026-09-23
-prototypes.
+prototypes. Version 1.3 (2026-10-02) gives the rounding residual of the
+closure step to the largest class a cell already has (natural first);
+version 1.2 gave it to class 1 in cells without natural cover, which created
+about 22 000 class-1 cells of about 1e-16 cover over 1850–2100 that VIC had to
+allocate as tiles. The version 1.2 units were replaced (user, 2026-10-02).
 
 ## Inputs
 
