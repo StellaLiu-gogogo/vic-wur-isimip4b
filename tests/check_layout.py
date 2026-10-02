@@ -712,11 +712,15 @@ def check_experiment_id(report: Report, rel: str, name: str) -> None:
 
 
 def code_allowed(parts: tuple[str, ...]) -> bool:
-    """Rendered run files, job records, and build trees may contain
-    scripts."""
+    """Rendered run files, job records (of workflow stages and of analysis
+    tasks), and build trees may contain scripts."""
     if parts[0] in {"scratch", "builds"}:
         return True
     if parts[0] == "logs" and len(parts) == 4 and parts[3] == "job.sbatch":
+        return True
+    # analysis/<task-id>/logs/<job-name>_<slurm-job-id>/job.sbatch
+    if (parts[0] == "analysis" and len(parts) == 5 and parts[2] == "logs"
+            and parts[4] == "job.sbatch" and JOB_RECORD.match(parts[3])):
         return True
     return parts[0] == "runs" and "config" in parts
 

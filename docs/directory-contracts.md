@@ -1022,7 +1022,12 @@ analysis/
 ```
 
 Generated data, figures, tables, and logs of the analysis task with the same
-`<task-id>` under `repo/analysis/`. Source code is never stored here.
+`<task-id>` under `repo/analysis/`. Source code is never stored here, with
+one exception: a Slurm job of the analysis keeps its job record in
+`logs/<job-name>_<slurm-job-id>/` inside the task directory, with the exact
+rendered `job.sbatch` and the scheduler output, as the job records of the
+workflow stages do under `workdir/logs/` (the code that renders it stays in
+`repo/analysis/<task-id>/`).
 
 No workflow stage may read from this directory. A result that a production
 stage needs must be produced by workflow code.
