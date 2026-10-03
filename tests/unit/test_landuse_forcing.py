@@ -160,6 +160,13 @@ class SubmitRenderTest(unittest.TestCase):
         if '-scratch' not in text:                               # clean repository: production unit
             self.assertNotIn('--unit-dir', text)
 
+    def test_verify_only_job(self):
+        text = self.dry_run('--scenario', 'histsoc', '--years', '1850-2021', '--verify-only')
+        self.assertIn('if [ "no" = yes ]', text)                   # producer not run
+        self.assertIn('#SBATCH --job-name=landuse-forcing-histsoc-1850-2021-verify', text)
+        self.assertNotIn('--unit-dir', text)                       # the unit itself, even from a dirty repository
+        self.assertIn('if [ "yes" = yes ]', self.dry_run('--scenario', 'histsoc', '--years', '2015', '--scratch'))
+
 
 if __name__ == '__main__':
     unittest.main()

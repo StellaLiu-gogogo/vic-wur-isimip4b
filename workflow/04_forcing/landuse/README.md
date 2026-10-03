@@ -53,7 +53,8 @@ python3 workflow/04_forcing/landuse/submit_landuse_forcing.py --scenario histsoc
 
 `--processes` (default 16) sets the parallel years and `--mem` defaults to 9 GB per process (the
 verifier peaks at about 7.4 GB per process); a worker killed by the memory limit stops the job with an error; `--dry-run`
-prints the rendered job. The producer and verifier can also be run directly with the same arguments
+prints the rendered job. `--verify-only` runs only the verifier on the existing files of the unit (it updates `qc.status`;
+used on 2026-10-03 to mark the method 1.3 units `failed` by the new format check before they were replaced). The producer and verifier can also be run directly with the same arguments
 (`--processes N` on both).
 
 A unit is generated as a whole: the producer refuses to write into an existing, non-empty
