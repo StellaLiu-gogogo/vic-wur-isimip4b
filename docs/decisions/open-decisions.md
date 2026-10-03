@@ -8,9 +8,9 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-10-02.
+Last reviewed: 2026-10-03.
 
-D05 was decided on 2026-10-02 (option A, staged); its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and awaits the user's review before D2.
+D05 was decided on 2026-10-02 (option A, staged); its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
 D01 does not block the climate forcing units of the smoke campaign: the user
 allowed producing the EC-Earth3-ESM-1-1 `esm-hist` 2011–2020 climate units
@@ -45,7 +45,7 @@ depend on the VIC commit and may be accepted while D01 is open (user,
 | D02 | Compute scope: which GCMs, experiments, and priorities fit the available compute, and whether to apply for more | 05_simulation | | user | open |
 | D03 | Storage plan for 5′ model output: where it lives during a campaign and when it is deleted after postprocessing | 05_simulation | | user | open |
 | D04 | Land use: single-child rule for fallback parents, `rice_rainfed`, ISIMIP paddy area, `*_bf` variables, Köppen period for parameter backfill | 03_parameters | | user | decided 2026-09-30 ([D04-landuse-harmonization.md](D04-landuse-harmonization.md)) |
-| D05 | Non-irrigation water use: how to proceed while the ISIMIP4b dataset is not released | 04_forcing | | user, sector coordinators | decided 2026-10-02 ([D05-non-irrigation-water-use.md](D05-non-irrigation-water-use.md)): option A, ISIMIP3a/3b water-abstraction series downscaled with ISIMIP4b population, staged (historical and constant units first, SSP units before Group III) |
+| D05 | Non-irrigation water use: how to proceed while the ISIMIP4b dataset is not released | 04_forcing | | user, sector coordinators | decided 2026-10-02, amended 2026-10-03 (SSP series used raw, one producer task D2) ([D05-non-irrigation-water-use.md](D05-non-irrigation-water-use.md)): option A, ISIMIP3a/3b water-abstraction series downscaled with ISIMIP4b population |
 | D06 | Composition of the `extrasoc` sensitivity experiments (which additional direct human forcings) | 05_simulation | | user, sector coordinators | open |
 | D07 | 5′ to 0.5° aggregation method, `dis` outlet mapping, and `contfrac` derivation | 06_postprocessing | | user | open |
 | D08 | Simulated domain versus the ISIMIP `water_global` mask: keep the VIC domain and report uncovered mask cells as missing, or extend the domain (fully or partially) | 03_parameters | | user, sector coordinators | decided 2026-09-30 ([D08-mask-coverage.md](D08-mask-coverage.md)): option (a), keep the domain, report uncovered cells as missing |
@@ -90,7 +90,7 @@ paddy area relative to the current VIC coverage.
 non-irrigation water-use dataset on DKRZ (confirmed again 2026-10-02).
 The `wateruse` plugin cannot be switched off for experiments with direct
 human forcing (irrigation withdrawals and dam demand go through it), so a
-substitute was decided: see the record.
+substitute was decided: see the record. Amended 2026-10-03 after the D1 review: the SSP series are used raw without a join to 2021, and task D2 produces all five units.
 
 **D06 — `extrasoc`.** The protocol leaves the choice of additional direct
 human forcings to the modelling team and encourages coordination with the

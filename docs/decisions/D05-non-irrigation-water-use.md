@@ -67,7 +67,7 @@ in `/lustre/backup/WUR/ESG/marin052/waterUseForcing/` (R and cdo) lost about
 
 ## Decision
 
-**Option A, executed as C** (user, 2026-10-02):
+**Option A** (user, 2026-10-02; recorded first as "executed as C", i.e. staged; the staging was withdrawn 2026-10-03 and all units are produced in one task, see Amendments):
 
 1. The ISIMIP3a and ISIMIP3b water-abstraction files are acquired into
    `raw/external/`, checked and interpreted first (task D1: acquisition,
@@ -76,7 +76,8 @@ in `/lustre/backup/WUR/ESG/marin052/waterUseForcing/` (R and cdo) lost about
    `ssp1vlsoc-noadapt` (from ssp126) and `ssp3hsoc-noadapt` (from ssp370)
    are produced before the Group III runs, with the future withdrawal
    series scaled per cell so that it joins the historical 2021 value, and
-   the consumption fraction held at its 2021 value.
+   the consumption fraction held at its 2021 value (withdrawn 2026-10-03,
+   see Amendments).
 3. Sectors: municipal (domestic) and manufacturing (industrial =
    manufacturing + energy) now; livestock deferred (about 49 km³/yr, 3 % of
    non-irrigation withdrawal; needs FAOSTAT and GLW4 inputs).
@@ -92,6 +93,69 @@ in `/lustre/backup/WUR/ESG/marin052/waterUseForcing/` (R and cdo) lost about
    dataset will be released; when it is, the units are regenerated as a
    whole from it.
 
+## Evidence from task D1 (2026-10-02)
+
+Analysis `isimip3-water-abstraction-review`; report
+`workdir/analysis/isimip3-water-abstraction-review/report.md`, QC summary
+`qc/raw/external/isimip3-water-abstraction/dkrz-2026-10-02/summary.json`
+(status `warning`), manifests `manifests/inputs/isimip3-water-abstraction.yaml`
+(52 files, md5 against levante and sha512 against data.isimip.org) and
+`manifests/inputs/watergap-groundwater-fractions.yaml`.
+
+- Origin: the historical series is the multi-model mean (H08, PCR-GLOBWB,
+  WaterGAP) of the ISIMIP2a `varsoc` simulations for 1901–2005, continued
+  from 2006 with the WFaS SSP2 (RCP6.0) projection (Wada et al. 2016) and
+  carried through ISIMIP2b into ISIMIP3a/3b; ISIMIP3a histsoc 2006–2021 is
+  therefore a projection, not an observation-based reconstruction. Every
+  year before 1901 equals 1901, so ISIMIP3b `1850soc` is the 1901 field.
+  ISIMIP3b histsoc 1901–2014 is identical cell by cell to ISIMIP3a, and
+  `2015soc` equals ISIMIP3a 2015. The SSP series (doi:10.48364/ISIMIP.423677,
+  2026) is a separate product of H08, WaterGAP2 and CWatM and provides
+  withdrawal only.
+- The 2021/2022 step: global domestic withdrawal goes from 641 km³ (ISIMIP3a
+  2021) to 518 (ssp126, −19 %) or 585 (ssp370, −9 %) km³ in 2022, industrial
+  from 1 097 to 797 (−27 %) or 950 (−13 %) km³. Per cell, weighted by the
+  2021 withdrawal, the median ratio is 0.79/0.89 (domestic) and 0.63/0.73
+  (industrial), and 5–9 % of the domestic and 23–33 % of the industrial
+  withdrawal is in cells that halve or double across the join (a normal
+  year moves 1–4 %). The SSP 2015 values already differ from `2015soc`
+  (0.95–0.97 domestic, 0.86–0.87 industrial globally), although the
+  documentation states that they were rescaled to match the 2015
+  historical data.
+- The `modelstd` files carry no model spread: std equals the mean in more
+  than 98 % of the cells.
+- Published comparison: around 2010 domestic withdrawal is 445 km³ (FAO
+  AQUASTAT 464) and industrial 853 km³ (AQUASTAT 768); domestic plus
+  industrial 1 298 km³ (Floerke et al. 2013: 1 345).
+- Further properties handled by D2: undecodable `years since` time axis,
+  north-to-south rows, 280-row historical and 360-row SSP grids, zeros
+  instead of fill values in the historical files, consumption above
+  withdrawal in up to 2 259 domestic cells, and a one-year redistribution
+  of industrial withdrawal in 2005.
+
+## Amendments 2026-10-03
+
+Decided by the user after reading the D1 report:
+
+1. Option A stands. No questions are sent to the sector coordinators or to
+   the owner of the WaterGAP tables; the data are used as ISIMIP3b
+   delivered them.
+2. The SSP withdrawal series are used raw, without rescaling and without a
+   join to the 2021 historical value. The 2021/2022 step (global −9 to
+   −27 %) is accepted and documented as a property of the source data;
+   item 2 of the decision is withdrawn.
+3. Consumption fraction in the SSP years follows the ISIMIP3b convention:
+   wc/ww of the `2015soc` files, capped at 1 per cell; where it is
+   undefined, the continental fraction of the same field is used.
+4. The 2005 industrial anomaly is kept as delivered and noted in the unit
+   provenance.
+5. The WaterGAP tables are used as they are, with `G_FRACTGW_MAN` for the
+   whole industrial sector; their provenance stays "unconfirmed" in the
+   manifest.
+6. Task D2 produces all five units (`histsoc`, `1850soc`, `2021soc`,
+   `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`) in one task; there is no
+   separate task for the SSP units.
+
 ## Consequences
 
 - `01_acquisition`: ISIMIP3a/3b water-abstraction files and the WaterGAP
@@ -99,12 +163,15 @@ in `/lustre/backup/WUR/ESG/marin052/waterUseForcing/` (R and cdo) lost about
   `manifests/inputs/`.
 - `04_forcing`: new producer and verifier `workflow/04_forcing/water_use/`;
   units follow the forcing-unit contract (provenance, `qc.status`,
-  `proleptic_gregorian`, one time step per yearly file).
+  `proleptic_gregorian`, one time step per yearly file). Task D2 produces
+  all five units; the SSP units use the raw SSP withdrawal (amendments 2
+  and 6).
 - `05_simulation`: every campaign with direct human forcing runs with
   `WATERUSE TRUE`, `IRRIGATION TRUE`, `DAMS TRUE`; the smoke campaign uses
   the histsoc unit for 2011–2020 and no livestock sector.
 - `08_delivery`: the model description states that non-irrigation water use
   is taken from the ISIMIP3a/3b harmonized datasets pending the ISIMIP4b
-  release, with the join rule for the SSP scenarios.
+  release, that the SSP series are used as delivered, and that they step
+  down from the 2021 historical value in 2022 (amendment 2).
 - The parameter set gains no component from this decision; the irrigation
   groundwater fraction stays in the irrigation parameter component.

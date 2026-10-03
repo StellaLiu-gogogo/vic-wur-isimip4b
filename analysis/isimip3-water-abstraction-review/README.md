@@ -17,8 +17,7 @@ that supports a decision; no workflow stage reads it. The acquisition itself (tr
 recorded under `qc/raw/external/<dataset-id>/<version>/summary.json`, as the contract requires for raw
 objects.
 
-**Status.** `open` (report written 2026-10-02; waiting for the user's review and for the answers of
-the sector coordinators).
+**Status.** `closed` (2026-10-03): the user reviewed the report and amended D05 (see Conclusion).
 
 **Inputs** (read-only, paths relative to `$ISIMIP4B_WORKDIR`).
 
@@ -78,6 +77,22 @@ One CPU, about 48 GB memory requested; see the job record for the runtime.
 - QC summaries: `qc/raw/external/isimip3-water-abstraction/dkrz-2026-10-02/summary.json` and
   `qc/raw/external/watergap-groundwater-fractions/snapshot-2026-10-02/summary.json`.
 
-**Conclusion.** See `workdir/analysis/isimip3-water-abstraction-review/report.md`. The maintained
-record of the conclusion will be the D2 design in `docs/decisions/D05-non-irrigation-water-use.md`
-once the user has approved it.
+**Conclusion.** The data are complete, verified against the published checksums, and close to
+published global totals; the findings are in `workdir/analysis/isimip3-water-abstraction-review/report.md`.
+After reading the report the user decided (2026-10-03; maintained record: sections "Evidence from
+task D1" and "Amendments 2026-10-03" of `docs/decisions/D05-non-irrigation-water-use.md`):
+
+- D05 option A stands; the data are used as ISIMIP3b delivered them, and no questions are sent to
+  the sector coordinators or to the owner of the WaterGAP tables.
+- The SSP withdrawal series are used raw, without rescaling and without a join to the 2021
+  historical value; the 2021/2022 step is documented as a property of the source data.
+- The consumption fraction in the SSP years is wc/ww of the `2015soc` files, capped at 1, with the
+  continental fraction of the same field where it is undefined.
+- The 2005 industrial anomaly is kept and noted in the unit provenance.
+- The WaterGAP tables are used as they are (`G_FRACTGW_MAN` for the whole industrial sector),
+  provenance unconfirmed.
+- Task D2 produces all five units (`histsoc`, `1850soc`, `2021soc`, `ssp1vlsoc-noadapt`,
+  `ssp3hsoc-noadapt`) in one task.
+
+The join candidates in section 6 and the open questions in section 11 of the report are kept as the
+record of the analysis; they are superseded by these decisions.
