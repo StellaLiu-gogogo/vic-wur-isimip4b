@@ -15,7 +15,7 @@ reports; no workflow stage reads them.
 
 ## Status
 
-open
+closed (user, 2026-10-02): the figures and `report.md` answer the question.
 
 ## Inputs (read-only, relative to the workdir)
 
