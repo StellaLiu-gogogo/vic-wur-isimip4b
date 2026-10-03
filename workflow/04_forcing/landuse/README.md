@@ -8,11 +8,11 @@ contract), one forcing unit per soc scenario under
 | File | Role |
 |---|---|
 | `isimip_landuse_to_vic_annual.py` | producer: allocation (joint order-free water-filling, fallback chains, single-child rule, natural remainder by the VIC 2003–2022 mean composition), writes `coverage_<soc>_<year>.nc`, `provenance.yaml`, and per-year ledger and QA JSON under `qc/forcing/landuse/<soc>/reports/` |
-| `verify_forcing.py` | independent verification with its own code path; writes `verify_<year>.{json,png}` and `summary.json` under `qc/forcing/landuse/<soc>/` and sets `qc.status` in the unit's `provenance.yaml` (`passed` only when every file of the unit passes) |
+| `verify_forcing.py` | independent verification with its own code path (file format VIC reads, closure, conservation); writes `verify_<year>.{json,png}` and `summary.json` under `qc/forcing/landuse/<soc>/` and sets `qc.status` in the unit's `provenance.yaml` (`passed` only when every file of the unit passes) |
 | `landuse_forcing.sbatch` | Slurm template: producer, then verifier, in one job |
 | `submit_landuse_forcing.py` | renders the template, submits it on hold, writes the job record `logs/04_forcing/<job-name>_<slurm-job-id>/` (`job.sbatch`, `job.yaml`, scheduler output), releases the job |
 
-Method version `1.3` is recorded in every file; bump `METHOD_VERSION` when
+Method version `1.4` is recorded in every file; bump `METHOD_VERSION` when
 results change for identical inputs. Version 1.2 applies D04: every fallback
 parent (no VIC weight for the class) receives its whole target in a single
 child (`--small inf`, the default); `--small 1e-3` reproduces the 2026-09-23
@@ -21,6 +21,12 @@ closure step to the largest class a cell already has (natural first);
 version 1.2 gave it to class 1 in cells without natural cover, which created
 about 22 000 class-1 cells of about 1e-16 cover over 1850–2100 that VIC had to
 allocate as tiles. The version 1.2 units were replaced (user, 2026-10-02).
+Version 1.4 (2026-10-03) writes the time axis with calendar
+`proleptic_gregorian`, the VIC clock calendar of the project; version 1.3
+wrote `standard`, and VIC (`plugin_get_forcing_file.c`, commit `39e21ff5`)
+aborts at start when the calendar of a plugin forcing file differs from its
+clock. The coverage values are unchanged. The verifier now also checks the
+format VIC reads (time axis and calendar, dimensions, classes, grid, year).
 
 ## Inputs
 

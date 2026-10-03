@@ -34,6 +34,8 @@ Inputs (all under $ISIMIP4B_WORKDIR):
   parameters/<candidates|production>/<parameter-set-id>/domain/vic_global_5min_domain_nogl.nc
 Outputs:
   forcing/landuse/<soc>/coverage_<soc>_<year>.nc, provenance.yaml (qc.status: not_checked)
+      time: one step 0, units days since <year>-01-01 00:00:00, calendar proleptic_gregorian (the VIC clock
+      calendar of the project; VIC aborts when a plugin forcing file has another calendar)
   qc/forcing/landuse/<soc>/reports/{ledger,qa}_<year>.{csv,json}
   scratch/landuse-converter/vic-coverage-mean-2003-2022-weights.npz (weights cache; becomes an
       intermediate cache once workflow/common/cache.py exists)
@@ -83,7 +85,8 @@ NATIDX = list(range(0, 11)) + [15]; LOWVEG = [5, 6, 7, 8, 9]
 CHAIN = {'urban': ['urban', 'crop_any', 'low', 'uni'], 'paddy': ['paddy', 'nonpaddy', 'rf', 'low', 'uni'],
          'nonpaddy': ['nonpaddy', 'paddy', 'rf', 'low', 'uni'], 'rf': ['rf', 'irr_any', 'low', 'uni']}
 R = 6371000.0; RK = 6371.0088; ROW0, ROW1 = 24, 584      # ISIMIP rows covered by the VIC domain (N->S)
-METHOD_VERSION = '1.3'   # bump when results change for identical inputs (1.2: D04 default --small inf; 1.3: residual to an existing class)
+METHOD_VERSION = '1.4'   # bump when results change for identical inputs (1.2: D04 default --small inf; 1.3: residual to an existing class;
+                         # 1.4: time calendar proleptic_gregorian instead of standard, coverage unchanged)
 
 
 def sha256(path, n=1 << 24):
@@ -262,7 +265,8 @@ def convert_year(scen, year, P, dom_grid, a, f15, furb):
 def write_coverage(fn, Cv, vlat, vlon, scen, year, attrs):
     o = nc.Dataset(fn, 'w', format='NETCDF4'); NY, NX = Cv.shape[1:]
     o.createDimension('time', 1); o.createDimension('veg_class', 16); o.createDimension('lat', NY); o.createDimension('lon', NX)
-    v = o.createVariable('time', 'f8', ('time',)); v[:] = [0.0]; v.units = f'days since {year}-01-01 00:00:00'; v.calendar = 'standard'
+    v = o.createVariable('time', 'f8', ('time',)); v[:] = [0.0]; v.units = f'days since {year}-01-01 00:00:00'
+    v.calendar = 'proleptic_gregorian'; v.standard_name = 'time'   # VIC aborts if it differs from its clock (method 1.4)
     v = o.createVariable('veg_class', 'i2', ('veg_class',)); v[:] = np.arange(1, 17); v.class_names = CLASS_NAMES
     v = o.createVariable('lat', 'f8', ('lat',)); v[:] = vlat; v.units = 'degrees_north'
     v = o.createVariable('lon', 'f8', ('lon',)); v[:] = vlon; v.units = 'degrees_east'
@@ -356,7 +360,7 @@ def main():
                   [os.path.relpath(COVERAGE.format(y=yy), WORKDIR) for yy in WEIGHT_YEARS],
         'input_sha256': {'landuse-15crops': sha256(f15), 'landuse-urbanareas': sha256(furb), 'domain': sha256(f_dom)},
         'method': {'name': 'annual Cv, joint order-free water-filling', 'version': METHOD_VERSION, 'target_grid': 'vic-5arcmin',
-                   'weights': 'VIC coverage 2003-2022 mean class pattern', 'single_child_threshold': a.small,
+                   'weights': 'VIC coverage 2003-2022 mean class pattern', 'calendar': 'proleptic_gregorian', 'single_child_threshold': a.small,
                    'union_mask': os.path.relpath(a.union_mask, WORKDIR) if a.union_mask else None, 'max_iter': a.max_iter,
                    'parameter_set': f'{a.parameter_status}/{a.parameter_set}'},
         'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario} --years {years[0]}-{years[-1]} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status} --small {a.small}'

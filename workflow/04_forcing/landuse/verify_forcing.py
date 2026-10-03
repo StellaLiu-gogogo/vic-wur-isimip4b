@@ -9,9 +9,11 @@ tile counts, and a comparison with the VIC coverage dataset of the same year whe
 and sets qc.status in the unit's provenance.yaml to `passed` when every file of the unit has a passing
 verification, `failed` when any file fails, and leaves `not_checked` while the unit is only partly verified.
 
-Pass criteria per file: max |sum(Cv) - 1| <= 1e-6 on active cells, no negative or NaN active values, no finite
-inactive values, conservation error <= 1e-3 km2 for every parent within capacity, and no area allocated where
-the target is zero.
+Pass criteria per file: the format VIC reads (time: one step 0, units days since <year>-01-01 00:00:00, calendar
+proleptic_gregorian as the VIC clock, since VIC aborts on another calendar; coverage(time, veg_class, lat, lon);
+veg_class 1..16; lat/lon equal to the domain; year attribute equal to the year in the file name), max |sum(Cv) - 1|
+<= 1e-6 on active cells, no negative or NaN active values, no finite inactive values, conservation error <= 1e-3
+km2 for every parent within capacity, and no area allocated where the target is zero.
 
 Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--unit-dir DIR] [--processes N]
   --unit-dir overrides the unit location (for outputs written to scratch by a dirty repository); results then
@@ -35,11 +37,29 @@ R = 6371000.0
 FILES = {'histsoc': ('histsoc', 'histsoc', 1850), '1850soc': ('1850soc', '1850soc', 1850), '2021soc': ('2021soc', '2021soc', 2022),
          'ssp1vlsoc-noadapt': ('ssp1vlsoc-noadapt', 'ssp1vl', 2022), 'ssp3hsoc-noadapt': ('ssp3hsoc-noadapt', 'ssp3h', 2022)}
 TOL_CLOSURE, TOL_CONS_KM2 = 1e-6, 1e-3
+CALENDAR = 'proleptic_gregorian'     # the VIC clock calendar of the project (CALENDAR PROLEPTIC_GREGORIAN)
+
+
+def check_format(d, fn, dom_lat, dom_lon):
+    """Metadata VIC relies on when it opens the file as PLUGIN_FORCE_TYPE CV ... YEAR; returns a dict with 'ok'."""
+    t = d['time']; name_year = int(os.path.basename(fn)[:-3].rsplit('_', 1)[1])
+    f = {'calendar': getattr(t, 'calendar', None), 'time_units': getattr(t, 'units', None),
+         'time_values': [float(x) for x in t[:]], 'coverage_dims': list(d['coverage'].dimensions),
+         'veg_class_1_to_16': bool(np.array_equal(d['veg_class'][:], np.arange(1, 17))),
+         'lat_lon_equal_domain': bool(d['lat'].shape == dom_lat.shape and d['lon'].shape == dom_lon.shape
+                                      and np.array_equal(d['lat'][:], dom_lat) and np.array_equal(d['lon'][:], dom_lon)),
+         'year_attribute': int(getattr(d, 'year', -1)), 'year_in_file_name': name_year}
+    f['ok'] = (f['calendar'] == CALENDAR and f['time_units'] == f'days since {name_year}-01-01 00:00:00'
+               and f['time_values'] == [0.0] and f['coverage_dims'] == ['time', 'veg_class', 'lat', 'lon']
+               and f['veg_class_1_to_16'] and f['lat_lon_equal_domain'] and f['year_attribute'] == name_year)
+    return f
 
 
 def verify_file(fn, scen, f_dom, out_reports, out_figs):
-    d = nc.Dataset(fn); yr = int(d.year); cov = d['coverage'][0].filled(np.nan).astype('f8'); vlat = d['lat'][:]; vlon = d['lon'][:]; d.close()
-    dom = nc.Dataset(f_dom); mask = dom['mask'][:].filled(0).astype(bool); dom.close(); NY, NX = mask.shape; NB = (NY // 3, NX // 3)
+    dom = nc.Dataset(f_dom); mask = dom['mask'][:].filled(0).astype(bool); dom_lat = dom['lat'][:]; dom_lon = dom['lon'][:]; dom.close()
+    d = nc.Dataset(fn); fmt = check_format(d, fn, dom_lat, dom_lon)
+    yr = int(d.year); cov = d['coverage'][0].filled(np.nan).astype('f8'); vlat = d['lat'][:]; vlon = d['lon'][:]; d.close()
+    NY, NX = mask.shape; NB = (NY // 3, NX // 3)
     A5 = ((R ** 2) * np.deg2rad(1 / 12.) * (np.sin(np.deg2rad(vlat + 1 / 24.)) - np.sin(np.deg2rad(vlat - 1 / 24.))))[:, None] * np.ones((1, NX))
     land = np.where(mask, A5, 0)
     psum = lambda x: x.reshape(NB[0], 3, NB[1], 3).sum(axis=(1, 3))
@@ -52,7 +72,8 @@ def verify_file(fn, scen, f_dom, out_reports, out_figs):
     T = {12: rf, 15: S(rc), 14: S(ir - rc), 13: S(fu['urbanareas'][t].filled(0).astype('f8'))}; f15.close(); fu.close()
     capn = psum(land); tot = sum(T.values())
     c = np.nan_to_num(cov); s = c.sum(axis=0)
-    res = {'file': os.path.basename(fn), 'scenario': scen, 'year': yr, 'checked_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}
+    res = {'file': os.path.basename(fn), 'scenario': scen, 'year': yr, 'checked_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+           'format': fmt}
     res['closure'] = {'max_abs_sum_minus_1_active': float(np.abs(s[mask] - 1).max()), 'min_value_active': float(c[:, mask].min()),
                       'nan_in_active': int(np.isnan(cov[:, mask]).sum()), 'finite_in_inactive': int(np.isfinite(cov[:, ~mask]).sum()),
                       'values_between_0_and_1e-12': int(((c[:, mask] > 0) & (c[:, mask] < 1e-12)).sum())}   # reported only
@@ -73,7 +94,7 @@ def verify_file(fn, scen, f_dom, out_reports, out_figs):
         res['vs_vic_coverage_same_year'] = {f'class{k}': {'vic_Mkm2': float((v5[k - 1] * land).sum() * 1e-12),
                                                           'half_sum_abs_diff_Mkm2': float((np.abs(c[k - 1] - v5[k - 1]) * land).sum() * 1e-12 / 2)} for k in (12, 13, 14, 15)}
     cl = res['closure']; cons = res['conservation']
-    passed = (cl['max_abs_sum_minus_1_active'] <= TOL_CLOSURE and cl['min_value_active'] >= 0 and cl['nan_in_active'] == 0
+    passed = (fmt['ok'] and cl['max_abs_sum_minus_1_active'] <= TOL_CLOSURE and cl['min_value_active'] >= 0 and cl['nan_in_active'] == 0
               and cl['finite_in_inactive'] == 0 and all(v['parents_err_gt_tol_capacity_ok'] == 0 for v in cons.values())
               and all(v['allocated_where_target_zero_km2'] == 0 for v in cons.values()))
     res['status'] = 'passed' if passed else 'failed'

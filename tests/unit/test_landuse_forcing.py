@@ -1,8 +1,9 @@
 """Unit tests for the land-use forcing driver (workflow/04_forcing/landuse/).
 
 The allocation itself is checked by verify_forcing.py on real output; these tests cover the driver rules:
-an existing forcing unit is never written into, the year range is checked, and the Slurm job is rendered
-completely with the verifier pointed at the producer's output.
+an existing forcing unit is never written into, the year range is checked, the Slurm job is rendered
+completely with the verifier pointed at the producer's output, and the file format VIC reads (time axis and
+calendar) is written by the producer and checked by the verifier.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
@@ -82,6 +83,58 @@ class ClosureTest(unittest.TestCase):
         self.assertAlmostEqual(out[:, 0, 2].sum(), 1.0, places=15)
         self.assertEqual(n_man, 1)
         self.assertTrue(np.allclose(out[:, 0, :3].sum(axis=0), 1, atol=1e-15))
+
+
+def load_verifier(workdir):
+    with mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': workdir}):
+        spec = importlib.util.spec_from_file_location('lu_verifier', os.path.join(LANDUSE, 'verify_forcing.py'))
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod
+
+
+class FormatTest(unittest.TestCase):
+    """VIC aborts when the calendar of a plugin forcing file differs from its clock (PROLEPTIC_GREGORIAN)."""
+    def setUp(self):
+        import numpy as np
+        self.np = np; self.tmp = tempfile.TemporaryDirectory()
+        self.lu = load_producer('/nonexistent'); self.vf = load_verifier('/nonexistent')
+        self.lat = np.array([-1.0, 1.0]); self.lon = np.array([10.0, 11.0, 12.0])
+        self.fn = os.path.join(self.tmp.name, 'coverage_histsoc_2016.nc')
+        Cv = np.zeros((16, 2, 3), 'f4'); Cv[11] = 1.0
+        self.lu.write_coverage(self.fn, Cv, self.lat, self.lon, 'histsoc', 2016, {})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def check(self):
+        import netCDF4 as nc
+        with nc.Dataset(self.fn) as d:
+            return self.vf.check_format(d, self.fn, self.lat, self.lon)
+
+    def test_producer_writes_vic_calendar(self):
+        import netCDF4 as nc
+        with nc.Dataset(self.fn) as d:
+            self.assertEqual(d['time'].calendar, 'proleptic_gregorian')
+            self.assertEqual(d['time'].units, 'days since 2016-01-01 00:00:00')
+            self.assertEqual(list(d['time'][:]), [0.0])
+        f = self.check()
+        self.assertTrue(f['ok'], f)
+
+    def test_verifier_rejects_other_calendar(self):
+        import netCDF4 as nc
+        with nc.Dataset(self.fn, 'a') as d:
+            d['time'].calendar = 'standard'                       # the method 1.3 files
+        f = self.check()
+        self.assertEqual(f['calendar'], 'standard')
+        self.assertFalse(f['ok'])
+
+    def test_verifier_rejects_other_grid_and_year(self):
+        import netCDF4 as nc
+        with nc.Dataset(self.fn) as d:
+            self.assertFalse(self.vf.check_format(d, self.fn, self.lat, self.lon + 1)['ok'])
+        other = os.path.join(self.tmp.name, 'coverage_histsoc_2017.nc'); os.rename(self.fn, other)
+        with nc.Dataset(other) as d:
+            self.assertFalse(self.vf.check_format(d, other, self.lat, self.lon)['ok'])
 
 
 class SubmitRenderTest(unittest.TestCase):
