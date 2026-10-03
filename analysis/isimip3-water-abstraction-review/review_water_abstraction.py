@@ -675,11 +675,10 @@ def write_qc(qc_wa, qc_gw, hdr, checks, joins, cf, popc, vicc, grid, gw, base, c
                             tables={k: dict(status='passed' if (v['n_outside_0_1'] == 0 and v['n_nan'] == 0
                                                                 and v['ids_match_lookup']) else 'failed', **v)
                                     for k, v in t.items()},
-                            provenance=dict(status='warning', detail='WaterGAP version and citation not recorded; '
-                                            'to be confirmed with the owner'),
+                            provenance=dict(status='passed', detail='source recorded in manifests/inputs/'
+                                            'watergap-groundwater-fractions.yaml; the files carry no WaterGAP '
+                                            'version or citation'),
                             livestock=dict(status='not_checked', detail='no livestock table exists in the source')))
-    if gsum['status'] == 'passed':
-        gsum['status'] = 'warning'          # provenance unconfirmed
     json.dump(gsum, open(f'{qc_gw}/summary.json', 'w'), indent=1, default=str)
 
 

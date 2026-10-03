@@ -19,11 +19,14 @@ description: >-
   copied for livestock. Used by decision D05 (item 5) for static groundwater
   fractions.
 provenance: >-
-  To be confirmed with the owner. The files carry no metadata. The names
-  G_FRACTGW_* and the Arc_ID cell numbering are those of the WaterGAP
-  global hydrological model (0.5 degree, 67 420 land cells); the WaterGAP
+  Copied from the water-use forcing chain of the sibling project (source
+  above), where the tables are the inputs of the scripts
+  createDomesticGroundwaterFraction.R, createManufacturingGroundwaterFraction.R
+  and createIrrigationGroundwaterFraction.R. The names G_FRACTGW_* and the
+  Arc_ID cell numbering are those of the WaterGAP global hydrological model
+  (0.5 degree, 67 420 land cells). The files carry no metadata; the WaterGAP
   version, the reference period of the fractions and the citation are not
-  recorded in the source directory and are not guessed here.
+  recorded in the source directory.
 location: raw/external/watergap-groundwater-fractions/snapshot-2026-10-02/
 acquired: 2026-10-02
 file_count: 4

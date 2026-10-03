@@ -1,6 +1,6 @@
 # D05 — Non-irrigation water use while the ISIMIP4b dataset is not released
 
-Status: **decided 2026-10-02** by the user (option A, staged).
+Status: **decided 2026-10-02** by the user (option A), amended 2026-10-03.
 Due stage: `04_forcing`.
 
 ## Context
@@ -37,7 +37,8 @@ consumption (`wc`):
 Global totals around the join (km³/yr): ISIMIP3a histsoc 2021 domww 641,
 indww 1 097; ISIMIP3b ssp370 2022 domww 586; ssp126 2022 domww about 515;
 ssp370 2017 indww 902. The future series therefore sit 10–20 % below the
-historical series at the join.
+historical series at the join (first estimate; the D1 numbers are under
+"Evidence from task D1").
 
 The sibling project `vic_global/vic_parameter` already downscaled the
 ISIMIP3a histsoc (1979–2021) and ISIMIP3b ssp126/ssp370 (2022–2100) series
@@ -47,12 +48,15 @@ built static groundwater fractions from WaterGAP tables
 (`outputs/water_use/gwfrac/v1.1.0_20260818`) and a livestock demand from
 FAOSTAT stocks (`outputs/water_use/livestock/v1.1.0_20260818`). A one-month
 VIC gate run (2026-08-26, Anunna) with these files passed the water-budget
-checks. They cannot be used as they are: the historical series starts in
-1979, the files carry `calendar = standard` while the project runs on
-`proleptic_gregorian` (VIC aborts on a calendar mismatch of plugin forcing),
-the 2021/2022 step is uncorrected, the SSP consumption fractions come from
-`2015soc`, the population proxy (Yan et al. 2022) stops in 2020, and the
-directory contract has no adoption path for forcing units. The older chain
+checks. Their treatment of the SSP years (the raw SSP series without a
+join at 2021/2022, consumption fractions from `2015soc`) is the one this
+project adopts (amendments 2 and 3). The files themselves cannot be used as
+they are: the historical series starts in 1979, the files carry
+`calendar = standard` while the project runs on `proleptic_gregorian` (VIC
+aborts on a calendar mismatch of plugin forcing), the population proxy
+(Yan et al. 2022) stops in 2020, and the directory contract has no adoption
+path for forcing units. This project therefore redoes the 0.5° to 5′ split
+for 1850–2100 with the ISIMIP4b 5′ population (item 4). The older chain
 in `/lustre/backup/WUR/ESG/marin052/waterUseForcing/` (R and cdo) lost about
 2.7 % of domestic demand through `setmisstoc,0` and is reference only.
 
@@ -60,7 +64,7 @@ in `/lustre/backup/WUR/ESG/marin052/waterUseForcing/` (R and cdo) lost about
 
 | Option | Content | Assessment |
 |---|---|---|
-| A | Substitute the ISIMIP3a/3b series: histsoc 1850–2021 from ISIMIP3a; 1850soc and 2021soc constant; ssp1vlsoc-noadapt from ssp126, ssp3hsoc-noadapt from ssp370, joined to the 2021 historical value; downscaled to 5′ with the ISIMIP4b 5′ population of the same soc scenario; groundwater fractions from the WaterGAP tables; produced by `workflow/04_forcing/water_use/` as forcing units | full plugin stack; same data the ISIMIP3b models used; replaced by regenerating the units when ISIMIP4b releases its dataset; not official ISIMIP4b input, must be documented and reported to the sector coordinators |
+| A | Substitute the ISIMIP3a/3b series: histsoc 1850–2021 from ISIMIP3a; 1850soc and 2021soc constant; ssp1vlsoc-noadapt from ssp126, ssp3hsoc-noadapt from ssp370, joined to the 2021 historical value (join withdrawn 2026-10-03, see Amendments); downscaled to 5′ with the ISIMIP4b 5′ population of the same soc scenario; groundwater fractions from the WaterGAP tables; produced by `workflow/04_forcing/water_use/` as forcing units | full plugin stack; same data the ISIMIP3b models used; replaced by regenerating the units when ISIMIP4b releases its dataset; not official ISIMIP4b input, must be documented and reported to the sector coordinators |
 | B | Irrigation only: `WATERUSE` on, no municipal, manufacturing or livestock sector | omits about 1 700 km³/yr of withdrawals (irrigation about 2 500–3 000); a capability VIC-WUR has would go unused; dams would see no non-irrigation demand |
 | C | A, staged: historical and constant units first, SSP units before the Group III runs | same as A, decision on the SSP join rule taken now |
 | D | Wait for the ISIMIP4b release | blocks the smoke campaign and every histsoc experiment |
@@ -89,9 +93,8 @@ in `/lustre/backup/WUR/ESG/marin052/waterUseForcing/` (R and cdo) lost about
 6. The method of `vic_parameter` (parent-to-child split restricted to active
    children, even-split fallback, lost-demand accounting) is ported into
    this repository with tests; nothing is adopted as a file.
-7. The sector coordinators are asked (audit question Q-B) when the ISIMIP4b
-   dataset will be released; when it is, the units are regenerated as a
-   whole from it.
+7. When ISIMIP4b releases its non-irrigation water-use dataset, the units
+   are regenerated as a whole from it.
 
 ## Evidence from task D1 (2026-10-02)
 
@@ -137,9 +140,7 @@ Analysis `isimip3-water-abstraction-review`; report
 
 Decided by the user after reading the D1 report:
 
-1. Option A stands. No questions are sent to the sector coordinators or to
-   the owner of the WaterGAP tables; the data are used as ISIMIP3b
-   delivered them.
+1. Option A stands; the data are used as ISIMIP3b delivered them.
 2. The SSP withdrawal series are used raw, without rescaling and without a
    join to the 2021 historical value. The 2021/2022 step (global −9 to
    −27 %) is accepted and documented as a property of the source data;
@@ -150,8 +151,7 @@ Decided by the user after reading the D1 report:
 4. The 2005 industrial anomaly is kept as delivered and noted in the unit
    provenance.
 5. The WaterGAP tables are used as they are, with `G_FRACTGW_MAN` for the
-   whole industrial sector; their provenance stays "unconfirmed" in the
-   manifest.
+   whole industrial sector; the manifest records where they come from.
 6. Task D2 produces all five units (`histsoc`, `1850soc`, `2021soc`,
    `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`) in one task; there is no
    separate task for the SSP units.

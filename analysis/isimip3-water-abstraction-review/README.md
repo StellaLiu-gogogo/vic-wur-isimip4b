@@ -82,17 +82,18 @@ published global totals; the findings are in `workdir/analysis/isimip3-water-abs
 After reading the report the user decided (2026-10-03; maintained record: sections "Evidence from
 task D1" and "Amendments 2026-10-03" of `docs/decisions/D05-non-irrigation-water-use.md`):
 
-- D05 option A stands; the data are used as ISIMIP3b delivered them, and no questions are sent to
-  the sector coordinators or to the owner of the WaterGAP tables.
+- D05 option A stands; the data are used as ISIMIP3b delivered them.
 - The SSP withdrawal series are used raw, without rescaling and without a join to the 2021
   historical value; the 2021/2022 step is documented as a property of the source data.
 - The consumption fraction in the SSP years is wc/ww of the `2015soc` files, capped at 1, with the
   continental fraction of the same field where it is undefined.
 - The 2005 industrial anomaly is kept and noted in the unit provenance.
-- The WaterGAP tables are used as they are (`G_FRACTGW_MAN` for the whole industrial sector),
-  provenance unconfirmed.
+- The WaterGAP tables are used as they are (`G_FRACTGW_MAN` for the whole industrial sector); the
+  manifest records where they come from.
 - Task D2 produces all five units (`histsoc`, `1850soc`, `2021soc`, `ssp1vlsoc-noadapt`,
   `ssp3hsoc-noadapt`) in one task.
 
-The join candidates in section 6 and the open questions in section 11 of the report are kept as the
-record of the analysis; they are superseded by these decisions.
+`report.md` is kept as the record of the analysis of 2026-10-02. Where it differs from these
+decisions (the join candidates in section 6, the provenance remark in section 10, the open questions
+in section 11, and the WaterGAP QC status in its header) the decisions apply; the QC summaries were
+regenerated on 2026-10-03 (job `review_43011278`).
