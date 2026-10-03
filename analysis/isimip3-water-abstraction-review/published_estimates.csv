@@ -1,0 +1,27 @@
+# Published global and continental estimates used for comparison (km3/yr).
+# source_id: aquastat2016 = FAO (2016): AQUASTAT database, "Water withdrawal by sector, around 2010", update November 2016,
+#   http://www.fao.org/nr/aquastat (table retrieved 2026-10-02 from https://www.weltagrarbericht.de/wp-content/uploads/2016WorldData-Withdrawal_eng.pdf);
+#   municipal = domestic, industrial includes thermoelectric cooling; national statistics, so a reported year "around 2010" (plotted at 2010).
+#   AQUASTAT North America = Northern America (incl. Mexico) + Central America and Caribbean.
+# source_id: floerke2013 = Floerke, M., Kynast, E., Baerlund, I., Eisner, S., Wimmer, F., Alcamo, J. (2013): Domestic and industrial water
+#   uses of the past 60 years as a mirror of socio-economic development: a global simulation study, Global Environmental Change 23, 144-156,
+#   https://doi.org/10.1016/j.gloenvcha.2012.10.018 (abstract: domestic + industrial withdrawal ca. 300 km3 in 1950 and 1345 km3 in 2010,
+#   12 % of which consumed).
+source_id,year,region,sector,quantity,km3
+aquastat2016,2010,global,dom,ww,464
+aquastat2016,2010,global,ind,ww,768
+aquastat2016,2010,Africa,dom,ww,33
+aquastat2016,2010,Africa,ind,ww,9
+aquastat2016,2010,North America,dom,ww,87
+aquastat2016,2010,North America,ind,ww,295
+aquastat2016,2010,South America,dom,ww,36
+aquastat2016,2010,South America,ind,ww,26
+aquastat2016,2010,Asia,dom,ww,234
+aquastat2016,2010,Asia,ind,ww,253
+aquastat2016,2010,Europe,dom,ww,69
+aquastat2016,2010,Europe,ind,ww,181
+aquastat2016,2010,Oceania,dom,ww,5
+aquastat2016,2010,Oceania,ind,ww,4
+floerke2013,1950,global,dom+ind,ww,300
+floerke2013,2010,global,dom+ind,ww,1345
+floerke2013,2010,global,dom+ind,wc,161.4

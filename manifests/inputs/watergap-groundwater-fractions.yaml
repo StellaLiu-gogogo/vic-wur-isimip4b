@@ -1,0 +1,52 @@
+dataset_id: watergap-groundwater-fractions
+version: snapshot-2026-10-02
+source: >-
+  /lustre/backup/WUR/ESG/marin052/waterUseForcing/ (the water-use forcing
+  chain of the sibling project, R and cdo), copied on 2026-10-02 from
+  domestic/input/, industrial/input/, irrigation/input/ and input/. The
+  subpaths below the source root are kept.
+description: >-
+  Static fractions of sector water withdrawal taken from groundwater, one
+  value per WaterGAP 0.5 degree land cell, as tab-separated text tables
+  (header "Arc_ID" "VALUE", CRLF line ends, 67 420 rows):
+  G_FRACTGW_DOM (domestic), G_FRACTGW_MAN (manufacturing; there is no
+  separate table for thermal power / energy), G_FRACTGW_IRRIG (irrigation).
+  Arc_ID_lon_lat_continentalarea.txt maps Arc_ID to the cell-centre lon/lat
+  and the continental area in km2 (header Arc_ID lon lat cont_area_km2).
+  No livestock table exists in the source: the source chain set the livestock
+  groundwater fraction to 1 everywhere
+  (livestock/scripts/createLivestockGroundwaterFraction.sh), so nothing was
+  copied for livestock. Used by decision D05 (item 5) for static groundwater
+  fractions.
+provenance: >-
+  To be confirmed with the owner. The files carry no metadata. The names
+  G_FRACTGW_* and the Arc_ID cell numbering are those of the WaterGAP
+  global hydrological model (0.5 degree, 67 420 land cells); the WaterGAP
+  version, the reference period of the fractions and the citation are not
+  recorded in the source directory and are not guessed here.
+location: raw/external/watergap-groundwater-fractions/snapshot-2026-10-02/
+acquired: 2026-10-02
+file_count: 4
+total_bytes: 5255099
+verification: >-
+  md5 of every copy equals md5 of the source before and after the copy (4/4);
+  record logs/01_acquisition/watergap-groundwater-fractions_copy_2026-10-02.log.
+qc: qc/raw/external/watergap-groundwater-fractions/snapshot-2026-10-02/summary.json
+status: accepted
+files:
+  - path: domestic/input/G_FRACTGW_DOM.txt
+    size_bytes: 1067632
+    md5: 76c19d693b142207bc5e1590aa21c2e8
+    source_mtime: 2025-09-23
+  - path: industrial/input/G_FRACTGW_MAN.txt
+    size_bytes: 1067632
+    md5: 51fcb4807b2237eb6daac34e962a35b2
+    source_mtime: 2025-09-25
+  - path: irrigation/input/G_FRACTGW_IRRIG.txt
+    size_bytes: 1067632
+    md5: 5a04f2aefb8284101ed25ec0657fc0f3
+    source_mtime: 2025-09-23
+  - path: input/Arc_ID_lon_lat_continentalarea.txt
+    size_bytes: 2052203
+    md5: 35a4b3e141a865dad28164a2463af18b
+    source_mtime: 2025-09-23

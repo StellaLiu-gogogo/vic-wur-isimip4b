@@ -12,7 +12,7 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 |---|---|
 | `build_inventory.py` | classify a `find` listing of the DKRZ ISIMIP4b tree into datasets and transfer priorities (A/B/C); writes `dkrz_isimip4b_inventory_<date>.{csv,md}` |
 | `make_batch_lists.py` | split the inventory into the project's transfer batches 1–6; writes `batch_<n>_files.txt` and `batch_<n>_expected_sizes.tsv` |
-| `transfer_batch.sh` | rsync one approved batch from levante into `workdir/raw/ISIMIP4b/`, check remote size stability, md5 on both ends, and write `transfer_manifest_batch_<id>.txt` and `MD5SUMS` into the manifest directory |
+| `transfer_batch.sh` | rsync one approved batch from levante into `workdir/raw/ISIMIP4b/`, check remote size stability, md5 on both ends, and write `transfer_manifest_batch_<id>.txt` and `MD5SUMS` into the manifest directory; the optional arguments `[src-root] [dst-root]` take files from another DKRZ tree (e.g. `/work/bb0820/ISIMIP` with list paths starting `ISIMIP3b/…`) into `workdir/raw/external/<dataset-id>/<dataset-version>/`; without them the ISIMIP4b behaviour is unchanged |
 
 Exploratory inventories and batch lists go to `workdir/scratch/`; once a
 batch is approved and transferred, its list, expected sizes, manifest and

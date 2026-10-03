@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
-# Pull one approved batch of ISIMIP4b files from DKRZ levante into the raw area,
+# Pull one approved batch of files from DKRZ levante into the raw area,
 # verify sizes and md5 on both ends, and write the transfer manifest.
 #
-# usage: transfer_batch.sh <batch-id> <list-file> <manifest-dir> [ssh-host]
+# usage: transfer_batch.sh <batch-id> <list-file> <manifest-dir> [ssh-host] [src-root] [dst-root]
 #   <batch-id>      label used in log and manifest names, e.g. 5
 #   <list-file>     batch_<n>_files.txt from make_batch_lists.py (paths relative to the DKRZ root);
 #                   batch_<n>_expected_sizes.tsv must sit next to it
 #   <manifest-dir>  where transfer_manifest_batch_<id>.txt and MD5SUMS are written; the accepted
 #                   manifest is committed under repo/manifests/inputs/<dataset-id>/
 #   [ssh-host]      ssh alias of DKRZ levante (default: levante; key-based login required)
+#   [src-root]      remote directory the list paths are relative to (default: /work/bb0820/ISIMIP/ISIMIP4b)
+#   [dst-root]      local destination (default: $ISIMIP4B_WORKDIR/raw/ISIMIP4b); for other DKRZ trees use
+#                   $ISIMIP4B_WORKDIR/raw/external/<dataset-id>/<dataset-version>
 #
-# Requires ISIMIP4B_WORKDIR. Files land unchanged under $ISIMIP4B_WORKDIR/raw/ISIMIP4b/
-# with their DKRZ relative path (rsync -L follows DKRZ symlinks). Logs go to
+# Requires ISIMIP4B_WORKDIR. Files land unchanged under <dst-root> with their path
+# relative to <src-root> (rsync -L follows DKRZ symlinks). Logs go to
 # $ISIMIP4B_WORKDIR/logs/01_acquisition/. Existing files are never overwritten
 # (rsync --ignore-existing): a changed upstream file is a new dataset version.
 set -uo pipefail
 B=${1:?batch id}; LIST=${2:?list file}; MANDIR=${3:?manifest dir}; HOST=${4:-levante}
 : "${ISIMIP4B_WORKDIR:?set ISIMIP4B_WORKDIR}"
-SRC_ROOT=/work/bb0820/ISIMIP/ISIMIP4b
-DST=$ISIMIP4B_WORKDIR/raw/ISIMIP4b
+SRC_ROOT=${5:-/work/bb0820/ISIMIP/ISIMIP4b}
+DST=${6:-$ISIMIP4B_WORKDIR/raw/ISIMIP4b}
 LOGDIR=$ISIMIP4B_WORKDIR/logs/01_acquisition
 SIZES=$(dirname "$LIST")/$(basename "$LIST" _files.txt)_expected_sizes.tsv
 LOG=$LOGDIR/batch_${B}_rsync_$(date +%F).log

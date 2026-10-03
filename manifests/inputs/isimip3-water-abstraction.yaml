@@ -1,0 +1,362 @@
+dataset_id: isimip3-water-abstraction
+version: dkrz-2026-10-02
+source: >-
+  DKRZ levante /work/bb0820/ISIMIP/ (ISIMIP3a and ISIMIP3b InputData,
+  socioeconomic/water_abstraction), transferred with
+  workflow/01_acquisition/transfer_batch.sh (batch id
+  isimip3-water-abstraction, src-root /work/bb0820/ISIMIP); the same files are
+  published in the ISIMIP repository (data.isimip.org) under the DOIs below.
+description: >-
+  ISIMIP3a/ISIMIP3b harmonized domestic (dom) and industrial (ind) water
+  withdrawal (ww) and consumption (wc), 0.5 degree, annual, m3/yr per grid
+  cell. Substitute for the unreleased ISIMIP4b non-irrigation water use
+  (decision D05). Subset: ISIMIP3a histsoc (1850-2021); ISIMIP3b histsoc
+  (1601-2014), 1850soc and 2015soc (1601-2100), ssp126soc-noadapt and
+  ssp370soc-noadapt (2015-2100, withdrawal only, multi-model mean and
+  standard deviation). Not taken: ISIMIP3a 1901soc and 2015soc,
+  ISIMIP3b ssp585soc-noadapt. DKRZ paths below ISIMIP/ are kept unchanged.
+citation:
+  - >-
+    Wada, Y., Floerke, M., Hanasaki, N., Mueller Schmied, H., Gosling, S. N.,
+    Schewe, J. (2022): ISIMIP3a water abstraction input data (v1.0). ISIMIP
+    Repository. https://doi.org/10.48364/ISIMIP.228996
+  - >-
+    Wada, Y., Floerke, M., Hanasaki, N., Mueller Schmied, H., Gosling, S. N.,
+    Schewe, J. (2022): ISIMIP3b water abstraction input data (v1.0). ISIMIP
+    Repository. https://doi.org/10.48364/ISIMIP.478291
+  - >-
+    Fridman, D., Hanasaki, N., Burek, P., Novak, L., Floerke, M., Schewe, J.
+    (2026): ISIMIP3b Future Water Abstraction for Domestic and Industrial
+    Uses (v1.0). ISIMIP Repository. https://doi.org/10.48364/ISIMIP.423677
+  - >-
+    Wada, Y. et al.: Modeling global water use for the 21st century: the
+    Water Futures and Solutions (WFaS) initiative and its approaches, Geosci.
+    Model Dev., 9, 175-222, 2016. https://doi.org/10.5194/gmd-9-175-2016
+licence: CC0 1.0 (ISIMIP3a and ssp files, data.isimip.org); ISIMIP terms of use
+location: raw/external/isimip3-water-abstraction/dkrz-2026-10-02/
+acquired: 2026-10-02
+file_count: 52
+total_bytes: 5355295389
+verification: >-
+  rsync exit 0; remote size and mtime identical before and after the
+  transfer; md5 of every local copy equals md5 computed on levante (52/52);
+  sha512 of every local copy equals the checksum published by
+  data.isimip.org (52/52, file API queried 2026-10-02). Records:
+  logs/01_acquisition/batch_isimip3-water-abstraction_* and
+  transfer_manifest_batch_isimip3-water-abstraction.txt, job record
+  logs/01_acquisition/sha512-isimip3-water-abstraction_43010802/.
+qc: qc/raw/external/isimip3-water-abstraction/dkrz-2026-10-02/summary.json
+status: accepted
+files:
+  - path: ISIMIP3a/InputData/socioeconomic/water_abstraction/histsoc/domwc_histsoc_annual_1850_1900.nc
+    size_bytes: 20643917
+    md5: 743282534c7568e23635e0fae1983281
+    sha512: e5eb8d25307091508e0788157b5e2d04439b3e8d66b769cfa9f66ab0bb5105dbea524dc8b0d3302c63874a574571187a1b2fe0d5c7379fe108ada05b64d7fadc
+    remote_mtime: 2022-04-05
+    published_version: "20220602"
+  - path: ISIMIP3a/InputData/socioeconomic/water_abstraction/histsoc/domwc_histsoc_annual_1901_2021.nc
+    size_bytes: 46584521
+    md5: c558cd3edf00d47d0fcf8838f275b58e
+    sha512: 54929ec845e68bbd3e3e889b8dc645087ad36d2abf37188676bc751a8125ce789587dbc09362ff5f034ef42e8a07187ad844eb8eb2ce4a6bcefad7ffb7757b88
+    remote_mtime: 2022-04-05
+    published_version: "20220602"
+  - path: ISIMIP3a/InputData/socioeconomic/water_abstraction/histsoc/domww_histsoc_annual_1850_1900.nc
+    size_bytes: 20505247
+    md5: d569d2acf96cc816b14f4bc270deb35b
+    sha512: 57f1ff1b1b6bb796ef0cfa829b1d654718bd74fa7a4c83a101d8e1364021fb8720a4893dbcb1097b8a9bf8715cb811e1622a4c4354c7411fc182dd67718a9e0b
+    remote_mtime: 2022-04-05
+    published_version: "20220602"
+  - path: ISIMIP3a/InputData/socioeconomic/water_abstraction/histsoc/domww_histsoc_annual_1901_2021.nc
+    size_bytes: 46117250
+    md5: 23014a600dfdacef7e2e4d5816f2a162
+    sha512: 4956cdc65ae2a1a3a679ecce227da20123c2b4ba66bf16e6e83c2a440d7e503a3abb05dce9e76b73253576a982bd7d28aa76f20fea3da367cd4c7c271b527c51
+    remote_mtime: 2022-04-05
+    published_version: "20220602"
+  - path: ISIMIP3a/InputData/socioeconomic/water_abstraction/histsoc/indwc_histsoc_annual_1850_1900.nc
+    size_bytes: 16144138
+    md5: b3559039c870d0922e37fbe71b3016cf
+    sha512: 802bb53a11a489c0cc7db945193d3039f222fdff888547a4fa9fb09e86cadcc2c60913bb2c354ebab69861da78f53325badf008256566ab33f89931d5f07d3d2
+    remote_mtime: 2022-04-05
+    published_version: "20220602"
+  - path: ISIMIP3a/InputData/socioeconomic/water_abstraction/histsoc/indwc_histsoc_annual_1901_2021.nc
+    size_bytes: 37546847
+    md5: 9d46b45d2da9c2c710a75b36f526b600
+    sha512: 7d813032314d83dc2e8f8818d071d0a13e89daac7ebdd49c8c613a21b7bb422d8ca0224c5745a8a9f239ab9f77433e02b2fbd33869ad506b0bd94970fa3e3451
+    remote_mtime: 2022-04-05
+    published_version: "20220602"
+  - path: ISIMIP3a/InputData/socioeconomic/water_abstraction/histsoc/indww_histsoc_annual_1850_1900.nc
+    size_bytes: 16155357
+    md5: 6fc762e60b644f54ea2b91a2f4e4ba25
+    sha512: 4aa600918d2880dc6ae24508cdf895b9247860cd3282fe6f00a44833715ebe9af492b318517f2af07609bb816ed07f54eb4b620771a91f66f82b2f74c31f736e
+    remote_mtime: 2022-04-05
+    published_version: "20220602"
+  - path: ISIMIP3a/InputData/socioeconomic/water_abstraction/histsoc/indww_histsoc_annual_1901_2021.nc
+    size_bytes: 37457727
+    md5: 1ee28e8b4f50e0bacf6908c6480193da
+    sha512: 0808d28e7a5e30186629a6e8c5f792b08487edca370ddfdc04f983554a983955d2dee70540026d15f5ac5cba1bfa1d215a28f4cb5d65317610513ca2af42b38e
+    remote_mtime: 2022-04-05
+    published_version: "20220602"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/domwc_1850soc_annual_1601_1849.nc
+    size_bytes: 401629424
+    md5: 64c7a6f75245e395e9f6a084aa49b61f
+    sha512: 6a11e4ee47a46ee626f0a3127eb24f60a9a4cdac49cbad2847e1e89adc58203fb88760b16d64861608d510c9821b0b586cbbdd2b7d8e429b20a481d6fdebcd92
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/domwc_1850soc_annual_1850_2014.nc
+    size_bytes: 266147952
+    md5: 030397fe51c3f0140fe17bb719d9316e
+    sha512: 4656082726154321effb90440b648877452556874aea0ab3c0b0d2fc21fe98d100159602d85de30488b2d4b369607eafc86dc099f992372fd0328d42c3f071bf
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/domwc_1850soc_annual_2015_2100.nc
+    size_bytes: 138733616
+    md5: b960b80abd2f6881ad0433309b0d7602
+    sha512: 8a594a37e36200a90cf0dfe5b67a4dde54c09e816e44da7f62eb068cf189e817642a171303a793606f8c570aacd5c92742ba279af0d34e676c9077c8dcd7d75a
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/domww_1850soc_annual_1601_1849.nc
+    size_bytes: 401629424
+    md5: dc0aac3149d3d83b9bc695712fa7b5e6
+    sha512: f63f4f48d1888fb4c5f6b5569cdd1cd6ef1cac30b82284bc37e9975f996c24206a9ba234f7aa1a45d73fb09f204d40beceaf998d8a59e2f2bd62d486240c4d85
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/domww_1850soc_annual_1850_2014.nc
+    size_bytes: 266147952
+    md5: d6277970fe10bee7e2b0726a16a714d0
+    sha512: 1c7c749e87b85644264a8153cb704164269b97cf64ba3d5eda0d78fbeb6b34bd2f682a9f342c1fce5cd5c9bf634adc16c5691494d71b273c1e4b747485e5ed40
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/domww_1850soc_annual_2015_2100.nc
+    size_bytes: 138733616
+    md5: 576c2095d0998532ea2bdaee54f60f8b
+    sha512: fe817f754332ff08e135f321ae05e5861574647a73f1ad38e330f05085c9c33835c75c45f2ca0af2785057c87b9c7e921129bd51ff370e43d79b86bc37b852ac
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/indwc_1850soc_annual_1601_1849.nc
+    size_bytes: 401629424
+    md5: be6f353bfa591f14db81ff1a7fe9089d
+    sha512: 70ceadea9dcd3cddc5361b43815093a9dd0e82aeea6bbb09d10b4e6dd11d9bfec442bc320ae1b9073a01d0030b34d439f13ae74e8c25efa42e797def6cd4df3d
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/indwc_1850soc_annual_1850_2014.nc
+    size_bytes: 266147952
+    md5: 4f0072a3bff7959483a518e16f72c084
+    sha512: 41d97bd03dcb994f4c34e2978296c08fb7f5b8f7fd04e244d0dc73a79abf4e19f8094785ec540f8d98844349e74f5fbb88d6c8e1e8c31db9bccc4593d4e44f3a
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/indwc_1850soc_annual_2015_2100.nc
+    size_bytes: 138733616
+    md5: 9aa8d66a7d4e7d67f31839c68eda15b0
+    sha512: d852ab297c4063080c644c87b4d758ab5657760d8ab710763f8d79571f6ec8d183efa82a76492f885c77ab014f9bf47b7a8c49a7c3a3d1fd2152f8a8d91a61c8
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/indww_1850soc_annual_1601_1849.nc
+    size_bytes: 401629424
+    md5: 9440e79fef169faa52d60b8747d5c6e9
+    sha512: 511c828377ebbf062ee3b7f6782730c246e2c7e95bd52fcba75ca81a7d66c733bdd1f503ba7b2908e2cf90bee45171a7c43fa987dc25eec77c335671efcd90d3
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/indww_1850soc_annual_1850_2014.nc
+    size_bytes: 266147952
+    md5: 5dc6fb2279fb7a2d352de52da9f80888
+    sha512: 510fea0759feb35517119df4219286bcd85aa03767ce285f760591f56756134898aa61baafa2ad0f1205b152b9f85f13494f455e2b3764f3c7926858896f2c54
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/1850soc/indww_1850soc_annual_2015_2100.nc
+    size_bytes: 138733616
+    md5: 45b358ccec286932bd5def36b6939efb
+    sha512: 3ba36f78a47525774fb1bdb45290d0ae0e44b076609a0a5514896068b283ed4f81fa13b9b38660bf42ca925f657ffeee0751aa7a219867e85a23c67376b284ff
+    remote_mtime: 2020-04-24
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/domwc_2015soc_annual_1601_1849.nc
+    size_bytes: 75786881
+    md5: c264095ee06c1e64187c1e7641cfdde7
+    sha512: c5fef3d9731e4787f83d27800bdf1964d05d65ecbe31302641a345108129659345de6194673cb15eab3288888206a6eaa67655c6953d7526088096cc51fd87a4
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/domwc_2015soc_annual_1850_2014.nc
+    size_bytes: 50226381
+    md5: e500f569dc664d844689e0debf678c47
+    sha512: 26d99507ae9749b59fa90cbfbe8d6be3384de78c53b7291d2ddec616a578c77d912dc4739d2e0af04eb68adabcff7e729ed27e4d1121f2009370c06d43f0220a
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/domwc_2015soc_annual_2015_2100.nc
+    size_bytes: 26189879
+    md5: 87af672c722ee2d48bbcbab2f6917f30
+    sha512: fae7bf9d7f3b251ff0020e8f8020b5877dd0090a938d5356e2570652b1806e89d1a1ae369f5cf88e6b58a43fc4334685456fbe03d5397727e2f3f3ca493d9876
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/domww_2015soc_annual_1601_1849.nc
+    size_bytes: 75958691
+    md5: bd76fa96130b60210d5f11692e9f91a3
+    sha512: 1c79f44780e25b398bd3155542e38ffe8c197dcca3b5661cca7bcf2e2df24784605ec34ace69a7cc259cfd52cf8b7c70d64e49042c6cfeeab204c7a27199edf3
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/domww_2015soc_annual_1850_2014.nc
+    size_bytes: 50340231
+    md5: 7c4d811e04d165b21db5296fc775aa24
+    sha512: a82b2515ae7874c6dee20c845f0d94f066af36c53e42b75a498354a5acd455bade23d250ee0eafa441d718d4a188231f40f333f1d7bfb6bfaecea15f547b4e2d
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/domww_2015soc_annual_2015_2100.nc
+    size_bytes: 26249219
+    md5: 8c0c1775a6b7f6cf2bfb2a7128256544
+    sha512: 421f0dcbcd0462b0cf15924be1c757a77e784dd2dd5fd4fa4060ecdbda6061559edec3821e68b5404923d0ee7340266a6e5d33176a608b9b3acaa65ae111783e
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/indwc_2015soc_annual_1601_1849.nc
+    size_bytes: 70403750
+    md5: 16444f43b9e038041530cb7f236e0e3f
+    sha512: b08664a47c6138baee779de4110aeec8ee4bc66af873b78bc897345663dfe0f3072210e84bd443dbb041cee778bf2d552c4cf3276a986d2524e3b76ccee9cc6f
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/indwc_2015soc_annual_1850_2014.nc
+    size_bytes: 46659246
+    md5: f617263e3af8848ca37dfcb60cec884d
+    sha512: f559e2025b1dca964f428cb9cb9587df5def442499b48b09bfd26d98f36fd0ff645c5ccf2352d5bf8c8aa58144a5fadeea7f2666e21762d4f71578ba0c10f2c7
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/indwc_2015soc_annual_2015_2100.nc
+    size_bytes: 24330645
+    md5: 0ab317507bfa0575758ecbb8fa6b5cc8
+    sha512: f9c8748056478d8381a71ee0a23cd30f8a385d80343e1945c11e8d3e69ed4845e64b873adebc646af600a514d3e21b05b8720e2c319a994aacfdc38bdcb0d397
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/indww_2015soc_annual_1601_1849.nc
+    size_bytes: 70169690
+    md5: e065a85a18c65586eb38a7a90be9e673
+    sha512: 6f7153ed0fcdfa717acf905102380d7db8d3427fbe6ef653aec7e7e297b49b4d341bce7e56560f3f988b53089ebc9593553c836a444adf08ae4adfddda4f2512
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/indww_2015soc_annual_1850_2014.nc
+    size_bytes: 46504146
+    md5: de24e467d7a4f225be74eb136277771c
+    sha512: a2cae76e1e992772502607d36636b1fa91d212b4bf4cab7bab595172b27001388972b1f661420c6affcdd8e645cf87b230875d097a2b5de26771bda6d74b03b2
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/2015soc/indww_2015soc_annual_2015_2100.nc
+    size_bytes: 24249805
+    md5: af3aa3b9f6db4457fb9c83b593f7c5d3
+    sha512: c91f6fbcb517cddaa3cc6efbb579459e7006417bcd81efe0b5d60b148a65c6acae1cd55af6bd84c219d635ad77a37d9c599ba366a8cddaba8bfeb1822290b381
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/domwc_histsoc_annual_1601_1849.nc
+    size_bytes: 100245398
+    md5: da6f43e5a24181f0d8b055a3bef741d4
+    sha512: d50d3598eadbfd477ac8352edeaee390445fe6b45dc4403f36b86f3b9615a6e3c1a1c7c0955117553a30724512bcc0d0cfc10e296099aa3cd0b60bd7e3fe4ec0
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/domwc_histsoc_annual_1850_1900.nc
+    size_bytes: 20547355
+    md5: b760d57bdd93e8e4bdb93a41772a6609
+    sha512: ab23335179c121eff4801b86fb6d40598d2dd3e00da928236cae0ecea1867ff354f1156a483a528e31b55d42e848dca9fab2e68bcefba4b338a33ce7a93cf66c
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/domwc_histsoc_annual_1901_2014.nc
+    size_bytes: 45435198
+    md5: 0ac36b3a57105f13c124f9b409195eab
+    sha512: c635f1636e3c2f34cbf22ffc413a77d45bb4e6b3af0003e3c6ec9bfec9820a0e663170d3b571719a90bf330d6548d9a085e03aaa82c639dd68c6f12f52f6f8c5
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/domww_histsoc_annual_1601_1849.nc
+    size_bytes: 99182914
+    md5: 4411178a0d1ceb531da7e41c12671313
+    sha512: 6ffbbca3959d8219a4278abd9977c86b4dbb6fb215751276a7f6bd554d2e5e15885751b27ff290d5e8844e5f24a5184a53234b87a3e947a8ff5cc136307d5db1
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/domww_histsoc_annual_1850_1900.nc
+    size_bytes: 20329737
+    md5: b872dbdeaa720984234af30bf0eae436
+    sha512: 1b3fe90156dfff76e77d0cb0f2d721657f4768475755d774b2f77ad23bc6ec382aeb1991e6a8a7a1d1f9c2dbb1996aae4dc101e8a03a13240634d6fad807bd44
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/domww_histsoc_annual_1901_2014.nc
+    size_bytes: 44595852
+    md5: d893af7a5d24645566fcfad6cc3fb6ab
+    sha512: b834c8a7f516850642bf91968f4208bf323b266ad03c054ae50fb8e708a1adca9f92a68a500fb115842f4001ad05f12eb5dcdb7eb1b178466cad40a7d96a78ec
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/indwc_histsoc_annual_1601_1849.nc
+    size_bytes: 77305030
+    md5: 808297a31647b9c9c841ce7cb14f65fc
+    sha512: 647b073d59759a02db0d63b85c3108c0348dac9da52c37a064af2a882281949a0f6fbe7e265abe9841b335704fb0b4b4cc37f44aaffb5df4d2164122b4a9d2a0
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/indwc_histsoc_annual_1850_1900.nc
+    size_bytes: 15848727
+    md5: 36a1dd23d75085ba6a82bc12e7bce3f9
+    sha512: 106bfeb2557c2c46c1d2a140448d7c137e51d5d1a7f47ba1159ddf55d232bbde11efce3aeca621d49ca4d916eb62f57c7aa3c7d0f9e197d93b64aa1e1f2c22b8
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/indwc_histsoc_annual_1901_2014.nc
+    size_bytes: 35691524
+    md5: 7d2f5a23175925586095336c6989034f
+    sha512: 074d8ec7575ecd47c7b0ac9a35c0bcfa760526fdf71d934e6480c9ff4d9ab89584b4080286094fe186a3548f6dcf4370d8f92c88031a0783747d678aca185aac
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/indww_histsoc_annual_1601_1849.nc
+    size_bytes: 77078439
+    md5: 856e14b4eb47fdadd5d00520f9ca8b0b
+    sha512: 73650d903035069822f907868de03585a75209862087d19864964b47bc7e6b4dcd56487a02dc5570cea04c799a73ef18bf9376ba2aa3798af639d1753ab4a398
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/indww_histsoc_annual_1850_1900.nc
+    size_bytes: 15802316
+    md5: 13dd95813f64c483e5b352096df337cb
+    sha512: db63efdadb9351fcb93e7338fc8a1afe2ba4f8dd95625b1c1234680cdaae0796f76b38ceb530c86cc5e85b91c61e92251bfc6f389de1717020328034656c2d15
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/histsoc/indww_histsoc_annual_1901_2014.nc
+    size_bytes: 35564747
+    md5: 813909882825e50c32f62d305a8d639e
+    sha512: 663daa9619557c9f3c607051c7c655e9cb392c63be4094ac0db4c5171c51e1c4133ff357a7def9613318061ce3088604ed451c83df7480f04735ccba7ab3e0db
+    remote_mtime: 2020-04-15
+    published_version: "20200706"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/ssp126soc-noadapt/domww-modelavg_ssp126_annual_2015_2100.nc
+    size_bytes: 89175056
+    md5: 566e9126252ea71c7bfc87f7006f30b6
+    sha512: d2ab40c95ddb0ba39cc49a0e65f2e3ce0b503d3f48ac3269c24eda8616facb2ec0f2b9ab9eaf4e23fe3ed463cffb624843897fd2926180a24b2ada7dec9f7d47
+    remote_mtime: 2025-05-19
+    published_version: "20260203"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/ssp126soc-noadapt/domww-modelstd_ssp126_annual_2015_2100.nc
+    size_bytes: 89175096
+    md5: d42f97bec849e35e8e3cefdcf71d3d9f
+    sha512: c1fa57af1b23567e48c38674b1a3abdd0d8b187427302e866be71aa01f1ce6dd3be07b589ccfb5dd925d24a541b5605964cccd6a8029684e5084a414be35cb24
+    remote_mtime: 2025-05-19
+    published_version: "20260203"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/ssp126soc-noadapt/indww-modelavg_ssp126_annual_2015_2100.nc
+    size_bytes: 89175060
+    md5: c8b9336990ccd45d7d9938a47bc8b211
+    sha512: 453e828d4453f54f708cfd5e399dbb591b1948bec9facd884bb7b4931647ce9ec5b14d51cab96c8a4e67cc8a35113c73eaba169c421dfcf62b8ac89421af91d5
+    remote_mtime: 2025-05-19
+    published_version: "20260203"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/ssp126soc-noadapt/indww-modelstd_ssp126_annual_2015_2100.nc
+    size_bytes: 89175096
+    md5: 9b53612c9e39b3a110e1ec0c4a87adfe
+    sha512: 8001ecaa7cddfcfd98e3afc9ef4fa9fb7160992918ef9ffaa24bafc7c776d6d3cfac89fea439fa6d7bd040cc1896a7c523c4dc04994efbcc3a92ec16b634dc69
+    remote_mtime: 2025-05-19
+    published_version: "20260203"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/ssp370soc-noadapt/domww-modelavg_ssp370_annual_2015_2100.nc
+    size_bytes: 89175056
+    md5: 25bd7c7a9a6a2db833c825edde96fb2a
+    sha512: a16d923ef64b50e0e082d86aebb28f71da8189049ca10f34213a9f852c265938ba9c61390e03feaf6c01eb5e4c0700a19689d2c2b6e21c1320408c7bc8484d23
+    remote_mtime: 2025-04-24
+    published_version: "20260203"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/ssp370soc-noadapt/domww-modelstd_ssp370_annual_2015_2100.nc
+    size_bytes: 89175096
+    md5: 10a8221a8a7df81d8eb1b5c4d42838dc
+    sha512: d722e4623c227b4d09035fe1902e155be08aeff5dfeb01c8226843ec41442534ae5e6f52ffe879dc19aaebb2ac3995366c15b068094ae3643fca1b8cf3e61837
+    remote_mtime: 2025-04-24
+    published_version: "20260203"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/ssp370soc-noadapt/indww-modelavg_ssp370_annual_2015_2100.nc
+    size_bytes: 89175060
+    md5: fa5207ff939b8ad2ed38065da37e4534
+    sha512: c963c9261dd9d2ba9ae4a361b3df82b37dc1ecf3bf5dfcc6614bd0745fc129638cbe867aa2a861a7c7edd549804ea37fa19ff8916111108ce6199a61e519532d
+    remote_mtime: 2025-04-24
+    published_version: "20260203"
+  - path: ISIMIP3b/InputData/socioeconomic/water_abstraction/ssp370soc-noadapt/indww-modelstd_ssp370_annual_2015_2100.nc
+    size_bytes: 89175096
+    md5: c964f5951abdbbb1d65f49393e334efa
+    sha512: 52b14d36a9850c84dd780ee2b37b8c22e220118bd2386a222443dbe1b71211c6c70a3c502f5b517d9f1585194f1c704053e6914a09ef78f63761f23f7ef35a5f
+    remote_mtime: 2025-04-24
+    published_version: "20260203"
