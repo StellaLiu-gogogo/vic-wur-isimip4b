@@ -25,7 +25,9 @@ Version 1.4 (2026-10-03) writes the time axis with calendar
 `proleptic_gregorian`, the VIC clock calendar of the project; version 1.3
 wrote `standard`, and VIC (`plugin_get_forcing_file.c`, commit `39e21ff5`)
 aborts at start when the calendar of a plugin forcing file differs from its
-clock. The coverage values are unchanged. The verifier now also checks the
+clock. The coverage values are unchanged. The version 1.3 units were marked
+`failed` by the new format check and replaced by version 1.4 units (user,
+2026-10-03; coverage of all 581 files bitwise equal). The verifier now also checks the
 format VIC reads (time axis and calendar, dimensions, classes, grid, year).
 
 ## Inputs
