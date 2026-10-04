@@ -205,11 +205,22 @@ statuses such as `passed`, `failed`, `warning`, and `not_checked`.
 Do not place a product under `../workdir/delivery/` unless all mandatory checks
 have passed and the product is represented in a delivery manifest.
 
-## Language
+## Language and communication
 
 All repository files and all generated documentation, configuration, scripts,
-manifests, logs, reports, figures, tables, and result metadata must be written
-in English. Chinese may be used only in direct conversation with the user.
+code comments, manifests, logs, reports, figures, tables, and result metadata
+must be written in English.
+
+Conversation with the user is in Chinese: sentences are Chinese, English
+technical terms (variable names, file names, ISIMIP identifiers, VIC
+options) may be mixed in. Do not reply to the user in English unless asked.
+
+The user is a hydrologist, not a computer scientist. Explain in plain words
+and in terms of the data, the model, and the workflow; avoid
+computer-science vocabulary (for example "refactor", "idempotent",
+"serialisation", "dependency injection", "CI", "abstraction") unless it is
+explained in the same sentence. Say what a tool or step does to the data,
+not how it is implemented.
 
 ## Tests and verification
 
