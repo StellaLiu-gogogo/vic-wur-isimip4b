@@ -124,6 +124,41 @@ components:
       Candidate under the provisional D01 (user, 2026-10-01); promotion to
       production/ waits for the D01 freeze.
 
+  bundle_16class_assembled:
+    component: bundle
+    description: >-
+      The image-driver parameter file VIC reads with PARAMETERS: every
+      non-vegetation variable (soil, snow bands, elev, run_cell, ...) of
+      bundle/vic_global_5min_natural_static_root-b-zeng2001.nc and every
+      variable of vegetation/vic_global_5min_vegetation_16class_root-b-zeng2001.nc
+      (16 classes, land-use tile union), each copied bitwise. Generated, not
+      adopted.
+    generated_by: workflow/03_parameters/bundle/assemble_bundle.py
+    method_version: "1.0"
+    code_commit: cfda1acc9a1846a7061d7c510547d1be28622e2a
+    created_at: 2026-10-04T20:39:31Z
+    sources:
+      natural_bundle: bundle/vic_global_5min_natural_static_root-b-zeng2001.nc
+      vegetation_component: vegetation/vic_global_5min_vegetation_16class_root-b-zeng2001.nc
+      domain: domain/vic_global_5min_domain_nogl.nc
+    files:
+      - path: bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc
+        size_bytes: 2405858712
+        md5: 947df36d117c57bf86cd4adb3e110513
+        sha256: 2e8d9a93dda3106cc4f6cf6d792e4bb5edb58c99efb84e0421207438c295fba2
+      - path: bundle/provenance.yaml
+    provenance: bundle/provenance.yaml
+    slurm_job: logs/03_parameters/parameter-bundle-vic-global-5arcmin-version-a_43017891
+    verification: >-
+      verify_bundle.py (2026-10-04): the 46 variables VIC 39e21ff5 reads with
+      the project options present with the dimension order VIC reads;
+      run_cell int and 1 exactly on the domain mask; lat and lon equal the
+      domain; 23 vegetation variables bitwise equal to the component and 53
+      other variables bitwise equal to the natural bundle; Nveg <= tiles <=
+      Nveg + 1 on all 2 188 551 active cells (9 716 093 tiles); overstory 0 or
+      1 on every tile.
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-a/bundle
   routing:
     description: >-
       Routing plugin parameters (ROUTING_PARAMETERS): unit hydrographs
@@ -258,24 +293,11 @@ components:
       decomposition file was built from T3_extended; the merge changes no dam
       cell and no service map. Service links across decomposition groups were
       not checked (VIC drops such a link with a warning).
-    qc_status: not_checked
-  dams_t3_extended:
-    component: dams
-    description: >-
-      Candidate T3_extended (7 982 dams in 7 925 cells, 57 cells with two
-      dams), adopted first on 2026-10-04 and replaced by the merged file
-      (entry dams) before any run, because two dams in one cell write past
-      the dam output arrays of VIC 39e21ff5. Not used by any campaign.
-    source: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/outputs/human_impact/dam_parameter_candidate_v1/T3_extended/dam_params_5min_T3_extended.nc
-    source_version: dam_parameter_candidate_v1/T3_extended
-    source_mtime: 2026-08-19
-    adopted_on: 2026-10-04
-    files:
-      - path: dams/vic_global_5min_dam_parameters_t3-extended.nc
-        size_bytes: 5980165
-        md5: fee01d57b6df45419ef508a995694e38
-        sha256: 8db41c402963583f7ac441403cc4829d3a5c1b79b910ae2036ff4f2b37ca1bcd
-    verification: md5 of the copy equals md5 of the source (2026-10-04)
+    notes: >-
+      The unmerged T3_extended file (dam_params_5min_T3_extended.nc, md5
+      fee01d57b6df45419ef508a995694e38) was copied first on 2026-10-04 and
+      deleted from the set the same day with the user's approval, before any
+      run used it.
     qc_status: not_checked
   water_use:
     description: >-

@@ -92,9 +92,9 @@ QC_OBJECT_TYPES = {
 PARAMETER_COMPONENTS = (REPO_CHILDREN["workflow/03_parameters"] - {"README.md"}) | {"bundle"}
 # VIC-WUR forcing variable names used as the climate forcing variable level
 CLIMATE_VARIABLES = {"tair", "prec", "psurf", "vp", "swdown", "lwdown", "wind"}
-RUN_CHILDREN = {"config", "logs", "states", "output", "run_manifest.json",
-                "chunks"}
-CHUNK_CHILDREN = {"config", "logs", "states", "output"}
+RUN_CHILDREN = {"config", "logs", "states", "output", "forcing",
+                "run_manifest.json", "chunks"}
+CHUNK_CHILDREN = {"config", "logs", "states", "output", "forcing"}
 DELIVERY_CHILDREN = {"files", "inventory.tsv", "checksums.sha256",
                      "qc-summary.json", "delivery-manifest.yaml"}
 

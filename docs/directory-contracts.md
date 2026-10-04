@@ -913,6 +913,7 @@ runs/
         ├── logs/
         ├── states/
         ├── output/
+        ├── forcing/
         └── run_manifest.json
 ```
 
@@ -927,6 +928,15 @@ runs/
 `config/` must preserve the resolved campaign and segment configuration, the
 exact VIC configuration, and the exact Slurm job used for the run.
 
+`forcing/` is the run's forcing view: `forcing/<family>/` (`climate/<variable>/`,
+`landuse/`, `water_use/`) contains only relative symbolic links named by
+simulation year that point to files of accepted forcing units, because VIC
+opens forcing files by `<prefix><year>.nc`. A link may point to a file of
+another year (constant DHF scenarios, spin-up climate cycle); the mapping of
+every year is recorded in `run_manifest.json`. Units are never copied or
+modified for a run. The view is created by
+`workflow/05_simulation/render/` and is not backed up.
+
 If one run is split into chunks, use:
 
 ```text
@@ -937,7 +947,8 @@ runs/<campaign-id>/<run-id>/
         ├── config/
         ├── logs/
         ├── states/
-        └── output/
+        ├── output/
+        └── forcing/
 ```
 
 Do not create `run_fix`, `run_final`, or similar replacement directories.

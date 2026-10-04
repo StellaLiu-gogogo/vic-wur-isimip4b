@@ -1,0 +1,122 @@
+# VIC-WUR image-driver global parameter file of run {{RUN_ID}} (campaign {{CAMPAIGN_ID}}).
+# Rendered by workflow/05_simulation/render/render_run.py from workflow/05_simulation/templates/vic/global_param.txt
+# at workflow commit {{CODE_COMMIT}}; model commit {{MODEL_COMMIT}}. Every option was checked against the
+# source of the model commit (drivers/image/src/get_global_param.c, plugins/*/src/*_get_global_param.c).
+# Standalone image driver, GWM FALSE, not coupled to MODFLOW.
+
+# --- time stepping (daily forcing requires SNOW_STEPS_PER_DAY = forcing steps per day) ---------------
+MODEL_STEPS_PER_DAY     1
+SNOW_STEPS_PER_DAY      1
+RUNOFF_STEPS_PER_DAY    1
+STARTYEAR               {{START_YEAR}}
+STARTMONTH              1
+STARTDAY                1
+STARTSEC                0
+ENDYEAR                 {{END_YEAR}}
+ENDMONTH                12
+ENDDAY                  31
+# forcing, land-use and water-use files carry calendar proleptic_gregorian; VIC stops on a mismatch
+CALENDAR                PROLEPTIC_GREGORIAN
+
+# --- energy and water balance --------------------------------------------------------------------
+FULL_ENERGY             TRUE
+CLOSE_ENERGY            TRUE
+FROZEN_SOIL             FALSE
+QUICK_FLUX              TRUE
+QUICK_SOLVE             FALSE
+IMPLICIT                FALSE
+EXP_TRANS               FALSE
+NO_FLUX                 FALSE
+GRND_FLUX_TYPE          GF_410
+TFALLBACK               TRUE
+SHARE_LAYER_MOIST       TRUE
+BASEFLOW                NIJSSEN2001
+NODES                   3
+CANOPY_LAYERS           3
+WIND_H                  10.0
+GWM                     FALSE
+
+# --- snow ----------------------------------------------------------------------------------------
+SNOW_BAND               TRUE
+SNOW_DENSITY            DENS_BRAS
+AERO_RESIST_CANSNOW     AR_406_FULL
+SPATIAL_SNOW            FALSE
+COMPUTE_TREELINE        FALSE
+BLOWING                 FALSE
+
+# --- soil and vegetation -------------------------------------------------------------------------
+SPATIAL_FROST           FALSE
+ORGANIC_FRACT           FALSE
+JULY_TAVG_SUPPLIED      FALSE
+# class 16 (barren) is the bare-soil class of the 16-class contract
+NBARE                   1
+LAI_SRC                 FROM_VEGPARAM
+FCAN_SRC                FROM_VEGPARAM
+ALB_SRC                 FROM_VEGPARAM
+WFC_SRC                 FROM_VEGPARAM
+BCO2_SRC                FROM_DEFAULT
+VEGLIB_PHOTO            FALSE
+CARBON                  FALSE
+RC_MODE                 RC_JARVIS
+LAKES                   FALSE
+LAKE_PROFILE            FALSE
+CORRPREC                FALSE
+
+# --- domain and parameters -----------------------------------------------------------------------
+DOMAIN                  {{DOMAIN}}
+DOMAIN_TYPE             LAT     lat
+DOMAIN_TYPE             LON     lon
+DOMAIN_TYPE             MASK    mask
+DOMAIN_TYPE             AREA    area
+DOMAIN_TYPE             FRAC    frac
+DOMAIN_TYPE             YDIM    lat
+DOMAIN_TYPE             XDIM    lon
+PARAMETERS              {{PARAMETERS}}
+# dam operation constants (read only from a constants file)
+CONSTANTS               {{CONSTANTS}}
+
+# --- meteorological forcing: links of the run's forcing view, <prefix><year>.nc ------------------
+{{FORCE_TYPES}}
+
+# --- state ---------------------------------------------------------------------------------------
+{{INIT_STATE_LINES}}
+{{STATE_LINES}}
+
+# --- plugins -------------------------------------------------------------------------------------
+ROUTING                 {{ROUTING}}
+ROUT_STEPS_PER_DAY      {{ROUT_STEPS_PER_DAY}}
+ROUTING_FORCE           FALSE
+DECOMPOSITION           {{DECOMPOSITION}}
+ROUTING_PARAMETERS      {{ROUTING_PARAMETERS}}
+DECOMPOSITION_PARAMETERS {{DECOMPOSITION_PARAMETERS}}
+
+WATERUSE                {{WATERUSE}}
+WATERUSE_PARAMETERS     {{WATERUSE_PARAMETERS}}
+LOCAL_WITHDRAWAL        {{LOCAL_WITHDRAWAL}}
+REMOTE_WITHDRAWAL       {{REMOTE_WITHDRAWAL}}
+COMPENSATION_WITHDRAWAL {{COMPENSATION_WITHDRAWAL}}
+NONRENEWABLE_WITHDRAWAL {{NONRENEWABLE_WITHDRAWAL}}
+NONRENEWABLE_RUNOFF     {{NONRENEWABLE_RUNOFF}}
+# a sector is active only when its DEMAND, GROUNDWATER and CONSUMPTION forcing are all given
+{{WATER_USE_FORCE_TYPES}}
+
+IRRIGATION              {{IRRIGATION}}
+IRRIGATION_PARAMETERS   {{IRRIGATION_PARAMETERS}}
+POTENTIAL_IRRIGATION    {{POTENTIAL_IRRIGATION}}
+EFFICIENT_IRRIGATION    {{EFFICIENT_IRRIGATION}}
+OFFSET_IRRIGATION       {{OFFSET_IRRIGATION}}
+PBARE                   {{PBARE}}
+
+DAMS                    {{DAMS}}
+DAMS_PARAMETERS         {{DAMS_PARAMETERS}}
+
+# land use: annual 16-class coverage replaces Cv on 1 January (PLUGIN_FORCE_TYPE CV ... YEAR)
+LANDUSE_FORCE           {{LANDUSE}}
+{{LANDUSE_FORCE_TYPE}}
+EFR                     {{EFR}}
+WOFOST                  {{WOFOST}}
+
+# --- output (OUT_FORMAT and COMPRESS belong to each OUTFILE) -------------------------------------
+RESULT_DIR              {{RESULT_DIR}}
+LOG_DIR                 {{LOG_DIR}}
+{{OUTPUT_STREAMS}}

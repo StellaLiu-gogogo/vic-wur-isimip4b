@@ -1,0 +1,32 @@
+# Anunna resources of one VIC-WUR image-driver run on the global 5 arcmin domain with the plugin stack
+# (routing with FILE decomposition, irrigation, dams, water use, land use). Read by
+# workflow/05_simulation/render/render_run.py; the rendered job is kept in runs/<campaign>/<run-id>/config/.
+workload: vic-global-5arcmin
+partition: main
+# AMD gen3 nodes: 128 cores and 1 TB memory each (72 nodes on 2026-10-04; sinfo -p main). One node type so
+# that every rank uses the same library tree of the 2025 module bucket.
+constraint: gen3
+nodes: 1
+# MPI ranks: the FILE decomposition of the parameter set has 128 groups (largest 372 255 of 2 188 551 active
+# cells); VIC gives whole groups to ranks, largest first, so with 6 or more ranks the rank with the largest
+# group sets the pace and more ranks shorten nothing (render_run.py checks ntasks <= groups). The cores go
+# to OpenMP threads instead: 8 ranks x 16 threads fill one 128-core node (one rank per 16-core block).
+ntasks: 8
+cpus_per_task: 16
+exclusive: true
+# Snellius H line (32 ranks x 6 threads, VIC e083c9f3, same domain and plugins) needed about 450 GB; the
+# smoke runs measure the Anunna value (MaxRSS in the run manifest).
+mem: 950G
+# Wall time = setup + per model year x years, rounded up to whole hours. Snellius: 1.07-1.10 h per model
+# year on 192 cores with Force Time 79 % of Run Time; Anunna has 128 cores and a slower filesystem.
+wall_time:
+  setup_hours: 2.0
+  hours_per_model_year: 3.0
+  max_hours: 240
+launcher: srun --mpi=pmix --cpus-per-task=${SLURM_CPUS_PER_TASK} --cpu-bind=cores
+# Must equal runtime_modules of builds/vic/<commit>/build_manifest.json (the renderer checks).
+modules:
+  - "2025"
+  - netCDF/4.9.3-gompi-2025a
+# parallel checksum readers of the input verification step before VIC starts
+check_processes: 8
