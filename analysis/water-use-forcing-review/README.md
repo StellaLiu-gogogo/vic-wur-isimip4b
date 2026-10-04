@@ -10,7 +10,7 @@ parents; year-to-year changes at 5′ around the 2005 anomaly and the SSP join.
 **Classification.** Analysis; proposed by the user and confirmed on 2026-10-04. Reason: the products are
 figures, tables and a report; no workflow stage reads them.
 
-**Status.** `open` (report written 2026-10-04, waiting for the user's review).
+**Status.** `closed` (user, 2026-10-04): the report answers the question; no change to the units is needed.
 
 **Inputs** (read-only, paths relative to `$ISIMIP4B_WORKDIR`).
 
