@@ -8,7 +8,7 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-10-03.
+Last reviewed: 2026-10-04.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
@@ -18,7 +18,11 @@ as accepted forcing while D01 is open (user, 2026-09-30). The same holds
 for the land-use forcing units of all five soc scenarios (`histsoc`,
 `1850soc`, `2021soc`, `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`): they do not
 depend on the VIC commit and may be accepted while D01 is open (user,
-2026-10-01).
+2026-10-01). The water-use forcing units of the same five soc scenarios may
+also be accepted while D01 is open (user, 2026-10-04); their demand unit
+(mm per model step, mm/day with one model step per day) follows the
+`wateruse` plugin at the provisional commit and must be checked again when
+D01 is decided.
 
 ## How to use this list
 

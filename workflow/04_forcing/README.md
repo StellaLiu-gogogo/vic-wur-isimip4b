@@ -25,7 +25,7 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 |---|---|---|
 | `climate/` | `forcing/climate/<gcm>/<input-alias>/<variable>/`, VIC variables `tair`, `prec`, `psurf`, `vp`, `swdown`, `lwdown`, `wind`; one file per year | producer, verifier, Slurm template and unit tests implemented (method 1.1, `lwdown` elevation correction of D16) |
 | `landuse/` | `forcing/landuse/<soc-scenario>/`, 16-class annual coverage; one file per year | producer, verifier, Slurm template and unit tests implemented (method 1.4, D04); years converted in parallel |
-| `water_use/` | `forcing/water_use/<soc-scenario>/` | producer, verifier and Slurm job implemented (method 1.0, D05 as amended 2026-10-03); units of the five soc scenarios not yet produced |
+| `water_use/` | `forcing/water_use/<soc-scenario>/` | producer, verifier and Slurm job implemented (method 1.0, D05 as amended 2026-10-03); units of all five soc scenarios (`histsoc`, `1850soc` 1850–2021; `2021soc`, `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt` 2022–2100; 3 486 files, 7.7 GB) produced and accepted on 2026-10-04 (commit `6655b77`, `qc.status: passed`) |
 
 Each family README lists its inputs, method, and commands.
 
