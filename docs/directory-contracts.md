@@ -411,6 +411,7 @@ Create component directories only when implementation exists:
 
 ```text
 03_parameters/
+├── bundle/
 ├── domain/
 ├── soil/
 ├── vegetation/
@@ -423,7 +424,8 @@ Create component directories only when implementation exists:
 
 Each component directory may contain its canonical generation and validation
 code, small mappings, Slurm templates, tests, and README. Do not add a language
-layer such as `python/` or `shell/`.
+layer such as `python/` or `shell/`. `bundle/` assembles the image-driver
+parameter file of the `bundle` component from other components.
 
 #### `workflow/04_forcing/`
 
@@ -726,11 +728,14 @@ parameters/
         └── <component>/
 ```
 
-Valid components are those implemented under `workflow/03_parameters/`
-and `bundle`. A `bundle` component holds an adopted, already assembled VIC
-image-driver parameter file that combines several components (soil,
-vegetation, snow bands) in one file; it is used until `03_parameters`
-assembles its own. Files copied into a parameter set follow the workdir
+Valid components are the component directories listed under
+`workflow/03_parameters/` above, whether their files are generated there or
+adopted. The `bundle` component holds VIC image-driver parameter files that
+combine several components (soil, vegetation, snow bands) in one file: adopted,
+already assembled files, and the file assembled by
+`workflow/03_parameters/bundle/`. Files read by a plugin through another
+plugin's option stay in that plugin's component (the FILE decomposition read
+by the routing plugin is in `routing/`). Files copied into a parameter set follow the workdir
 naming rules; when an upstream name contains a version-like token, the copy
 is renamed and the manifest records the source path and name. Promotion from `candidates/` to `production/` must
 be explicit, reproducible, and supported by quality-control evidence and an

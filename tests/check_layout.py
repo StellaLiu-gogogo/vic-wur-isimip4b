@@ -65,7 +65,7 @@ REPO_CHILDREN = {
     "tests": {"README.md", "check_layout.py", "unit", "integration", "smoke",
               "fixtures"},
     "workflow": {"README.md", "common"} | set(STAGES),
-    "workflow/03_parameters": {"README.md", "domain", "soil", "vegetation",
+    "workflow/03_parameters": {"README.md", "bundle", "domain", "soil", "vegetation",
                                "landuse", "routing", "dams", "irrigation",
                                "water_use"},
     "workflow/04_forcing": {"README.md", "climate", "landuse", "water_use"},
