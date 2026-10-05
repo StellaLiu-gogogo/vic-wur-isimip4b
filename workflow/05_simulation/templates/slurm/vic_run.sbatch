@@ -31,20 +31,24 @@ $MANIFEST verify-inputs --run-dir "$RUN_DIR" --job-id "$SLURM_JOB_ID" --processe
 rc=$?
 if [ $rc -eq 0 ]; then
   conda deactivate
-  # runtime modules of the build (builds/vic/<commit>/build_manifest.json, runtime_modules)
+  # runtime modules of the build (builds/vic/<commit>/build_manifest.json, runtime_modules); Lmod's
+  # scripts are not safe under set -u either
+  set +u
   source /etc/profile.d/z00_lmod.sh
   module purge
 {{MODULE_LOADS}}
   module -t list 2>&1 | sed 's/^/module: /'
+  set -u
+  # Anunna's Slurm (task/cgroup only) confines the job to its cores but binds no task to its own cores, so
+  # no OpenMP binding is set: OMP_PLACES/OMP_PROC_BIND would put every rank's threads on the first cores
   export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
-  export OMP_PLACES=cores OMP_PROC_BIND=close
   cd "$RUN_DIR"
+  {{LAUNCHER}} bash -c 'echo "rank $SLURM_PROCID on $(hostname) cpus $(grep Cpus_allowed_list /proc/self/status | cut -f2)"'
   {{LAUNCHER}} {{EXECUTABLE}} -g "$RUN_DIR/config/vic_global.txt" \
       > "$RUN_DIR/logs/vic_stdout_${SLURM_JOB_ID}.txt" 2>&1
   rc=$?
   echo "VIC exit code $rc at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  module purge
-  set +u; conda activate isimip4b; set -u
+  set +u; module purge; conda activate isimip4b; set -u
 fi
 
 $MANIFEST complete --run-dir "$RUN_DIR" --job-id "$SLURM_JOB_ID" --exit-code $rc

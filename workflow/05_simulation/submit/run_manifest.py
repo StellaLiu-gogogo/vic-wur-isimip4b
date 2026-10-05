@@ -15,7 +15,8 @@ inputs fingerprint). The job itself calls this script twice:
 A retry with identical inputs is a new attempt in the same manifest (docs/glossary.md, "Run").
 
 Usage: run_manifest.py verify-inputs --run-dir DIR --job-id ID [--processes 8]
-       run_manifest.py complete --run-dir DIR --job-id ID --exit-code N
+       run_manifest.py complete --run-dir DIR --job-id ID --exit-code N [--reason TEXT]
+       run_manifest.py rescan-logs --run-dir DIR --job-id ID
 """
 import argparse, datetime, glob, hashlib, json, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
@@ -50,12 +51,16 @@ def save(run_dir, manifest):
     os.replace(tmp, path)
 
 
+JOB_FILE = 'config/job.sbatch'
+
+
 def inputs_fingerprint(manifest):
-    """sha256 over the recorded input identities, the executable and the rendered files; equal fingerprints
-    mean identical inputs, so a resubmission is an attempt of the same run."""
+    """sha256 over the recorded input identities, the executable and the rendered model files (not the Slurm
+    job file, which only says how the run is executed); equal fingerprints mean identical inputs, so a
+    resubmission is an attempt of the same run."""
     keys = {'executable_sha256': manifest['model']['executable_sha256'],
             'inputs': manifest['inputs'], 'forcing_view': manifest['forcing_view'],
-            'rendered': manifest['rendered_files']}
+            'rendered': {k: v for k, v in manifest['rendered_files'].items() if k != JOB_FILE}}
     return hashlib.sha256(json.dumps(keys, sort_keys=True).encode()).hexdigest()
 
 
@@ -108,7 +113,7 @@ def verify_inputs(run_dir, job_id, workdir, processes):
 TIMING_KEYS = ('Init Time', 'Run Time', 'Final Time', 'Total Time', 'Force Time', 'Write Time')
 NUM = r'\s*([-+0-9.eE]+|nan|inf)\s*'
 WARNING_PATTERNS = {
-    'error': re.compile(r'\[ERROR\]|ERROR', re.I),
+    'error': re.compile(r'\[ERROR\]|\berror:', re.I),
     'warning': re.compile(r'\[WARN', re.I),
     'tile_allocation': re.compile(r'tile|no vegetation|veg_class', re.I),
     'nveg': re.compile(r'Nveg', re.I),
@@ -132,6 +137,20 @@ def timing_table(text):
         m = re.search(rx, text)
         if m:
             out[key] = float(m.group(1))
+    return out
+
+
+def attempt_logs(run_dir, a):
+    """Log files of one attempt: the scheduler and VIC stdout files named by its job id, and the VIC rank logs
+    created after it started (earlier attempts share logs/)."""
+    jid = str(a['slurm_job_id'])
+    start = datetime.datetime.strptime(a.get('started_at') or a['submitted_at'], '%Y-%m-%dT%H:%M:%SZ').replace(
+        tzinfo=datetime.timezone.utc).timestamp()
+    out = []
+    for p in sorted(glob.glob(os.path.join(run_dir, 'logs', '*'))):
+        name = os.path.basename(p)
+        if jid in name or (name.startswith('vic.log.') and os.path.getmtime(p) >= start - 60):
+            out.append(p)
     return out
 
 
@@ -159,11 +178,13 @@ def sacct(job_id):
     return rows
 
 
-def complete(run_dir, job_id, exit_code, workdir):
+def complete(run_dir, job_id, exit_code, workdir, reason=None):
     m = load(run_dir); a = attempt(m, job_id)
+    if reason:
+        a['failure_reason'] = reason
     a['ended_at'] = utcnow(); a['vic_exit_code'] = int(exit_code)
     a['scheduler'] = sacct(job_id)
-    logs = sorted(glob.glob(os.path.join(run_dir, 'logs', '*.txt')))
+    logs = attempt_logs(run_dir, a)
     text = ''
     for p in logs:
         with open(p, errors='replace') as fh:
@@ -188,21 +209,34 @@ def complete(run_dir, job_id, exit_code, workdir):
     print(f'run {m["run_id"]} attempt {a["attempt"]}: {a["status"]}')
 
 
+def rescan_logs(run_dir, job_id):
+    """Recompute the log scan of an attempt (e.g. after the scan rules changed); nothing else is touched."""
+    m = load(run_dir); a = attempt(m, job_id)
+    logs = attempt_logs(run_dir, a)
+    a['log_scan'] = {'files': [os.path.relpath(p, run_dir) for p in logs], 'categories': scan_logs(logs),
+                     'rescanned_at': utcnow()}
+    save(run_dir, m)
+    print(json.dumps({k: v['count'] for k, v in a['log_scan']['categories'].items()}))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('action', choices=['verify-inputs', 'complete'])
+    ap.add_argument('action', choices=['verify-inputs', 'complete', 'rescan-logs'])
     ap.add_argument('--run-dir', required=True)
     ap.add_argument('--job-id', required=True)
     ap.add_argument('--exit-code', type=int, default=None)
     ap.add_argument('--processes', type=int, default=8)
+    ap.add_argument('--reason', default=None, help='complete: why the attempt ended (e.g. cancelled, and why)')
     a = ap.parse_args()
     workdir = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
     if a.action == 'verify-inputs':
         verify_inputs(a.run_dir, a.job_id, workdir, a.processes)
+    elif a.action == 'rescan-logs':
+        rescan_logs(a.run_dir, a.job_id)
     else:
         if a.exit_code is None:
             sys.exit('complete needs --exit-code')
-        complete(a.run_dir, a.job_id, a.exit_code, workdir)
+        complete(a.run_dir, a.job_id, a.exit_code, workdir, a.reason)
 
 
 if __name__ == '__main__':

@@ -8,7 +8,7 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-10-04.
+Last reviewed: 2026-10-05.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
@@ -23,6 +23,12 @@ also be accepted while D01 is open (user, 2026-10-04); their demand unit
 (mm per model step, mm/day with one model step per day) follows the
 `wateruse` plugin at the provisional commit and must be checked again when
 D01 is decided.
+
+The smoke campaign (`configs/campaigns/smoke.yaml`, non-production, every output a
+candidate) ran on 2026-10-04/05 under the provisional D01 (VIC `39e21ff5`) with
+D02, D03 and D06 open: it needs no compute-scope decision (one segment, 2015
+and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
+`extrasoc` experiment (D06).
 
 ## How to use this list
 
@@ -61,6 +67,7 @@ D01 is decided.
 | D14 | Include the ensemble member in project identifiers | - | a second ensemble member is used | user | open |
 | D15 | Migration of the legacy `vic_global/isimip4b/` area into this project | - | approved 2026-09-29 | user | decided ([D15-legacy-migration.md](D15-legacy-migration.md)) |
 | D16 | Elevation correction of downward longwave radiation (`lwdown`) in the climate forcing, consistent with the lapse-rate correction of `tair` | 04_forcing | | user | decided 2026-10-01 ([D16-lwdown-elevation-correction.md](D16-lwdown-elevation-correction.md)): option A, ratio method of Cosgrove et al. (2003) as in WATCH/WFDE5 |
+| D17 | Potential irrigation (`pirrww`, `pirrwwgw`, `pirruse`, `pirrusegw`): whether to report it and, if so, from additional runs with `POTENTIAL_IRRIGATION TRUE` | 08_delivery | | user | open |
 
 ## Context
 
@@ -125,6 +132,19 @@ uncovered cells are reported as missing.
 its location requires a contract change.
 
 **D14 — Ensemble member.** See `glossary.md`, "Ensemble member".
+
+**D17 — Potential irrigation.** ISIMIP `pirrww` is the irrigation withdrawal
+assuming unlimited water. In the runs of VIC-WUR `39e21ff5` the irrigation
+plugin hands the water-use plugin, every day, the whole current soil-moisture
+deficit divided by the irrigation efficiency (`plugins/irrigation/src/irr_use.c`,
+`irr_set_demand`), and asks again the next day while the deficit lasts; the
+irrigation demand written per sector (`OUT_DE_*_SECT`, sector 4) is therefore a
+sum of daily deficits, not a withdrawal volume (smoke 2015: 67 226 km3/yr
+against 1 763 km3 withdrawn and 957 km3 received by the fields). The potential
+variables can only come from separate runs with `POTENTIAL_IRRIGATION TRUE`.
+Raised 2026-10-05 during the smoke campaign; left open by the user: the
+potential variables are listed as not provided until it is decided, and extra
+runs are added then.
 
 **D16 — `lwdown` elevation correction.** The climate forcing corrects `tair`,
 `psurf`, and `vp` from the ERA5 0.5° orography to the 5′ VIC cell

@@ -129,7 +129,7 @@ threads).
 
 | File | Role |
 |---|---|
-| `submit_run.py` | renders the runs of a campaign (label) and submits each job on hold, records the attempt, releases it; a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt |
+| `submit_run.py` | renders the runs of a campaign (label) and submits each job on hold, records the attempt, releases it; a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files` |
 | `run_manifest.py` | `verify-inputs` (job step before VIC: checksums of parameters, forcing files and executable) and `complete` (job step after VIC, also on failure) |
 
 ```bash
@@ -140,7 +140,30 @@ python3 workflow/05_simulation/render/resolve_campaign.py --campaign configs/cam
 python3 workflow/05_simulation/render/render_run.py --campaign configs/campaigns/smoke.yaml --label smoke2015 --scratch
 python3 workflow/05_simulation/submit/submit_run.py --campaign configs/campaigns/smoke.yaml --label smoke2015
 python3 workflow/05_simulation/submit/submit_run.py --retry runs/smoke/<run-id>
+python3 workflow/05_simulation/monitor/submit_check.py --run-dir runs/smoke/<run-id>
 ```
+
+**Cores on Anunna.** Slurm on Anunna uses `task/cgroup` only: the job is confined to its cores, but no task
+is bound to cores of its own and `--cpu-bind` has no effect. The job therefore sets no OpenMP binding
+(`OMP_PLACES`/`OMP_PROC_BIND` put the main thread of every rank on the first core: the first smoke attempt
+of 2026-10-04 ran its 8 ranks on one core and was cancelled) and prints the cores each rank may use before
+VIC starts.
+
+## Monitor (`monitor/`)
+
+| File | Role |
+|---|---|
+| `check_run.py` | checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR`), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE), end state; GRDC comparison for the whole run |
+| `run_figures.py` | the derived file `reports/water_use_by_sector_<year>.nc` (monthly withdrawal per sector municipal, manufacturing, irrigation and its sources groundwater, surface, dam, remote, nonrenewable; VIC demand and estimated consumption for municipal and manufacturing; VIC-WUR writes the sources per sector but no sector total) and the figures of water use by sector and source, source shares, sector maps, distributions of withdrawal/demand and of remote and groundwater shares, and the water balance |
+| `grdc.py` | GRDC daily export (`raw/external/grdc/export-2024-11`, `manifests/inputs/grdc.yaml`): station files, upstream area along the routing network, station-to-cell mapping (closest upstream area within 3 cells, area error ≤ 30 %), monthly means (≥ 20 valid days) and climatology (≥ 5 years per month) |
+| `check_run.sbatch`, `submit_check.py` | Slurm job of the check (one core, about 7 min and 13 GB for one year), job record under `logs/05_simulation/<job-name>_<slurm-job-id>/`; `submit_run.py` submits it after every run job, to start when the run has succeeded |
+
+Output in `qc/runs/<campaign>/<run-id>/`: `summary.json`, `reports/check.json`, `reports/grdc_stations.csv`,
+`reports/water_use_by_sector_<year>.nc`, `figures/`. GRDC comparison: the runs are driven by GCM climate, so
+days and months do not correspond to observed weather. The main comparison is climatological: the simulated
+monthly-mean seasonal cycle of the run years (without the first year when the run has 3 or more years,
+because of the cold start) against the GRDC climatology of the run years ± 10 years, at stations with a
+catchment of at least 10 000 km2; daily series of the same dates are drawn for visual reference only.
 
 ## Run manifest (`run_manifest.json`, schema `isimip4b-run-manifest-1`)
 
@@ -155,7 +178,8 @@ python3 workflow/05_simulation/submit/submit_run.py --retry runs/smoke/<run-id>
 | `inputs` | parameter set; parameter files with md5 (parameter manifest); forcing units with `code_commit`, `created_at`, `qc_status` and every file read with its sha256 (unit provenance) |
 | `forcing_view` | per series and simulation year: source file and rule |
 | `rendered_files` | sha256 of `vic_global.txt`, `vic_constants.txt`, `job.sbatch`, `resolved.yaml` |
-| `inputs_fingerprint` | sha256 over executable, inputs, forcing view and rendered files |
+| `inputs_fingerprint` | sha256 over executable, inputs, forcing view and rendered model files (not the Slurm job file) |
+| `job_files` | earlier Slurm job files of the run kept by `--rerender-job`, with sha256, time, commit and resources |
 | `expected_outputs` | output files per year and the end state |
 | `attempts[]` | `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches), `started_at`, `ended_at`, `vic_exit_code`, `scheduler` (sacct rows: state, exit code, elapsed, MaxRSS, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `status`, `failure_reason` |
 

@@ -175,6 +175,22 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(t['mpi_processes'], 8.0)
         self.assertAlmostEqual(t['model_cost_pe_hours_per_year'], 312.5)
 
+    def test_fingerprint_ignores_job_file(self):
+        m = {'model': {'executable_sha256': 'a'}, 'inputs': {}, 'forcing_view': {},
+             'rendered_files': {'config/vic_global.txt': 'v', rm.JOB_FILE: 'j1'}}
+        f1 = rm.inputs_fingerprint(m); m['rendered_files'][rm.JOB_FILE] = 'j2'
+        self.assertEqual(f1, rm.inputs_fingerprint(m))                     # how the run is executed
+        m['rendered_files']['config/vic_global.txt'] = 'w'
+        self.assertNotEqual(f1, rm.inputs_fingerprint(m))                  # what is simulated
+
+    def test_job_has_no_openmp_binding(self):
+        with open(os.path.join(REPO, rr.SLURM_TEMPLATE)) as fh:
+            text = fh.read()
+        self.assertNotIn('export OMP_PLACES', text)
+        self.assertNotIn('export OMP_PROC_BIND', text)
+        with open(os.path.join(REPO, 'configs', 'resources', 'vic-global-5arcmin.yaml')) as fh:
+            self.assertNotIn('--cpu-bind', yaml.safe_load(fh)['launcher'])
+
     def test_fingerprint_changes_with_inputs(self):
         m = {'model': {'executable_sha256': 'a'}, 'inputs': {'x': 1}, 'forcing_view': {}, 'rendered_files': {}}
         f1 = rm.inputs_fingerprint(m); m['inputs']['x'] = 2

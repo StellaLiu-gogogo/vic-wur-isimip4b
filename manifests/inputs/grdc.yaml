@@ -1,0 +1,40 @@
+dataset_id: grdc
+version: export-2024-11
+source: >-
+  The Global Runoff Data Centre (GRDC), 56068 Koblenz, Germany. GRDC data
+  portal export of mean daily discharge (GRDC Export ASCII, one
+  <grdc_no>_Q_Day.Cmd.txt per station) requested by L. Nauta (WUR) on
+  2024-10-31/2024-11-05, with the station catalogue of 2024-10-30 and the
+  GRDC watershed polygons of 2024-07-09; held in
+  /lustre/backup/WUR/ESG/nauta008/data/grdc/ and copied from there on
+  2026-10-05 with the user's approval (task E, smoke campaign). Inventoried
+  earlier by vic_global/vic_regionalization
+  (manifests/grdc_raw_export_nauta008_daily_2024.json,
+  docs/grdc_vintage_check_20260906.md).
+description: >-
+  daily_2024/{continent01..06,set1}/: 4 978 station files (4 928 unique
+  grdc_no; 50 stations are in both set1 and a continent directory), 6
+  original portal zip archives and 7 stationbasins.geojson;
+  20241030_grdc_stations.csv: catalogue of 10 831 stations (';' separated,
+  catchment area, record years); GRDC_Watersheds/: watershed polygons.
+  Station files: latin-1 text with a '#' header (GRDC-No., River, Station,
+  Latitude, Longitude, Catchment area in km2), then 'YYYY-MM-DD;hh:mm;
+  Value' in m3/s, -999 = missing; file generation dates 2024-10-31 to
+  2024-11-05, series ending 1984-2024 (median 2022). There is no monthly GRDC
+  file; monthly means are aggregated from the daily values by the code that
+  uses them. Directory and file names are kept as delivered. Used by
+  workflow/05_simulation/monitor/ (discharge comparison of run checks).
+location: raw/external/grdc/export-2024-11/
+acquired: 2026-10-05
+licence: >-
+  GRDC Terms of Use: free for research and education, no redistribution of
+  the data; cite "The Global Runoff Data Centre, 56068 Koblenz, Germany".
+  Not part of any delivery.
+verification: >-
+  md5 of all 4 996 copied files equals md5 of the source files (2026-10-05,
+  compute node); total 4 995 295 053 bytes; per-file md5 in
+  manifests/inputs/grdc-export-2024-11.md5 (paths relative to the location)
+files: 4996
+size_bytes: 4995295053
+checksums: manifests/inputs/grdc-export-2024-11.md5
+status: accepted

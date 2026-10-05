@@ -162,8 +162,6 @@ output:
     airrww: {vic: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT], frequency: "monthly", streams: [monthly], rule: "sector 4 (irrigation)"}
     airrwwgw: {vic: [OUT_WI_GW_SECT], frequency: "monthly", streams: [monthly], rule: "sector 4"}
     airruse: {vic: [OUT_RECEIVED], frequency: "monthly", streams: [monthly]}
-    pirrww: {vic: [OUT_DE_GW_SECT, OUT_DE_SURF_SECT], frequency: "monthly", streams: [monthly], rule: "sector 4; demand of the simulated soil state, not an unlimited-water run"}
-    pirrwwgw: {vic: [OUT_DE_GW_SECT], frequency: "monthly", streams: [monthly], rule: "sector 4"}
     adomww: {vic: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT], frequency: "monthly", streams: [monthly], rule: "sector 0 (municipal)"}
     adomwwgw: {vic: [OUT_WI_GW_SECT], frequency: "monthly", streams: [monthly], rule: "sector 0"}
     adomuse: {vic: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT], frequency: "monthly", streams: [monthly], rule: "sector 0 withdrawal x municipal consumption fraction of the forcing"}
@@ -179,6 +177,18 @@ output:
     ptotww: {vic: [OUT_DEMAND], frequency: "monthly", streams: [monthly]}
     atotwwgw: {vic: [OUT_WI_GW_SECT], frequency: "monthly", streams: [monthly], rule: "sum over sectors"}
     ptotwwgw: {vic: [OUT_DE_GW_SECT], frequency: "monthly", streams: [monthly], rule: "sum over sectors"}
+  # written after each run by its check job (workflow/05_simulation/monitor/check_run.py, submitted by
+  # submit_run.py to start when the run succeeds) into qc/runs/<campaign>/<run-id>/reports/
+  derived:
+    water_use_by_sector: >-
+      water_use_by_sector_<year>.nc: monthly withdrawal per sector (municipal, manufacturing, irrigation) and
+      its sources (groundwater, surface, dam, remote, nonrenewable), VIC demand and consumption estimated with
+      the forcing consumption fraction (municipal, manufacturing), mm per month on the 5 arcmin grid; VIC-WUR
+      writes the sources per sector but no total per sector
+    grdc_comparison: >-
+      grdc_stations.csv and figures: simulated discharge at the GRDC stations (raw/external/grdc, catchments
+      >= 10 000 km2) against the GRDC monthly climatology of the run years +- 10 years, and daily series of the
+      same dates for visual reference
   # written for the smoke checks (water and energy balance, water-use budget, irrigation), not ISIMIP variables
   diagnostics:
     monthly: [OUT_PREC, OUT_AIR_TEMP, OUT_RECHARGE, OUT_EVAP_BARE, OUT_EVAP_CANOP, OUT_TRANSP_VEG, OUT_SUB_SNOW,
@@ -194,7 +204,9 @@ output:
     lakestor: LAKES FALSE
     wetlandstor: no wetland store
     triver: no river temperature model
-    pirruse: no potential (unlimited water) run; consumption of irrigation demand is not written per sector
+    pirrww: D17 open; the sector-4 demand of VIC is the daily soil-moisture deficit asked again every day, not a withdrawal volume; needs runs with POTENTIAL_IRRIGATION TRUE
+    pirrwwgw: as pirrww (D17)
+    pirruse: as pirrww (D17)
     pirnreqcum: no crop growing-season accounting (WOFOST off)
     airrusegreen: VIC does not separate green and blue water
     pirrusegreen: VIC does not separate green and blue water
@@ -259,3 +271,4 @@ open_decisions:
   D02: compute scope open; does not block this campaign
   D03: storage of 5 arcmin output open; the output stays in the run directory
   D06: extrasoc composition open; not used by this campaign
+  D17: potential irrigation open; pirrww, pirrwwgw, pirruse not provided

@@ -274,6 +274,26 @@ def tf(value):
     return 'TRUE' if value else 'FALSE'
 
 
+def render_job(W, rdir, campaign_id, run_id, start_year, end_year, resources, model):
+    """The Slurm job of a run (templates/slurm/vic_run.sbatch) and its wall time in hours."""
+    nyears = end_year - start_year + 1
+    wt = resources['wall_time']
+    hours = min(math.ceil(wt['setup_hours'] + wt['hours_per_model_year'] * nyears), wt['max_hours'])
+    conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
+        os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
+    sched = ([f'#SBATCH --constraint={resources["constraint"]}'] if resources.get('constraint') else []) + \
+        (['#SBATCH --exclusive'] if resources.get('exclusive') else [])
+    sb = {'JOB_NAME': f'vic-{campaign_id}-{start_year}-{end_year}',
+          'PARTITION': resources['partition'], 'NODES': resources['nodes'], 'NTASKS': resources['ntasks'],
+          'CPUS_PER_TASK': resources['cpus_per_task'], 'MEM': resources['mem'], 'TIME': f'{hours}:00:00',
+          'SCHEDULER_LINES': '\n'.join(sched), 'RUN_DIR': rdir, 'RUN_ID': run_id, 'CAMPAIGN_ID': campaign_id,
+          'CONDA_BASE': conda_base, 'WORKDIR': W, 'REPO': REPO, 'CHECK_PROCESSES': resources['check_processes'],
+          'MODULE_LOADS': '\n'.join(f'  module load {m}' for m in model['runtime_modules']),
+          'LAUNCHER': resources['launcher'], 'EXECUTABLE': f'{W}/{model["executable"]}'}
+    with open(os.path.join(REPO, SLURM_TEMPLATE)) as fh:
+        return fill(fh.read(), sb), hours
+
+
 # ------------------------------------------------------------------------------------------------ render
 def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
     W = W or rc.workdir()
@@ -363,21 +383,8 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         vic_text = fill(open(os.path.join(REPO, VIC_TEMPLATE)).read(), values)
         constants = (f'# VIC constants of run {run["run_id"]} (campaign plugins.dams)\n'
                      f'DAM_ALPHA {pl["dams"]["alpha"]}\nDAM_BETA {pl["dams"]["beta"]}\nDAM_GAMMA {pl["dams"]["gamma"]}\n')
-        nyears = run['end_year'] - run['start_year'] + 1
-        wt = resources['wall_time']
-        hours = min(math.ceil(wt['setup_hours'] + wt['hours_per_model_year'] * nyears), wt['max_hours'])
-        conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
-            os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
-        sb = {'JOB_NAME': f'vic-{campaign["campaign_id"]}-{run["start_year"]}-{run["end_year"]}',
-              'PARTITION': resources['partition'], 'NODES': resources['nodes'], 'NTASKS': resources['ntasks'],
-              'CPUS_PER_TASK': resources['cpus_per_task'], 'MEM': resources['mem'], 'TIME': f'{hours}:00:00',
-              'SCHEDULER_LINES': '\n'.join(([f'#SBATCH --constraint={resources["constraint"]}'] if resources.get('constraint') else [])
-                                           + (['#SBATCH --exclusive'] if resources.get('exclusive') else [])),
-              'RUN_DIR': rdir, 'RUN_ID': run['run_id'], 'CAMPAIGN_ID': campaign['campaign_id'],
-              'CONDA_BASE': conda_base, 'WORKDIR': W, 'REPO': REPO, 'CHECK_PROCESSES': resources['check_processes'],
-              'MODULE_LOADS': '\n'.join(f'  module load {m}' for m in model['runtime_modules']),
-              'LAUNCHER': resources['launcher'], 'EXECUTABLE': f'{W}/{model["executable"]}'}
-        job_text = fill(open(os.path.join(REPO, SLURM_TEMPLATE)).read(), sb)
+        job_text, hours = render_job(W, rdir, campaign['campaign_id'], run['run_id'], run['start_year'],
+                                     run['end_year'], resources, model)
         files = {'config/vic_global.txt': vic_text, 'config/vic_constants.txt': constants, 'config/job.sbatch': job_text}
         resolved = {
             'campaign_id': campaign['campaign_id'], 'run_id': run['run_id'], 'segment_id': run['segment_id'],

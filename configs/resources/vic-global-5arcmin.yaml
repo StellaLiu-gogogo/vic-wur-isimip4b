@@ -23,7 +23,9 @@ wall_time:
   setup_hours: 2.0
   hours_per_model_year: 3.0
   max_hours: 240
-launcher: srun --mpi=pmix --cpus-per-task=${SLURM_CPUS_PER_TASK} --cpu-bind=cores
+# Anunna's Slurm uses task/cgroup only: tasks share the job's cores and --cpu-bind has no effect, so no
+# binding is requested (an OpenMP binding put all 8 ranks on core 0 in the first smoke attempt, 2026-10-04)
+launcher: srun --mpi=pmix --cpus-per-task=${SLURM_CPUS_PER_TASK}
 # Must equal runtime_modules of builds/vic/<commit>/build_manifest.json (the renderer checks).
 modules:
   - "2025"

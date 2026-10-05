@@ -8,20 +8,29 @@ in the run manifest, then release the job.
              its attempt. A run whose parent run is submitted in the same call waits for it (afterok).
   --retry    resubmit an existing run directory whose last attempt did not complete: the rendered files must
              be unchanged (sha256 recorded at rendering) and the inputs fingerprint equal, so the retry is a new
-             attempt of the same run (docs/glossary.md, "Run"). Nothing is rendered again.
+             attempt of the same run (docs/glossary.md, "Run"). Nothing is rendered again, except with
+             --rerender-job: only the Slurm job file is rendered again from the current template and resources
+             (a change of how the run is executed, not of what is simulated); the previous job file is kept as
+             config/job.attempt-<n>.sbatch and both are recorded in the manifest (job_files).
 
 The job verifies the input checksums before VIC starts and completes the manifest after VIC ends
-(run_manifest.py). Scratch renders (render_run.py --scratch) are never submitted by this script.
+(run_manifest.py). After each run job a check job is submitted that starts when the run has succeeded
+(monitor/check_run.py: checks, derived per-sector withdrawal file, figures, GRDC comparison); --no-check
+skips it. Scratch renders (render_run.py --scratch) are never submitted by this script.
 
 Usage: submit_run.py --campaign configs/campaigns/smoke.yaml [--label smoke2015] [--run-id ID] [--dry-run]
-       submit_run.py --retry runs/<campaign-id>/<run-id>
+       submit_run.py --retry runs/<campaign-id>/<run-id> [--rerender-job]
 """
 import argparse, datetime, hashlib, os, subprocess, sys
+
+import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, '..', 'render'))
+sys.path.insert(0, os.path.join(HERE, '..', 'monitor'))
 import run_manifest as rm      # noqa: E402
+import submit_check as sc      # noqa: E402
 import render_run as rr        # noqa: E402
 import resolve_campaign as rc  # noqa: E402
 
@@ -56,12 +65,46 @@ def submit(run_dir, dependency=None):
     return job_id
 
 
+def rerender_job(run_dir, W):
+    """Render config/job.sbatch again from the current template and resources; keep the previous file."""
+    m = rm.load(run_dir)
+    for rel, digest in m['rendered_files'].items():
+        if rel == rm.JOB_FILE:
+            continue
+        with open(os.path.join(run_dir, rel)) as fh:
+            if hashlib.sha256(fh.read().encode()).hexdigest() != digest:
+                raise SystemExit(f'{run_dir}/{rel} differs from the rendered file; a changed run needs a new render')
+    with open(os.path.join(run_dir, 'config', 'resolved.yaml')) as fh:
+        res = yaml.safe_load(fh)
+    resources = rr.read_yaml(os.path.join(rr.REPO, res['resources_file']))
+    text, hours = rr.render_job(W, run_dir, res['campaign_id'], res['run_id'], res['start_year'], res['end_year'],
+                                resources, res['model'])
+    old = os.path.join(run_dir, rm.JOB_FILE)
+    keep = os.path.join(run_dir, 'config', f'job.attempt-{len(m["attempts"])}.sbatch')
+    if os.path.exists(keep):
+        raise SystemExit(f'{keep} exists')
+    os.rename(old, keep)
+    with open(old, 'w') as fh:
+        fh.write(text)
+    commit, dirty = rr.git_state()
+    m.setdefault('job_files', []).append({
+        'kept_as': os.path.relpath(keep, run_dir), 'sha256': m['rendered_files'][rm.JOB_FILE],
+        'replaced_at': utcnow(), 'replaced_by_commit': commit, 'code_dirty': dirty,
+        'resources': {k: resources[k] for k in ('ntasks', 'cpus_per_task', 'mem', 'launcher')}, 'wall_time_hours': hours})
+    m['rendered_files'][rm.JOB_FILE] = rr.text_sha256(text)
+    m['inputs_fingerprint'] = rm.inputs_fingerprint(m)
+    rm.save(run_dir, m)
+    print(f'rendered a new job file for {m["run_id"]}; previous kept as {os.path.relpath(keep, run_dir)}')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--campaign')
     ap.add_argument('--label', default=None)
     ap.add_argument('--run-id', default=None)
     ap.add_argument('--retry', default=None, help='run directory to resubmit')
+    ap.add_argument('--rerender-job', action='store_true', help='with --retry: render the Slurm job file again')
+    ap.add_argument('--no-check', action='store_true', help='do not submit the run check after each run')
     ap.add_argument('--dry-run', action='store_true', help='resolve and list the runs only')
     a = ap.parse_args()
     W = rc.workdir()
@@ -72,7 +115,14 @@ def main():
         m = rm.load(run_dir)
         if m['attempts'] and m['attempts'][-1]['status'] == 'completed':
             raise SystemExit(f'{run_dir}: the last attempt completed; nothing to retry')
-        submit(run_dir); return
+        if any(a['status'] in ('submitted', 'running') for a in m['attempts']):
+            raise SystemExit(f'{run_dir}: an attempt is still submitted or running')
+        if a.rerender_job:
+            rerender_job(run_dir, W)
+        job = submit(run_dir)
+        if not a.no_check:
+            sc.submit(run_dir, dependency=job)
+        return
     if not a.campaign:
         raise SystemExit('give --campaign or --retry')
     c = rc.load_campaign(a.campaign)
@@ -92,6 +142,8 @@ def main():
     for r, d in zip(todo, dirs):
         parent = r['segment']['parent']
         jobs[r['segment_id']] = submit(d, dependency=jobs.get(parent))
+        if not a.no_check:   # the check job starts only when the run job has completed successfully
+            sc.submit(d, dependency=jobs[r['segment_id']])
 
 
 if __name__ == '__main__':
