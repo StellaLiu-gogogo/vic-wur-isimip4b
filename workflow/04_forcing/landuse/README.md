@@ -12,6 +12,8 @@ contract), one forcing unit per soc scenario under
 | `landuse_forcing.sbatch` | Slurm template: producer, then verifier, in one job |
 | `submit_landuse_forcing.py` | renders the template, submits it on hold, writes the job record `logs/04_forcing/<job-name>_<slurm-job-id>/` (`job.sbatch`, `job.yaml`, scheduler output), releases the job |
 
+Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary and verifier exit status, job records) come from `workflow/common/` (see its README); the verifier exits with 0 only for `passed` (1 failed, 3 warning, 4 not_checked), and a per-year report counts only for the data files and verifier version recorded in it.
+
 Method version `1.4` is recorded in every file; bump `METHOD_VERSION` when
 results change for identical inputs. Version 1.2 applies D04: every fallback
 parent (no VIC weight for the class) receives its whole target in a single

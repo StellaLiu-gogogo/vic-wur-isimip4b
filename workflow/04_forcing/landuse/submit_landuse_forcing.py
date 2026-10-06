@@ -13,9 +13,9 @@ exceeded 112 GB on 2026-10-01); --mem defaults to 9 GB per process.
 Usage: submit_landuse_forcing.py --scenario histsoc --years 1850-2021 [--scratch [--scratch-label LABEL]]
        [--verify-only] [--processes 16] [--time 06:00:00] [--mem 144G] [--partition main] [--dry-run]
 """
-import argparse, datetime, os, re, subprocess, sys
+import argparse, os, re, sys
 
-import yaml
+from common import jobrecord, workdir
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
@@ -26,15 +26,6 @@ import isimip_landuse_to_vic_annual as lu   # noqa: E402  (scenario files, paths
 PRODUCER = 'workflow/04_forcing/landuse/isimip_landuse_to_vic_annual.py'
 VERIFIER = 'workflow/04_forcing/landuse/verify_forcing.py'
 GB_PER_PROCESS = 9   # observed peaks: producer about 6 GB, verifier about 7.4 GB per process
-
-
-def render(values):
-    text = open(TEMPLATE).read()
-    for k, v in values.items():
-        text = text.replace('{{' + k + '}}', v)
-    if '{{' in text:
-        raise SystemExit('unrendered placeholder in the job template')
-    return text
 
 
 def main():
@@ -71,35 +62,19 @@ def main():
         (' --scratch' if a.scratch else '') + (f' --scratch-label {a.scratch_label}' if a.scratch_label else '')
     verifier = f'--scenario {a.scenario} --years {years[0]}-{years[-1]} {params} --processes {nproc}' + \
         (f' --unit-dir {out}' if to_scratch else '')
-    conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
-        os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
-    stage_logs = f'{W}/logs/04_forcing'
-    text = render({'JOB_NAME': job_name, 'PARTITION': a.partition, 'TIME': a.time, 'CPUS': str(nproc), 'MEM': mem,
-                   'STAGE_LOGS': stage_logs, 'CONDA_BASE': conda_base, 'WORKDIR': W, 'REPO': REPO,
-                   'RUN_PRODUCER': 'no' if a.verify_only else 'yes',
-                   'PRODUCER_ARGS': producer, 'VERIFIER_ARGS': verifier})
+    stage_logs = workdir.logs('04_forcing', W)
+    text = jobrecord.render(TEMPLATE, {
+        'JOB_NAME': job_name, 'PARTITION': a.partition, 'TIME': a.time, 'CPUS': str(nproc), 'MEM': mem,
+        'STAGE_LOGS': stage_logs, 'CONDA_BASE': jobrecord.conda_base(), 'WORKDIR': W, 'REPO': REPO,
+        'RUN_PRODUCER': 'no' if a.verify_only else 'yes', 'PRODUCER_ARGS': producer, 'VERIFIER_ARGS': verifier})
     if a.dry_run:
         print(text); return
     if a.verify_only and not (os.path.isdir(out) and os.listdir(out)):
         raise SystemExit(f'{out} has no files to verify')
     if not a.verify_only and not to_scratch and os.path.exists(out) and os.listdir(out):
         raise SystemExit(f'{out} exists and is not empty; the producer would refuse to write into it')
-    os.makedirs(stage_logs, exist_ok=True)
-    r = subprocess.run(['sbatch', '--parsable', '--hold'], input=text, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise SystemExit(f'sbatch failed: {r.stderr}')
-    job_id = r.stdout.strip().split(';')[0]
-    job_dir = f'{stage_logs}/{job_name}_{job_id}'
-    os.makedirs(job_dir, exist_ok=True)
-    with open(f'{job_dir}/job.sbatch', 'w') as fh:
-        fh.write(text)
     f15, furb, _ = lu.SCEN[a.scenario]
-    record = {
-        'slurm_job_id': int(job_id), 'job_name': job_name,
-        'rendered_by': 'workflow/04_forcing/landuse/submit_landuse_forcing.py',
-        'template': 'workflow/04_forcing/landuse/landuse_forcing.sbatch',
-        'code_commit': commit, 'code_dirty': dirty,
-        'submitted_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+    details = {
         'resources': {'partition': a.partition, 'time': a.time, 'cpus_per_task': nproc, 'mem': mem},
         'commands': {'producer': None if a.verify_only else f'python3 {PRODUCER} {producer}',
                      'verifier': f'python3 {VERIFIER} {verifier}'},
@@ -108,10 +83,8 @@ def main():
                    os.path.relpath(os.path.dirname(lu.COVERAGE), W)],
         'outputs': [os.path.relpath(out, W)],
         'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'qc/forcing/{unit}'}
-    with open(f'{job_dir}/job.yaml', 'w') as fh:
-        yaml.safe_dump(record, fh, sort_keys=False)
-    subprocess.run(['scontrol', 'release', job_id], check=True)
-    print(f'submitted {job_id}; job record {job_dir}')
+    jobrecord.submit(text, stage_logs, job_name, 'workflow/04_forcing/landuse/submit_landuse_forcing.py',
+                     'workflow/04_forcing/landuse/landuse_forcing.sbatch', commit, dirty, details)
 
 
 if __name__ == '__main__':

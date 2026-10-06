@@ -137,6 +137,7 @@ repo/
 │   └── audits/
 ├── environments/
 ├── manifests/
+│   ├── code-equivalence.yaml
 │   ├── inputs/
 │   ├── parameters/
 │   ├── runs/
@@ -313,11 +314,15 @@ Canonical layout:
 
 ```text
 manifests/
+├── code-equivalence.yaml
 ├── inputs/
 ├── parameters/
 ├── runs/
 └── deliveries/
 ```
+
+- `code-equivalence.yaml` records result-neutral changes of producing code
+  (see "Forcing unit and provenance record"); created when used.
 
 - `inputs/` records accepted external dataset identity and integrity.
 - `parameters/` records accepted parameter-set identity and provenance.
@@ -859,9 +864,11 @@ does not yet contain, without regenerating it, when all of the following
 hold (checked by the producer, which stops otherwise):
 
 1. the fingerprint of the producing code is unchanged: the Git tree hashes of
-   the producer's directory under `workflow/` and of `workflow/common/`, and
-   the method version declared by the producer, equal the values recorded in
-   `provenance.yaml`, and the repository is clean;
+   the producer's directory under `workflow/` and of `workflow/common/` equal
+   the values recorded in `provenance.yaml`, or a chain of entries of the
+   code-equivalence record (below) leads from the recorded to the current
+   hashes; the method version declared by the producer equals the recorded
+   one in either case; and the repository is clean;
 2. every input used by the existing files that is used again (static inputs
    such as the domain, parameter files, and reference datasets, and source
    files shared with existing years) has the SHA-256 recorded in
@@ -876,6 +883,32 @@ only file of the unit that changes, with one entry per data file (year,
 size, SHA-256, `created_at`, `code_commit`) and `qc.status: not_checked`,
 until quality-control code has checked the extended unit. Extending an
 accepted unit requires user authorization.
+
+**Code-equivalence record.** A change of the producing code that leaves
+every result unchanged (moving code to `workflow/common/`, documentation)
+changes the tree hashes all the same. Such a change is recorded in
+`manifests/code-equivalence.yaml`, outside the hashed directories, so that
+existing units can still be extended. One entry per change and producer:
+
+```yaml
+equivalences:
+  - id: common-modules-climate
+    producer: workflow/04_forcing/climate/downscale_climate.py
+    method_version: '1.1'
+    from: {workflow/04_forcing/climate: <tree>, workflow/common: null}
+    to: {workflow/04_forcing/climate: <tree>, workflow/common: <tree>}
+    change: <one line>
+    evidence: <the test: producer run before and after on the same commit base, inputs, years, result>
+    approved: <user, date>
+```
+
+An entry is added in the same commit as the code change, only after a test
+of the producer before and after the change on the same inputs gave data
+files whose variables and attributes are identical except `created_at` (and
+the commit and Git state attributes when those differ), and only with the
+user's approval. Entries are never edited or removed; the `to` hashes are
+those of the commit that adds the entry. A unit extended under the record
+lists the entries used in its `extended` record (`code_equivalence`).
 
 The same global attributes (`code_commit`, `created_by`, `created_at`,
 `forcing_unit`) are also written into every NetCDF file of the unit, so that

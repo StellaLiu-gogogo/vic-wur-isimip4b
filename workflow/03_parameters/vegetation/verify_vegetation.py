@@ -17,20 +17,21 @@ Checks (each with its own status; the component passes only when all pass):
                       same Koppen class
 Writes <qc>/summary.json, <qc>/reports/verify.json and <qc>/figures/added_tiles.png, where <qc> is
 qc/parameters/<status>/<set>/vegetation/ (or <component-dir>/qc/ with --component-dir), and sets qc.status in the
-component's provenance.yaml (not with --component-dir).
+component's provenance.yaml (not with --component-dir). Exit status: 0 passed, 1 failed (common/qc.py).
 
 Usage: verify_vegetation.py [--parameter-set ID] [--parameter-status candidates] [--component-dir DIR] [--processes 16]
 """
-import argparse, csv, datetime, json, os, sys
+import argparse, csv, json, os, sys
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
 import numpy as np
 import netCDF4 as nc
-import yaml
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
+
+from common import provenance, qc, workdir
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -57,13 +58,13 @@ def main():
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates'])
     ap.add_argument('--component-dir', default=None, help='verify a component in this directory (scratch test)')
     ap.add_argument('--processes', type=int, default=16)
-    a = ap.parse_args(); W = bv.workdir()
+    a = ap.parse_args(); W = workdir.root()
     pset = f'{W}/parameters/{a.parameter_status}/{a.parameter_set}'
     rel_obj = f'parameters/{a.parameter_status}/{a.parameter_set}/vegetation'
     comp = a.component_dir or f'{W}/{rel_obj}'
-    qc = f'{comp}/qc' if a.component_dir else f'{W}/qc/{rel_obj}'
-    os.makedirs(f'{qc}/reports', exist_ok=True); os.makedirs(f'{qc}/figures', exist_ok=True)
-    prov = yaml.safe_load(open(f'{comp}/provenance.yaml'))
+    qc_dir = f'{comp}/qc' if a.component_dir else f'{W}/qc/{rel_obj}'
+    os.makedirs(f'{qc_dir}/reports', exist_ok=True); os.makedirs(f'{qc_dir}/figures', exist_ok=True)
+    prov = provenance.read(f'{comp}/provenance.yaml')
     with nc.Dataset(f'{pset}/{bv.DOMAIN}') as d:
         mask = d['mask'][:].filled(0).astype(bool); lat = d['lat'][:].filled(np.nan); lon = d['lon'][:].filled(np.nan)
     v = nc.Dataset(f'{comp}/{bv.OUT_NAME}'); v.set_auto_mask(False)
@@ -184,21 +185,19 @@ def main():
                    cmap=mcolors.ListedColormap(cols), norm=mcolors.BoundaryNorm(np.arange(0.5, 6), 5), interpolation='nearest')
     cb = fig.colorbar(im, ax=ax, fraction=0.02, ticks=range(1, 6)); cb.ax.set_yticklabels([f'L{L} {n}' for L, n in bv.LEVELS.items()], fontsize=7)
     ax.set_title(f'cells with tiles added for the land-use union, highest donor level ({int(added.sum()):,} tiles)', loc='left', fontsize=10)
-    fig.tight_layout(); fig.savefig(f'{qc}/figures/added_tiles.png', dpi=130); plt.close(fig)
+    fig.tight_layout(); fig.savefig(f'{qc_dir}/figures/added_tiles.png', dpi=130); plt.close(fig)
 
-    status = 'passed' if all(c['status'] == 'passed' for c in checks.values()) else 'failed'
-    now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    json.dump({'object': rel_obj, 'checked_at': now, 'checks': checks}, open(f'{qc}/reports/verify.json', 'w'), indent=1)
+    status = qc.combine(c['status'] for c in checks.values())
+    now = provenance.utcnow()
+    qc.write_json(f'{qc_dir}/reports/verify.json', {'object': rel_obj, 'checked_at': now, 'checks': checks})
     summary = {'object': rel_obj if not a.component_dir else os.path.relpath(comp, W), 'status': status,
                'checked_by': 'workflow/03_parameters/vegetation/verify_vegetation.py', 'updated_at': now,
                'checks': {n: c['status'] for n, c in checks.items()}}
-    json.dump(summary, open(f'{qc}/summary.json', 'w'), indent=1)
+    qc.write_summary(qc_dir, summary)
     if not a.component_dir:
-        prov['qc'] = {'status': status, 'evidence': f'qc/{rel_obj}'}
-        with open(f'{comp}/provenance.yaml.part', 'w') as fh:
-            yaml.safe_dump(prov, fh, sort_keys=False)
-        os.replace(f'{comp}/provenance.yaml.part', f'{comp}/provenance.yaml')
+        provenance.set_qc(f'{comp}/provenance.yaml', status, f'qc/{rel_obj}')
     print(json.dumps(summary, indent=1))
+    qc.exit_with(status)
 
 
 if __name__ == '__main__':

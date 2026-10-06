@@ -8,9 +8,9 @@ job moves its scheduler output into the record when it starts (docs/directory-co
 Usage: submit_vegetation_component.py [--scratch] [--processes 16] [--time 04:00:00] [--mem 96G]
        [--partition main] [--dry-run]
 """
-import argparse, datetime, os, subprocess, sys
+import argparse, os, sys
 
-import yaml
+from common import jobrecord, workdir
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
@@ -29,7 +29,7 @@ def main():
     ap.add_argument('--mem', default='96G')
     ap.add_argument('--partition', default='main')
     ap.add_argument('--dry-run', action='store_true', help='render and print the job without submitting')
-    a = ap.parse_args(); W = bv.workdir()
+    a = ap.parse_args(); W = workdir.root()
     commit, dirty = bv.git_state(); to_scratch = a.scratch or dirty
     rel_obj = f'parameters/{a.parameter_status}/{a.parameter_set}/vegetation'
     out = f'{W}/{bv.SCRATCH}/vegetation' if to_scratch else f'{W}/{rel_obj}'
@@ -37,46 +37,25 @@ def main():
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status} --processes {a.processes}'
     producer = params + (' --scratch' if a.scratch else '')
     verifier = params + (f' --component-dir {out}' if to_scratch else '')
-    conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
-        os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
-    stage_logs = f'{W}/logs/03_parameters'
-    text = open(TEMPLATE).read()
-    for k, v in {'JOB_NAME': job_name, 'PARTITION': a.partition, 'TIME': a.time, 'CPUS': str(a.processes), 'MEM': a.mem,
-                 'STAGE_LOGS': stage_logs, 'CONDA_BASE': conda_base, 'WORKDIR': W, 'REPO': REPO,
-                 'PRODUCER_ARGS': producer, 'VERIFIER_ARGS': verifier}.items():
-        text = text.replace('{{' + k + '}}', v)
-    if '{{' in text:
-        raise SystemExit('unrendered placeholder in the job template')
+    stage_logs = workdir.logs('03_parameters', W)
+    text = jobrecord.render(TEMPLATE, {
+        'JOB_NAME': job_name, 'PARTITION': a.partition, 'TIME': a.time, 'CPUS': str(a.processes), 'MEM': a.mem,
+        'STAGE_LOGS': stage_logs, 'CONDA_BASE': jobrecord.conda_base(), 'WORKDIR': W, 'REPO': REPO,
+        'PRODUCER_ARGS': producer, 'VERIFIER_ARGS': verifier})
     if a.dry_run:
         print(text); return
     if not to_scratch and os.path.exists(out) and os.listdir(out):
         raise SystemExit(f'{out} exists and is not empty; the producer would refuse to write into it')
-    os.makedirs(stage_logs, exist_ok=True)
-    r = subprocess.run(['sbatch', '--parsable', '--hold'], input=text, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise SystemExit(f'sbatch failed: {r.stderr}')
-    job_id = r.stdout.strip().split(';')[0]
-    job_dir = f'{stage_logs}/{job_name}_{job_id}'
-    os.makedirs(job_dir, exist_ok=True)
-    with open(f'{job_dir}/job.sbatch', 'w') as fh:
-        fh.write(text)
     pset = f'parameters/{a.parameter_status}/{a.parameter_set}'
-    record = {
-        'slurm_job_id': int(job_id), 'job_name': job_name,
-        'rendered_by': 'workflow/03_parameters/vegetation/submit_vegetation_component.py',
-        'template': 'workflow/03_parameters/vegetation/vegetation_component.sbatch',
-        'code_commit': commit, 'code_dirty': dirty,
-        'submitted_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+    details = {
         'resources': {'partition': a.partition, 'time': a.time, 'cpus_per_task': a.processes, 'mem': a.mem},
         'commands': {'producer': f'python3 {bv.CREATED_BY} {producer}',
                      'verifier': f'python3 workflow/03_parameters/vegetation/verify_vegetation.py {verifier}'},
         'inputs': [f'{pset}/{bv.BASE_BUNDLE}', f'{pset}/{bv.DOMAIN}', bv.KOPPEN] + [f'forcing/landuse/{s}' for s in bv.SOC],
         'outputs': [os.path.relpath(out, W)],
         'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'qc/{rel_obj}'}
-    with open(f'{job_dir}/job.yaml', 'w') as fh:
-        yaml.safe_dump(record, fh, sort_keys=False)
-    subprocess.run(['scontrol', 'release', job_id], check=True)
-    print(f'submitted {job_id}; job record {job_dir}')
+    jobrecord.submit(text, stage_logs, job_name, 'workflow/03_parameters/vegetation/submit_vegetation_component.py',
+                     'workflow/03_parameters/vegetation/vegetation_component.sbatch', commit, dirty, details)
 
 
 if __name__ == '__main__':

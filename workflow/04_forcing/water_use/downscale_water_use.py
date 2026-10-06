@@ -66,7 +66,7 @@ the producer refuses to write into an existing, non-empty forcing/water_use/<soc
 Usage: downscale_water_use.py --scenario histsoc --years 1850-2021 [--processes N]
        [--parameter-set ID] [--parameter-status candidates|production] [--scratch [--scratch-label LABEL]]
 """
-import argparse, calendar, datetime, hashlib, json, os, platform, re, subprocess, sys, time
+import argparse, calendar, json, os, re, sys, time
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
@@ -75,11 +75,14 @@ import netCDF4 as nc
 import yaml
 from scipy.spatial import cKDTree
 
-WORKDIR = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
+from common import gitstate, hashing, provenance, workdir
+
+WORKDIR = workdir.root()
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
 CREATED_BY = 'workflow/04_forcing/water_use/downscale_water_use.py'
 METHOD_VERSION = '1.0'   # bump when results change for identical inputs
+CODE_DIRS = ('workflow/04_forcing/water_use', 'workflow/common')   # code fingerprint (Git tree hashes)
 
 WA_MANIFEST = 'manifests/inputs/isimip3-water-abstraction.yaml'
 GW_MANIFEST = 'manifests/inputs/watergap-groundwater-fractions.yaml'
@@ -375,41 +378,9 @@ def write_field(path, var, data, mask, lat, lon, year, attrs):
 
 
 # ----------------------------------------------------------------------------------------------- driver
-def sha256(path, n=1 << 24):
-    h = hashlib.sha256()
-    with open(path, 'rb') as fh:
-        for b in iter(lambda: fh.read(n), b''):
-            h.update(b)
-    return h.hexdigest()
-
-
-def md5(path, n=1 << 24):
-    h = hashlib.md5()
-    with open(path, 'rb') as fh:
-        for b in iter(lambda: fh.read(n), b''):
-            h.update(b)
-    return h.hexdigest()
-
-
-def git(*args):
-    return subprocess.run(['git', '-C', REPO] + list(args), capture_output=True, text=True)
-
-
 def git_state():
-    """(commit, dirty); dirty means `git status --porcelain` prints anything."""
-    return git('rev-parse', 'HEAD').stdout.strip(), bool(git('status', '--porcelain').stdout.strip())
-
-
-def code_tree_hashes():
-    out = {}
-    for p in ('workflow/04_forcing/water_use', 'workflow/common'):
-        r = git('rev-parse', f'HEAD:{p}')
-        out[p] = r.stdout.strip() if r.returncode == 0 else None
-    return out
-
-
-def utcnow():
-    return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    """(commit, dirty) of the repository (common/gitstate.py)."""
+    return gitstate.state(REPO)
 
 
 def check_inputs(paths, pset, dom_rel):
@@ -422,7 +393,7 @@ def check_inputs(paths, pset, dom_rel):
     dman = yaml.safe_load(open(f'{REPO}/' + PARAMETER_MANIFEST.format(pset=pset)))['components']['domain']['files']
     dmd5 = {f['path'].split('/')[-1]: f['md5'] for f in dman}
     for rel in paths:
-        h = md5(f'{WORKDIR}/{rel}')
+        h = hashing.md5(f'{WORKDIR}/{rel}')
         if rel.startswith(WA + '/'):
             ref = wa.get(rel[len(WA) + 1:])
         elif rel.startswith(GW + '/'):
@@ -594,7 +565,7 @@ def main():
         g, beyond, gwrep[sec] = groundwater_parent(f'{WORKDIR}/{GW}/{sd["gw_table"]}',
                                                    f'{WORKDIR}/{GW}/input/Arc_ID_lon_lat_continentalarea.txt', active_parent)
         gw[sec] = replicate(np.nan_to_num(g)); gw_beyond[sec] = beyond
-    created_at = utcnow()
+    created_at = provenance.utcnow()
     attrs = {'title': 'non-irrigation water-use forcing for VIC-WUR (ISIMIP3a/3b water abstraction, D05)',
              'soc_scenario': a.scenario, 'code_commit': commit, 'code_dirty': str(dirty).lower(),
              'created_by': CREATED_BY, 'created_at': created_at, 'forcing_unit': unit, 'method_version': METHOD_VERSION,
@@ -636,25 +607,20 @@ def main():
         'created_at': created_at, 'input_manifest': WA_MANIFEST,
         'other_manifests': [GW_MANIFEST, ISIMIP4B_MD5SUMS, PARAMETER_MANIFEST.format(pset=a.parameter_set)],
         'inputs': inputs,
-        'input_sha256': {p: sha256(f'{WORKDIR}/{p}') for p in inputs},
+        'input_sha256': {p: hashing.sha256(f'{WORKDIR}/{p}') for p in inputs},
         'method': method_record(a.scenario, gwrep, cnames),
         'source_data_notes': SOURCE_NOTES,
-        'fingerprint': {'code_tree': code_tree_hashes(), 'method_version': METHOD_VERSION,
-                        'software': {'python': platform.python_version(), 'numpy': np.__version__,
-                                     'netCDF4': nc.__version__, 'netcdf_c': nc.__netcdf4libversion__,
-                                     'hdf5': nc.__hdf5libversion__, 'pyyaml': yaml.__version__},
-                        'conda_env': os.environ.get('CONDA_DEFAULT_ENV')},
+        'fingerprint': provenance.fingerprint(gitstate.tree_hashes(REPO, CODE_DIRS), METHOD_VERSION,
+                                              provenance.software_versions()),
         'years': f'{years[0]}-{years[-1]}',
         'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario} --years {years[0]}-{years[-1]} '
                            f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
                            + (' --scratch' if a.scratch else '') + (f' --scratch-label {a.scratch_label}' if a.scratch_label else ''),
         'caches': [],
         'files': [{'path': f, 'year': int(f[:-3].rsplit('_', 1)[1]), 'size_bytes': os.path.getsize(f'{out}/{f}'),
-                   'sha256': sha256(f'{out}/{f}')} for f in files],
+                   'sha256': hashing.sha256(f'{out}/{f}')} for f in files],
         'qc': {'status': 'not_checked', 'evidence': rp_qc}}
-    with open(f'{out}/provenance.yaml.part', 'w') as fh:
-        yaml.safe_dump(prov, fh, sort_keys=False)
-    os.replace(f'{out}/provenance.yaml.part', f'{out}/provenance.yaml')
+    provenance.write(f'{out}/provenance.yaml', prov)
     print(f'done: {len(years)} year(s) in {time.time() - t0:.0f} s -> {out}')
 
 

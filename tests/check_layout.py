@@ -61,7 +61,8 @@ REPO_REQUIRED = [
 ] + ["workflow/" + s for s in STAGES]
 REPO_CHILDREN = {
     "configs": {"README.md", "campaigns", "resources"},
-    "manifests": {"README.md", "inputs", "parameters", "runs", "deliveries"},
+    "manifests": {"README.md", "code-equivalence.yaml", "inputs", "parameters", "runs",
+                  "deliveries"},
     "tests": {"README.md", "check_layout.py", "unit", "integration", "smoke",
               "fixtures"},
     "workflow": {"README.md", "common"} | set(STAGES),

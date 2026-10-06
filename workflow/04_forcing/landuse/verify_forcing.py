@@ -8,6 +8,9 @@ tile counts, and a comparison with the VIC coverage dataset of the same year whe
   qc/forcing/landuse/<soc>/summary.json                 (per-year status, unit status)
 and sets qc.status in the unit's provenance.yaml to `passed` when every file of the unit has a passing
 verification, `failed` when any file fails, and leaves `not_checked` while the unit is only partly verified.
+Each report records the SHA-256 of its data file and the verifier version; a report of an earlier run counts only
+while both still match (common/qc.py), otherwise its year is not_checked. Exit status: 0 passed, 1 failed,
+3 warning, 4 not_checked (common/qc.py).
 
 Pass criteria per file: the format VIC reads (time: one step 0, units days since <year>-01-01 00:00:00, calendar
 proleptic_gregorian as the VIC clock, since VIC aborts on another calendar; coverage(time, veg_class, lat, lon);
@@ -19,18 +22,20 @@ Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--unit-dir DIR]
   --unit-dir overrides the unit location (for outputs written to scratch by a dirty repository); results then
   go to <unit-dir>/qc/ and provenance is not updated.
 """
-import argparse, datetime, json, os, sys
+import argparse, os
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
 import numpy as np
 import netCDF4 as nc
-import yaml
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 
-WORKDIR = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
+from common import provenance, qc, workdir
+
+WORKDIR = workdir.root()
+REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 RAW = f'{WORKDIR}/raw/ISIMIP4b/InputData/socioeconomic/landuse'
 COVERAGE = f'{WORKDIR}/raw/external/vic-coverage-version-a/5/coverage_VersionA_v5_{{y}}.nc'
 R = 6371000.0
@@ -55,7 +60,8 @@ def check_format(d, fn, dom_lat, dom_lon):
     return f
 
 
-def verify_file(fn, scen, f_dom, out_reports, out_figs):
+def verify_file(fn, scen, f_dom, out_reports, out_figs, verifier):
+    binding = qc.binding([fn], verifier)          # before the checks: the file that is checked
     dom = nc.Dataset(f_dom); mask = dom['mask'][:].filled(0).astype(bool); dom_lat = dom['lat'][:]; dom_lon = dom['lon'][:]; dom.close()
     d = nc.Dataset(fn); fmt = check_format(d, fn, dom_lat, dom_lon)
     yr = int(d.year); cov = d['coverage'][0].filled(np.nan).astype('f8'); vlat = d['lat'][:]; vlon = d['lon'][:]; d.close()
@@ -72,8 +78,7 @@ def verify_file(fn, scen, f_dom, out_reports, out_figs):
     T = {12: rf, 15: S(rc), 14: S(ir - rc), 13: S(fu['urbanareas'][t].filled(0).astype('f8'))}; f15.close(); fu.close()
     capn = psum(land); tot = sum(T.values())
     c = np.nan_to_num(cov); s = c.sum(axis=0)
-    res = {'file': os.path.basename(fn), 'scenario': scen, 'year': yr, 'checked_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-           'format': fmt}
+    res = {'file': os.path.basename(fn), 'scenario': scen, 'year': yr, 'checked_at': provenance.utcnow(), 'format': fmt}
     res['closure'] = {'max_abs_sum_minus_1_active': float(np.abs(s[mask] - 1).max()), 'min_value_active': float(c[:, mask].min()),
                       'nan_in_active': int(np.isnan(cov[:, mask]).sum()), 'finite_in_inactive': int(np.isfinite(cov[:, ~mask]).sum()),
                       'values_between_0_and_1e-12': int(((c[:, mask] > 0) & (c[:, mask] < 1e-12)).sum())}   # reported only
@@ -98,7 +103,8 @@ def verify_file(fn, scen, f_dom, out_reports, out_figs):
               and cl['finite_in_inactive'] == 0 and all(v['parents_err_gt_tol_capacity_ok'] == 0 for v in cons.values())
               and all(v['allocated_where_target_zero_km2'] == 0 for v in cons.values()))
     res['status'] = 'passed' if passed else 'failed'
-    json.dump(res, open(f'{out_reports}/verify_{yr}.json', 'w'), indent=1)
+    res['binding'] = binding
+    qc.write_json(f'{out_reports}/verify_{yr}.json', res)
     # figure
     ext = [-180, 180, vlat[0], vlat[-1]]; fig, axs = plt.subplots(3, 2, figsize=(16, 13)); axs = axs.ravel()
     for ax, (k, nm) in zip(axs, ((12, 'rainfed crop'), (14, 'irrigated non-paddy'), (15, 'irrigated paddy'), (13, 'urban'))):
@@ -133,15 +139,16 @@ def main():
     ap.add_argument('--processes', type=int, default=1, help='files verified in parallel (up to about 7.4 GB each)')
     a = ap.parse_args()
     unit = f'landuse/{a.scenario}'; unit_dir = a.unit_dir or f'{WORKDIR}/forcing/{unit}'
-    qc = f'{unit_dir}/qc' if a.unit_dir else f'{WORKDIR}/qc/forcing/{unit}'
-    reports, figs = f'{qc}/reports', f'{qc}/figures'; os.makedirs(reports, exist_ok=True); os.makedirs(figs, exist_ok=True)
+    qc_dir = f'{unit_dir}/qc' if a.unit_dir else f'{WORKDIR}/qc/forcing/{unit}'
+    reports, figs = f'{qc_dir}/reports', f'{qc_dir}/figures'; os.makedirs(reports, exist_ok=True); os.makedirs(figs, exist_ok=True)
     f_dom = f'{WORKDIR}/parameters/{a.parameter_status}/{a.parameter_set}/domain/vic_global_5min_domain_nogl.nc'
     files = sorted(f for f in os.listdir(unit_dir) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc'))
     if a.years:
         y = a.years.split('-'); want = set(range(int(y[0]), int(y[-1]) + 1))
         files = [f for f in files if int(f[:-3].rsplit('_', 1)[1]) in want]
     if not files: raise SystemExit(f'no coverage files in {unit_dir}')
-    jobs = [(f'{unit_dir}/{f}', a.scenario, f_dom, reports, figs) for f in files]
+    verifier = qc.verifier_state(REPO, 'workflow/04_forcing/landuse')
+    jobs = [(f'{unit_dir}/{f}', a.scenario, f_dom, reports, figs, verifier) for f in files]
     nproc = max(1, min(a.processes, len(jobs)))
     if nproc == 1:
         done = [verify_one(j) for j in jobs]
@@ -149,26 +156,24 @@ def main():
         # an executor (not a Pool) fails at once if a worker is killed, e.g. by the memory limit
         with ProcessPoolExecutor(nproc, mp_context=get_context('fork')) as ex:
             done = list(ex.map(verify_one, jobs))
-    # unit summary from every verify_<year>.json present
+    # unit summary from every verify_<year>.json that belongs to the current file and verifier
     all_files = sorted(f for f in os.listdir(unit_dir) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc'))
-    per_year = {}
+    checked = {yr for yr, _ in done}; per_year = {}
     for f in all_files:
-        yr = int(f[:-3].rsplit('_', 1)[1]); p = f'{reports}/verify_{yr}.json'
-        per_year[yr] = json.load(open(p))['status'] if os.path.exists(p) else 'not_checked'
-    if any(v == 'failed' for v in per_year.values()): status = 'failed'
-    elif all(v == 'passed' for v in per_year.values()): status = 'passed'
-    else: status = 'not_checked'
+        yr = int(f[:-3].rsplit('_', 1)[1])
+        per_year[yr] = qc.report_status(f'{reports}/verify_{yr}.json', [f'{unit_dir}/{f}'], verifier, yr in checked)
+    status = qc.combine(per_year.values())
     summary = {'object': f'forcing/{unit}', 'status': status, 'checked_by': 'workflow/04_forcing/landuse/verify_forcing.py',
-               'updated_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+               'updated_at': provenance.utcnow(),
                'files': len(all_files), 'passed': sum(v == 'passed' for v in per_year.values()),
                'failed': sum(v == 'failed' for v in per_year.values()), 'not_checked': sum(v == 'not_checked' for v in per_year.values()),
                'per_year': {str(k): v for k, v in sorted(per_year.items())}}
-    json.dump(summary, open(f'{qc}/summary.json', 'w'), indent=1)
+    qc.write_summary(qc_dir, summary)
     prov_path = f'{unit_dir}/provenance.yaml'
     if not a.unit_dir and os.path.exists(prov_path):
-        prov = yaml.safe_load(open(prov_path)); prov['qc'] = {'status': status, 'evidence': f'qc/forcing/{unit}'}
-        with open(prov_path, 'w') as fh: yaml.safe_dump(prov, fh, sort_keys=False)
+        provenance.set_qc(prov_path, status, f'qc/forcing/{unit}')
     print(f'unit {unit}: {status} ({summary["passed"]} passed, {summary["failed"]} failed, {summary["not_checked"]} not checked of {len(all_files)})')
+    qc.exit_with(status)
 
 
 if __name__ == '__main__':

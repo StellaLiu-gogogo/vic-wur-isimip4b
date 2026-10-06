@@ -17,24 +17,29 @@ Per year and sector:
              where the parent has an Arc_ID (tolerance 1e-6)
 Writes qc/forcing/water_use/<soc>/reports/verify_<year>.json, figures/verify_<year>.png, summary.json, and sets
 qc.status in the unit's provenance.yaml: `passed` when every year of the unit passes, `failed` when any fails,
-`not_checked` while the unit is only partly verified.
+`not_checked` while the unit is only partly verified. Each report records the SHA-256 of the six data files of its
+year and the verifier version; a report of an earlier run counts only while both still match (common/qc.py),
+otherwise its year is not_checked. Exit status: 0 passed, 1 failed, 3 warning, 4 not_checked (common/qc.py).
 
 Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--unit-dir DIR] [--processes N]
   --unit-dir verifies outputs written to scratch; results then go to <unit-dir>/qc/ and provenance is not updated.
 """
-import argparse, calendar, datetime, json, os, sys
+import argparse, calendar, os
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
 import numpy as np
 import netCDF4 as nc
 import xarray as xr
-import yaml
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 
-WORKDIR = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
+from common import provenance, qc, workdir
+
+WORKDIR = workdir.root()
+REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
+VARIABLES = ('demand', 'consumption_fraction', 'groundwater_fraction')
 WA = f'{WORKDIR}/raw/external/isimip3-water-abstraction/dkrz-2026-10-02'
 GW = f'{WORKDIR}/raw/external/watergap-groundwater-fractions/snapshot-2026-10-02'
 SECTOR_SRC = {'municipal': ('dom', 'domestic/input/G_FRACTGW_DOM.txt'),
@@ -108,8 +113,15 @@ def read_unit_file(path, name):
     return info, lat, lon, np.where(x == fill, np.nan, x)
 
 
+def year_files(unit_dir, scen, year):
+    """The data files of one year that exist (two sectors, three variables)."""
+    return [p for p in (f'{unit_dir}/{sec}_{var}_{scen}_{year}.nc' for sec in SECTOR_SRC for var in VARIABLES)
+            if os.path.exists(p)]
+
+
 def verify_year(job):
-    year, scen, unit_dir, f_dom, ledger, reports, figs = job
+    year, scen, unit_dir, f_dom, ledger, reports, figs, verifier = job
+    binding = qc.binding(year_files(unit_dir, scen, year), verifier)   # before the checks: the files checked
     dom = nc.Dataset(f_dom); dom.set_auto_mask(False)
     dlat, dlon = np.asarray(dom['lat'][:]), np.asarray(dom['lon'][:])
     active = np.asarray(dom['mask'][:]) == 1; area = np.asarray(dom['area'][:], 'f8'); dom.close()
@@ -121,13 +133,12 @@ def verify_year(job):
     PI, PJ = np.meshgrid(pi, pj, indexing='ij')
     nact = np.zeros((len(plat), len(plon))); np.add.at(nact, (PI[active], PJ[active]), 1)
     days = 366 if calendar.isleap(year) else 365
-    res = {'scenario': scen, 'year': year, 'checked_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-           'sectors': {}}
+    res = {'scenario': scen, 'year': year, 'checked_at': provenance.utcnow(), 'sectors': {}}
     ok_all = True; maps = {}
     for sec, (s, table) in SECTOR_SRC.items():
         r = {}; ok = True
         fields = {}
-        for var in ('demand', 'consumption_fraction', 'groundwater_fraction'):
+        for var in VARIABLES:
             fn = f'{unit_dir}/{sec}_{var}_{scen}_{year}.nc'
             if not os.path.exists(fn):
                 r[var] = {'missing': True}; ok = False; continue
@@ -188,7 +199,8 @@ def verify_year(job):
         res['sectors'][sec] = r
         maps[sec] = np.where(active, fields['demand'], np.nan)
     res['status'] = 'passed' if ok_all else 'failed'
-    json.dump(res, open(f'{reports}/verify_{year}.json', 'w'), indent=1)
+    res['binding'] = binding
+    qc.write_json(f'{reports}/verify_{year}.json', res)
     if maps:
         fig, axs = plt.subplots(len(maps), 1, figsize=(14, 5.2 * len(maps)))
         axs = np.atleast_1d(axs)
@@ -214,8 +226,8 @@ def main():
     ap.add_argument('--processes', type=int, default=1, help='years verified in parallel (about 3 GB each)')
     a = ap.parse_args()
     unit = f'water_use/{a.scenario}'; unit_dir = a.unit_dir or f'{WORKDIR}/forcing/{unit}'
-    qc = f'{unit_dir}/qc' if a.unit_dir else f'{WORKDIR}/qc/forcing/{unit}'
-    reports, figs = f'{qc}/reports', f'{qc}/figures'
+    qc_dir = f'{unit_dir}/qc' if a.unit_dir else f'{WORKDIR}/qc/forcing/{unit}'
+    reports, figs = f'{qc_dir}/reports', f'{qc_dir}/figures'
     os.makedirs(reports, exist_ok=True); os.makedirs(figs, exist_ok=True)
     f_dom = f'{WORKDIR}/parameters/{a.parameter_status}/{a.parameter_set}/domain/vic_global_5min_domain_nogl.nc'
     unit_years = sorted({int(f[:-3].rsplit('_', 1)[1]) for f in os.listdir(unit_dir) if f.endswith('.nc')})
@@ -232,7 +244,8 @@ def main():
             for line in fh:
                 row = dict(zip(head, line.strip().split(',')))
                 ledger[(int(row['year']), row['sector'])] = float(row['lost_km3'])
-    jobs = [(yy, a.scenario, unit_dir, f_dom, ledger, reports, figs) for yy in years]
+    verifier = qc.verifier_state(REPO, 'workflow/04_forcing/water_use')
+    jobs = [(yy, a.scenario, unit_dir, f_dom, ledger, reports, figs, verifier) for yy in years]
     nproc = max(1, min(a.processes, len(jobs)))
     if nproc == 1:
         done = [verify_year(j) for j in jobs]
@@ -240,34 +253,25 @@ def main():
         with ProcessPoolExecutor(nproc, mp_context=get_context('fork')) as ex:
             done = list(ex.map(verify_year, jobs))
     y0, y1 = YEARS[a.scenario]
-    per_year = {}
+    checked = {yy for yy, _ in done}; per_year = {}
     for yy in range(y0, y1 + 1):
-        p = f'{reports}/verify_{yy}.json'
-        per_year[yy] = (json.load(open(p))['status'] if os.path.exists(p) and yy in unit_years else
-                        'not_checked' if yy in unit_years else 'missing')
-    expected_complete = all(v != 'missing' for v in per_year.values())
-    if any(v == 'failed' for v in per_year.values()):
-        status = 'failed'
-    elif expected_complete and all(v == 'passed' for v in per_year.values()):
-        status = 'passed'
-    else:
-        status = 'not_checked'
+        per_year[yy] = (qc.report_status(f'{reports}/verify_{yy}.json', year_files(unit_dir, a.scenario, yy), verifier,
+                                         yy in checked) if yy in unit_years else 'missing')
+    status = qc.combine(per_year.values())          # a missing year counts as not_checked
     summary = {'object': f'forcing/{unit}', 'status': status, 'checked_by': 'workflow/04_forcing/water_use/verify_forcing.py',
-               'updated_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+               'updated_at': provenance.utcnow(),
                'years_expected': f'{y0}-{y1}', 'years_present': len(unit_years),
                'passed': sum(v == 'passed' for v in per_year.values()), 'failed': sum(v == 'failed' for v in per_year.values()),
                'not_checked': sum(v == 'not_checked' for v in per_year.values()),
                'missing': sum(v == 'missing' for v in per_year.values()),
                'per_year': {str(k): v for k, v in per_year.items()}}
-    json.dump(summary, open(f'{qc}/summary.json', 'w'), indent=1)
+    qc.write_summary(qc_dir, summary)
     prov_path = f'{unit_dir}/provenance.yaml'
     if not a.unit_dir and os.path.exists(prov_path):
-        prov = yaml.safe_load(open(prov_path)); prov['qc'] = {'status': status, 'evidence': f'qc/forcing/{unit}'}
-        with open(f'{prov_path}.part', 'w') as fh:
-            yaml.safe_dump(prov, fh, sort_keys=False)
-        os.replace(f'{prov_path}.part', prov_path)
+        provenance.set_qc(prov_path, status, f'qc/forcing/{unit}')
     print(f'unit {unit}: {status} ({summary["passed"]} passed, {summary["failed"]} failed, '
           f'{summary["not_checked"]} not checked, {summary["missing"]} missing of {y0}-{y1})')
+    qc.exit_with(status)
 
 
 if __name__ == '__main__':

@@ -96,6 +96,8 @@ the start-year file's first time to equal the climate forcing's first time and t
 
 Bump `METHOD_VERSION` when results change for identical inputs.
 
+Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary and verifier exit status, job records) come from `workflow/common/` (see its README); the verifier exits with 0 only for `passed` (1 failed, 3 warning, 4 not_checked), and a per-year report counts only for the data files and verifier version recorded in it.
+
 ## Running
 
 One Slurm job per soc scenario; years run in parallel, one process per year (about 3 s and 1 GB per year;

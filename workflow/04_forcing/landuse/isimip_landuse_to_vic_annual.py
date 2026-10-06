@@ -54,16 +54,17 @@ Usage: isimip_landuse_to_vic_annual.py --scenario histsoc --years 1850-2021 [--p
 D04 (docs/decisions/D04-landuse-harmonization.md): every fallback parent uses a single child (--small inf,
 the default); rice_rainfed and the *_bf bioenergy variables are part of the rainfed/irrigated sums.
 """
-import argparse, datetime, hashlib, json, os, re, subprocess, sys, time
+import argparse, json, os, re, sys, time
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
 import numpy as np
 import netCDF4 as nc
-import yaml
 from scipy.spatial import cKDTree
 
-WORKDIR = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
+from common import gitstate, hashing, provenance, workdir
+
+WORKDIR = workdir.root()
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 CREATED_BY = 'workflow/04_forcing/landuse/isimip_landuse_to_vic_annual.py'
 RAW = f'{WORKDIR}/raw/ISIMIP4b/InputData/socioeconomic/landuse'
@@ -89,23 +90,9 @@ METHOD_VERSION = '1.4'   # bump when results change for identical inputs (1.2: D
                          # 1.4: time calendar proleptic_gregorian instead of standard, coverage unchanged)
 
 
-def sha256(path, n=1 << 24):
-    h = hashlib.sha256()
-    with open(path, 'rb') as fh:
-        for b in iter(lambda: fh.read(n), b''):
-            h.update(b)
-    return h.hexdigest()
-
-
 def git_state():
-    """(commit, dirty) of the repository; dirty means `git status --porcelain` prints anything."""
-    commit = subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
-    dirty = bool(subprocess.run(['git', '-C', REPO, 'status', '--porcelain'], capture_output=True, text=True, check=True).stdout.strip())
-    return commit, dirty
-
-
-def utcnow():
-    return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    """(commit, dirty) of the repository (common/gitstate.py)."""
+    return gitstate.state(REPO)
 
 
 def sph_area(lat, d, nlon):
@@ -337,7 +324,7 @@ def main():
         if not os.path.isfile(p): raise SystemExit(f'missing input {p}')
     dom = nc.Dataset(f_dom); vlat = dom['lat'][:].filled(np.nan); vlon = dom['lon'][:].filled(np.nan); mask = dom['mask'][:].filled(0).astype(bool); dom.close()
     P = np.load(CACHE)['P'].astype('f8') if os.path.exists(CACHE) else build_weights_cache(CACHE, vlat, vlon, mask)
-    created_at = utcnow()
+    created_at = provenance.utcnow()
     attrs = {'code_commit': commit, 'code_dirty': str(dirty).lower(), 'created_by': CREATED_BY, 'created_at': created_at,
              'forcing_unit': unit, 'method_version': METHOD_VERSION,
              'source_isimip': f'{os.path.relpath(f15, WORKDIR)}; {os.path.relpath(furb, WORKDIR)}',
@@ -358,18 +345,18 @@ def main():
         'input_manifest': 'manifests/inputs/isimip4b-dkrz-2026-09-21/inventory.tsv',
         'inputs': [os.path.relpath(f15, WORKDIR), os.path.relpath(furb, WORKDIR), os.path.relpath(f_dom, WORKDIR)] +
                   [os.path.relpath(COVERAGE.format(y=yy), WORKDIR) for yy in WEIGHT_YEARS],
-        'input_sha256': {'landuse-15crops': sha256(f15), 'landuse-urbanareas': sha256(furb), 'domain': sha256(f_dom)},
+        'input_sha256': {'landuse-15crops': hashing.sha256(f15), 'landuse-urbanareas': hashing.sha256(furb),
+                         'domain': hashing.sha256(f_dom)},
         'method': {'name': 'annual Cv, joint order-free water-filling', 'version': METHOD_VERSION, 'target_grid': 'vic-5arcmin',
                    'weights': 'VIC coverage 2003-2022 mean class pattern', 'calendar': 'proleptic_gregorian', 'single_child_threshold': a.small,
                    'union_mask': os.path.relpath(a.union_mask, WORKDIR) if a.union_mask else None, 'max_iter': a.max_iter,
                    'parameter_set': f'{a.parameter_status}/{a.parameter_set}'},
         'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario} --years {years[0]}-{years[-1]} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status} --small {a.small}'
                            + (' --scratch' if a.scratch else '') + (f' --scratch-label {a.scratch_label}' if a.scratch_label else ''),
-        'files': [{'path': f, 'size_bytes': os.path.getsize(f'{out}/{f}'), 'sha256': sha256(f'{out}/{f}')} for f in files],
+        'files': [{'path': f, 'size_bytes': os.path.getsize(f'{out}/{f}'), 'sha256': hashing.sha256(f'{out}/{f}')}
+                  for f in files],
         'qc': {'status': 'not_checked', 'evidence': f'qc/forcing/{unit}'}}
-    with open(f'{out}/provenance.yaml.part', 'w') as fh:
-        yaml.safe_dump(prov, fh, sort_keys=False)
-    os.replace(f'{out}/provenance.yaml.part', f'{out}/provenance.yaml')
+    provenance.write(f'{out}/provenance.yaml', prov)
     print(f'done: {len(years)} year(s) in {time.time() - t0:.0f} s -> {out}')
 
 

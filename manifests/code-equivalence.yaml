@@ -1,0 +1,47 @@
+# Result-neutral changes of producing code (docs/directory-contracts.md, "Forcing unit and provenance record").
+# An entry lets a forcing unit whose provenance.yaml records the `from` code-tree hashes be extended by code whose
+# tree hashes are `to`. Entries are added in the commit of the change, after a before/after test, with the user's
+# approval; they are never edited or removed. The `to` hashes are those of the commit that adds the entry.
+equivalences:
+  - id: common-modules-climate
+    producer: workflow/04_forcing/climate/downscale_climate.py
+    method_version: '1.1'
+    from:
+      workflow/04_forcing/climate: 91a9523b70749074ced76dc44899d71a03dd304f
+      workflow/common: null
+    to:
+      workflow/04_forcing/climate: a9575dda38073f62f0d98f7724ee9e6e20a5e679
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    change: >-
+      task G: shared helpers (workdir, checksums, Git state, provenance.yaml, QC status, job records) moved to
+      workflow/common/; grid-relation cache written under a temporary name of its own and validated on reading
+      (review #11); verifier exit status (#8) and per-year reports bound to file SHA-256 and verifier version (#3);
+      README lines. Method unchanged.
+    evidence: >-
+      Scratch test on 2026-10-05, ec-earth3-esm-1-1 esm-hist lwdown 2015, same inputs and commit base 5eb3f63:
+      before = checkout of 5eb3f63 (Slurm job 43031351), after = the change (job 43031587). Every variable (raw
+      bytes, dtype, dimensions, chunking, filters) and every attribute except created_at identical; the files differ
+      in 7 bytes, the created_at text and the HDF5 checksum of the attribute block that holds it (recomputed);
+      provenance.yaml differs only in created_at, files[].created_at and files[].sha256; the grid-relation and dz
+      cache built by each run is byte-identical.
+    approved: user, 2026-10-05
+  - id: common-modules-water-use
+    producer: workflow/04_forcing/water_use/downscale_water_use.py
+    method_version: '1.0'
+    from:
+      workflow/04_forcing/water_use: 3ec4e00ea50a14910df1d3f1a943a1280bb9800a
+      workflow/common: null
+    to:
+      workflow/04_forcing/water_use: 135655c691a32541c9bfae933662cbfc352491bd
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    change: >-
+      task G: shared helpers moved to workflow/common/; verifier exit status (#8) and per-year reports bound to
+      file SHA-256 and verifier version (#3); README line. Method unchanged. (The producer does not extend units;
+      the entry keeps the recorded fingerprint traceable.)
+    evidence: >-
+      Scratch test on 2026-10-05, histsoc 2015, same inputs and commit base 5eb3f63: before = checkout of 5eb3f63
+      (Slurm job 43031353), after = the change (job 43031593). All six files: every variable and every attribute
+      except created_at identical; the files differ only in the created_at text and the HDF5 checksum of its
+      attribute block (recomputed); lost_demand_ledger.csv and lost_parents_2015.csv byte-identical, qa_2015.json
+      equal except run time; provenance.yaml differs only in created_at and files[].sha256.
+    approved: user, 2026-10-05

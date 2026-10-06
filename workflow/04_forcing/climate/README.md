@@ -15,6 +15,8 @@ read by `05_simulation`.
 | `submit_climate_forcing.py` | renders the template, submits on hold, writes the job record `logs/04_forcing/<job-name>_<slurm-job-id>/{job.sbatch,job.yaml}`, releases the job |
 | `../../../tests/unit/test_climate_downscaling.py` | unit tests (grid relation, bilinear and conservative remapping against cdo, physics including the `lwdown` ratio against an independent implementation, time axis, variable selection) |
 
+Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary and verifier exit status, job records) come from `workflow/common/` (see its README); the verifier exits with 0 only for `passed` (1 failed, 3 warning, 4 not_checked), and a per-year report counts only for the data files and verifier version recorded in it.
+
 ## Method (version 1.1)
 
 The VIC 5′ grid is an exact 6 × 6 subdivision of the ISIMIP 0.5° grid; the
@@ -99,7 +101,9 @@ calendar, time axis, lat/lon, chunking, and provenance.
 The grid relation and dz are kept in
 `scratch/climate-forcing/weights/grid-relation-and-dz_<key>.npz`, rebuilt
 when absent or when the grids, static inputs, or method version change
-(about one minute). They move to `intermediate/` once
+(about one minute). Jobs that build it at the same time write separate
+temporary files and publish by rename; a file that cannot be read or does
+not match is rebuilt. They move to `intermediate/` once
 `workflow/common/cache.py` exists.
 
 ## Running
@@ -124,7 +128,8 @@ An existing unit is never overwritten. Running the producer for years a unit
 does not contain extends it when the conditions in
 `docs/directory-contracts.md` ("Forcing unit and provenance record") hold:
 unchanged code fingerprint (Git tree of this directory and
-`workflow/common/`, `METHOD_VERSION`), unchanged SHA-256 of reused inputs,
+`workflow/common/`, `METHOD_VERSION`) or a change of the trees recorded as
+result-neutral in `manifests/code-equivalence.yaml`, unchanged SHA-256 of reused inputs,
 new ISIMIP files matching their manifest, unchanged key software versions.
 Existing data files are verified and never touched; only `provenance.yaml`
 is rewritten, with `qc.status: not_checked` until the verifier has run.

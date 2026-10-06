@@ -29,22 +29,27 @@ For every file <variable>_<gcm>_<alias>_<year>.nc of a unit (or the years given)
               float32 rounding (relative 1e-5); the producer caps vp at saturation
 Writes <qc>/reports/verify_<year>.json, <qc>/figures/verify_<year>.png, and <qc>/summary.json, where <qc> is
 qc/forcing/climate/<gcm>/<alias>/<variable>/, and sets qc.status in the unit's provenance.yaml: `failed` if any
-file fails, `passed` or `warning` when every file of the unit is checked, `not_checked` otherwise.
+file fails, `passed` or `warning` when every file of the unit is checked, `not_checked` otherwise. Each report
+records the SHA-256 of its data file and the verifier version; a report of an earlier run counts only while both
+still match (common/qc.py), otherwise its year is not_checked. Exit status: 0 passed, 1 failed, 3 warning,
+4 not_checked (common/qc.py), over all variables.
 
 Usage: verify_forcing.py --gcm ec-earth3-esm-1-1 --alias esm-hist --variables tair,prec [--years 2011-2020]
        [--scratch [--scratch-label LABEL]] [--processes N]
   --scratch verifies the test output under scratch/climate-forcing/[runs/<LABEL>/] and writes its QC next to it.
 """
-import argparse, datetime, glob, json, os, re, shutil, subprocess, sys, tempfile
+import argparse, glob, os, re, shutil, subprocess, tempfile
 from multiprocessing import Pool
 
 import numpy as np
 import netCDF4 as nc
-import yaml
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-W = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
+from common import provenance, qc, workdir
+
+W = workdir.root()
+REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 RAW = f'{W}/raw/ISIMIP4b/InputData/climate/atmosphere/bias-adjusted/global/daily/{{alias}}/{{gcm_dir}}'
 ERA5 = f'{W}/raw/external/era5-surface-geopotential/cds-2026-09-30/6a36300ce2ed8bb87d44c30f32304dcd.nc'
 GCM_DIR = {'ec-earth3-esm-1-1': 'EC-Earth3-ESM-1-1', 'ukesm1-3-ll': 'UKESM1-3-LL'}
@@ -63,10 +68,6 @@ SAMPLE_TOL = 1e-3
 LWDOWN_SAMPLE_RTOL = 5e-3
 R1_DZ_M, R1_TOL = 0.005, 1e-6     # |dz| below which R must equal 1 within R1_TOL
 SUPERSAT_RTOL = 1e-5
-
-
-def utcnow():
-    return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def svp(t):
@@ -170,11 +171,12 @@ CTX = None     # Context, set before the worker pool is forked
 
 
 def verify_file(args):
-    fn, var, gcm, alias, reports, figs, unit_dir = args
+    fn, var, gcm, alias, reports, figs, unit_dir, verifier = args
     ctx = CTX
+    binding = qc.binding([fn], verifier)          # before the checks: the file that is checked
     d = nc.Dataset(fn); d.set_auto_mask(False)
     year = int(d.year); x = d[var]; units, srcs, (lo, hi), (kind, tol) = SPEC[var]
-    res = {'file': os.path.basename(fn), 'variable': var, 'year': year, 'checked_at': utcnow(), 'checks': {}}
+    res = {'file': os.path.basename(fn), 'variable': var, 'year': year, 'checked_at': provenance.utcnow(), 'checks': {}}
     C = res['checks']
     # structure
     filt = x.filters()
@@ -317,7 +319,8 @@ def verify_file(args):
     if tair_f is not None:
         tair_f.close()
     d.close()
-    json.dump(res, open(f'{reports}/verify_{year}.json', 'w'), indent=1)
+    res['binding'] = binding
+    qc.write_json(f'{reports}/verify_{year}.json', res)
     return var, year, status
 
 
@@ -342,13 +345,14 @@ def main():
     global CTX
     ctx = CTX = Context(f'{pdir}/domain/vic_global_5min_domain_nogl.nc',
                   f'{pdir}/bundle/vic_global_5min_natural_static_root-b-zeng2001.nc', tmp)
+    verifier = qc.verifier_state(REPO, 'workflow/04_forcing/climate')
     jobs, dirs = [], {}
     for v in variables:
         unit = f'climate/{a.gcm}/{a.alias}/{v}'
         sbase = f'{W}/scratch/climate-forcing' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')
         unit_dir = f'{sbase}/{a.gcm}/{a.alias}/{v}' if a.scratch else f'{W}/forcing/{unit}'
-        qc = f'{unit_dir}/qc' if a.scratch else f'{W}/qc/forcing/{unit}'
-        reports, figs = f'{qc}/reports', f'{qc}/figures'
+        qc_dir = f'{unit_dir}/qc' if a.scratch else f'{W}/qc/forcing/{unit}'
+        reports, figs = f'{qc_dir}/reports', f'{qc_dir}/figures'
         os.makedirs(reports, exist_ok=True); os.makedirs(figs, exist_ok=True)
         files = sorted(glob.glob(f'{unit_dir}/{v}_{a.gcm}_{a.alias}_*.nc'))
         if a.years:
@@ -356,33 +360,33 @@ def main():
             files = [f for f in files if int(f[:-3].rsplit('_', 1)[1]) in want]
         if not files:
             raise SystemExit(f'no files for {v} in {unit_dir}')
-        dirs[v] = (unit, unit_dir, qc)
-        jobs += [(f, v, a.gcm, a.alias, reports, figs, unit_dir) for f in files]
+        dirs[v] = (unit, unit_dir, qc_dir)
+        jobs += [(f, v, a.gcm, a.alias, reports, figs, unit_dir, verifier) for f in files]
+    checked = set()
     with Pool(a.processes or min(len(jobs), 8)) as pool:
         for v, yr, st in pool.imap_unordered(verify_file, jobs):
+            checked.add((v, yr))
             print(f'{v} {yr}: {st}', flush=True)
-    for v, (unit, unit_dir, qc) in dirs.items():
+    unit_status = []
+    for v, (unit, unit_dir, qc_dir) in dirs.items():
         per_year = {}
         for f in sorted(glob.glob(f'{unit_dir}/{v}_{a.gcm}_{a.alias}_*.nc')):
-            yr = int(f[:-3].rsplit('_', 1)[1]); p = f'{qc}/reports/verify_{yr}.json'
-            per_year[yr] = json.load(open(p))['status'] if os.path.exists(p) else 'not_checked'
+            yr = int(f[:-3].rsplit('_', 1)[1])
+            per_year[yr] = qc.report_status(f'{qc_dir}/reports/verify_{yr}.json', [f], verifier, (v, yr) in checked)
         vals = list(per_year.values())
-        status = ('failed' if 'failed' in vals else 'not_checked' if 'not_checked' in vals
-                  else 'warning' if 'warning' in vals else 'passed')
+        status = qc.combine(vals); unit_status.append(status)
         summary = {'object': f'forcing/{unit}' if not a.scratch else os.path.relpath(unit_dir, W), 'status': status,
-                   'checked_by': CHECKED_BY, 'updated_at': utcnow(), 'files': len(vals),
+                   'checked_by': CHECKED_BY, 'updated_at': provenance.utcnow(), 'files': len(vals),
                    **{s: vals.count(s) for s in ('passed', 'warning', 'failed', 'not_checked')},
                    'per_year': {str(k): s for k, s in sorted(per_year.items())}}
-        json.dump(summary, open(f'{qc}/summary.json', 'w'), indent=1)
+        qc.write_summary(qc_dir, summary)
         prov_path = f'{unit_dir}/provenance.yaml'
         if os.path.exists(prov_path):
-            prov = yaml.safe_load(open(prov_path)); prov['qc'] = {'status': status, 'evidence': os.path.relpath(qc, W)}
-            with open(prov_path + '.part', 'w') as fh:
-                yaml.safe_dump(prov, fh, sort_keys=False)
-            os.replace(prov_path + '.part', prov_path)
+            provenance.set_qc(prov_path, status, os.path.relpath(qc_dir, W))
         print(f'{unit}: {status} ({summary["passed"]} passed, {summary["warning"]} warning, {summary["failed"]} failed, '
               f'{summary["not_checked"]} not checked)')
     shutil.rmtree(tmp, ignore_errors=True)
+    qc.exit_with(qc.combine(unit_status))
 
 
 if __name__ == '__main__':

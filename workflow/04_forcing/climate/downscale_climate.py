@@ -45,16 +45,19 @@ Usage: downscale_climate.py --gcm ec-earth3-esm-1-1 --alias esm-hist --years 201
   --scratch-label puts a test run under scratch/climate-forcing/runs/<LABEL>/ so that it does not replace
   an earlier test run.
 """
-import argparse, calendar, datetime, glob, hashlib, json, os, platform, re, subprocess, sys, time
+import argparse, calendar, glob, hashlib, os, re, sys, time, uuid, zipfile
 from multiprocessing import Pool
 
 import numpy as np
 import netCDF4 as nc
 import yaml
 
+from common import gitstate, hashing, provenance, workdir
+
 CREATED_BY = 'workflow/04_forcing/climate/downscale_climate.py'
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 METHOD_VERSION = '1.1'   # bump when results change for identical inputs (1.1: lwdown elevation correction, D16)
+CODE_DIRS = ('workflow/04_forcing/climate', 'workflow/common')   # code fingerprint (Git tree hashes)
 
 ISIMIP_DIR = 'raw/ISIMIP4b/InputData/climate/atmosphere/bias-adjusted/global/daily/{alias}/{gcm_dir}'
 ISIMIP_MANIFEST = 'manifests/inputs/isimip4b-dkrz-2026-09-21/inventory.tsv'
@@ -95,49 +98,9 @@ BLOCKED_OUTSIDE_SCRATCH = {}   # variable -> open decision that keeps it out of 
 
 
 # ----------------------------------------------------------------------------------------------- utilities
-def workdir():
-    w = os.environ.get('ISIMIP4B_WORKDIR')
-    if not w:
-        sys.exit('set ISIMIP4B_WORKDIR')
-    return w
-
-
-def utcnow():
-    return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-
-
-def file_hashes(path, n=1 << 24):
-    """(md5, sha256) of a file in one read pass."""
-    m, s = hashlib.md5(), hashlib.sha256()
-    with open(path, 'rb') as fh:
-        for b in iter(lambda: fh.read(n), b''):
-            m.update(b); s.update(b)
-    return m.hexdigest(), s.hexdigest()
-
-
-def git(*args):
-    return subprocess.run(['git', '-C', REPO, *args], capture_output=True, text=True)
-
-
 def git_state():
-    """(commit, dirty); dirty means `git status --porcelain` prints anything."""
-    commit = git('rev-parse', 'HEAD').stdout.strip()
-    dirty = bool(git('status', '--porcelain').stdout.strip())
-    return commit, dirty
-
-
-def code_tree_hashes():
-    """Git tree hashes of the producing code at HEAD (None when the path does not exist)."""
-    out = {}
-    for p in ('workflow/04_forcing/climate', 'workflow/common'):
-        r = git('rev-parse', f'HEAD:{p}')
-        out[p] = r.stdout.strip() if r.returncode == 0 else None
-    return out
-
-
-def software_versions():
-    return {'python': platform.python_version(), 'numpy': np.__version__, 'netCDF4': nc.__version__,
-            'netcdf_c': nc.__netcdf4libversion__, 'hdf5': nc.__hdf5libversion__, 'pyyaml': yaml.__version__}
+    """(commit, dirty) of the repository (common/gitstate.py)."""
+    return gitstate.state(REPO)
 
 
 # ----------------------------------------------------------------------------------------------- grids
@@ -369,9 +332,24 @@ def isimip_grid(path):
     return lat[::-1], lon      # ascending
 
 
+def load_static_cache(path, key, fine_shape, coarse_shape):
+    """(dz, zref05) of a cache file that is readable and belongs to `key` and the grids, else None."""
+    try:
+        with np.load(path) as z:
+            dz, zref05 = z['dz'], z['zref05']
+            if str(z['key']) != key or dz.shape != fine_shape or zref05.shape != coarse_shape \
+                    or not np.isfinite(dz).all() or not np.isfinite(zref05).all():
+                return None
+            return dz, zref05
+    except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
+        return None
+
+
 def static_reference(W, isimip_any, dom_path, bundle_path, era5_path, hashes):
     """Grid relation and dz on the 5' grid; cached under scratch/climate-forcing/weights/ (rebuilt when the
-    key, derived from both grids, the static inputs and METHOD_VERSION, does not match)."""
+    key, derived from both grids, the static inputs and METHOD_VERSION, does not match, or when the file cannot be
+    read). Jobs that build the same cache at the same time each write their own temporary file and publish it by
+    an atomic rename; the content is the same for the same key, so the last rename wins without harm."""
     clat, clon = isimip_grid(isimip_any)
     flat, flon, mask, area = read_domain(dom_path)
     key = hashlib.sha256(b''.join([clat.tobytes(), clon.tobytes(), flat.tobytes(), flon.tobytes(),
@@ -380,18 +358,22 @@ def static_reference(W, isimip_any, dom_path, bundle_path, era5_path, hashes):
     cache = f'{W}/{SCRATCH}/weights/grid-relation-and-dz_{key[:16]}.npz'
     rel = GridRelation(clat, clon, flat, flon)
     if os.path.exists(cache):
-        z = np.load(cache)
-        if str(z['key']) == key:
-            return rel, clat, clon, flat, flon, mask, area, z['dz'], z['zref05'], cache
+        got = load_static_cache(cache, key, mask.shape, (len(clat), len(clon)))
+        if got is not None:
+            return rel, clat, clon, flat, flon, mask, area, got[0], got[1], cache, key
     zref05 = era5_height_05(era5_path, clat, clon)
     elev = read_elev(bundle_path, flat, flon, mask)
     dz = np.where(mask, elev - rel.replicate(zref05), 0.0)
     os.makedirs(os.path.dirname(cache), exist_ok=True)
-    tmp = cache[:-4] + '.part.npz'
-    np.savez(tmp, key=key, dz=dz, zref05=zref05, ry=rel.ry, rx=rel.rx,
-             by_i0=rel.by[0], by_i1=rel.by[1], by_w=rel.by[2], bx_i0=rel.bx[0], bx_i1=rel.bx[1], bx_w=rel.bx[2])
-    os.replace(tmp, cache)
-    return rel, clat, clon, flat, flon, mask, area, dz, zref05, cache
+    tmp = f'{cache[:-4]}.{uuid.uuid4().hex}.part.npz'      # own temporary file of this job
+    try:
+        np.savez(tmp, key=key, dz=dz, zref05=zref05, ry=rel.ry, rx=rel.rx,
+                 by_i0=rel.by[0], by_i1=rel.by[1], by_w=rel.by[2], bx_i0=rel.bx[0], bx_i1=rel.bx[1], bx_w=rel.bx[2])
+        os.replace(tmp, cache)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return rel, clat, clon, flat, flon, mask, area, dz, zref05, cache, key
 
 
 # ----------------------------------------------------------------------------------------------- output
@@ -423,8 +405,10 @@ def produce_variable(job):
     """Worker: write every requested year of one VIC variable. Returns file records."""
     os.environ.setdefault('OMP_NUM_THREADS', '1')
     var, years, ctx = job['var'], job['years'], job['ctx']
-    ref = np.load(ctx['static_cache'])
-    dz = ref['dz']; mask = job['mask']
+    got = load_static_cache(ctx['static_cache'], ctx['static_key'], job['mask'].shape, (len(ctx['clat']), len(ctx['clon'])))
+    if got is None:
+        raise SystemExit(f"{ctx['static_cache']}: unreadable or not the cache of this run")
+    dz = got[0]; mask = job['mask']
     rel = GridRelation(ctx['clat'], ctx['clon'], ctx['flat'], ctx['flon'])
     records = []
     for year in years:
@@ -459,9 +443,9 @@ def produce_variable(job):
         for d in srcs.values():
             d.close()
         os.replace(part, final)
-        md5, sha = file_hashes(final)
+        sha = hashing.sha256(final)
         records.append({'path': os.path.basename(final), 'year': year, 'size_bytes': os.path.getsize(final),
-                        'sha256': sha, 'created_at': utcnow(), 'code_commit': ctx['commit'],
+                        'sha256': sha, 'created_at': provenance.utcnow(), 'code_commit': ctx['commit'],
                         'min_active': vmin, 'max_active': vmax})
         print(f'{var} {year}: {time.time() - t0:.0f} s, {os.path.getsize(final) / 1e9:.2f} GB, '
               f'range {vmin:.4g} .. {vmax:.4g}', flush=True)
@@ -524,8 +508,9 @@ def check_extension(prov, out_dir, current):
     fp = prov.get('fingerprint', {})
     if prov.get('method', {}).get('version') != METHOD_VERSION:
         bad.append(f'method version {prov.get("method", {}).get("version")} != {METHOD_VERSION}')
-    if fp.get('code_tree') != current['code_tree']:
-        bad.append(f'code tree {fp.get("code_tree")} != {current["code_tree"]}')
+    if provenance.code_equivalence(fp.get('code_tree'), current['code_tree'], CREATED_BY, METHOD_VERSION) is None:
+        bad.append(f'code tree {fp.get("code_tree")} != {current["code_tree"]} and no entry of '
+                   f'{provenance.EQUIVALENCE} connects them')
     if fp.get('software') != current['software']:
         bad.append(f'software {fp.get("software")} != {current["software"]}')
     old = prov.get('input_sha256', {})
@@ -539,7 +524,7 @@ def check_extension(prov, out_dir, current):
         fp_ = f'{out_dir}/{f["path"]}'
         if not os.path.exists(fp_):
             bad.append(f'{f["path"]} missing')
-        elif file_hashes(fp_)[1] != f['sha256']:
+        elif hashing.sha256(fp_) != f['sha256']:
             bad.append(f'{f["path"]} sha256 differs from provenance')
     return bad
 
@@ -569,7 +554,7 @@ def main():
     ap.add_argument('--scratch', action='store_true', help=f'test run: write under {SCRATCH}/ even from a clean repository')
     ap.add_argument('--scratch-label', default=None,
                     help=f'with --scratch: write under {SCRATCH}/runs/<label>/ (lowercase words joined by hyphens)')
-    a = ap.parse_args(); t0 = time.time(); W = workdir()
+    a = ap.parse_args(); t0 = time.time(); W = workdir.root()
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
     commit, dirty = git_state(); to_scratch = dirty or a.scratch
     variables = select_variables(a.variables, to_scratch)
@@ -597,7 +582,7 @@ def main():
         h, p = line.split(None, 1); md5sums[p.strip()] = h
     all_isimip = sorted({f for yy in years for f in sources[yy].values()})
     print(f'checksumming {len(all_isimip) + 3} input files', flush=True)
-    hashes = {p: file_hashes(p) for p in [dom, bundle, era5] + all_isimip}
+    hashes = {p: hashing.file_hashes(p) for p in [dom, bundle, era5] + all_isimip}
     for f in all_isimip:
         key = os.path.relpath(f, f'{W}/raw/ISIMIP4b')
         if md5sums.get(key) != hashes[f][0]:
@@ -611,7 +596,7 @@ def main():
             raise SystemExit(f'{path}: md5 does not match the parameter manifest')
     rp = lambda p: os.path.relpath(p, W)
     rel_paths = {'domain': rp(dom), 'bundle': rp(bundle), 'era5': rp(era5)}
-    current = {'code_tree': code_tree_hashes(), 'software': software_versions(),
+    current = {'code_tree': gitstate.tree_hashes(REPO, CODE_DIRS), 'software': provenance.software_versions(),
                'static_inputs': [rp(dom), rp(bundle), rp(era5)]}
 
     # ---------------- unit state: new, extension, or refused
@@ -625,7 +610,7 @@ def main():
             existing[v] = None
             continue
         if os.path.exists(prov_path):
-            prov = yaml.safe_load(open(prov_path))
+            prov = provenance.read(prov_path)
             have = {f['year'] for f in prov.get('files', [])}
             clash = sorted(have & set(years))
             if clash:
@@ -641,13 +626,13 @@ def main():
             existing[v] = None
 
     # ---------------- static reference (grid relation, dz)
-    rel, clat, clon, flat, flon, mask, area, dz, zref05, cache = static_reference(
+    rel, clat, clon, flat, flon, mask, area, dz, zref05, cache, static_key = static_reference(
         W, all_isimip[0], dom, bundle, era5, hashes)
     print(f'grid relation and dz ready ({cache}); dz on active cells: mean {dz[mask].mean():.1f} m, '
           f'min {dz[mask].min():.0f} m, max {dz[mask].max():.0f} m', flush=True)
     for d in out_dir.values():
         os.makedirs(d, exist_ok=True)
-    created_at = utcnow()
+    created_at = provenance.utcnow()
     attrs = {'title': 'ISIMIP4b bias-adjusted climate downscaled to the VIC-WUR 5 arcmin domain',
              'gcm': a.gcm, 'climate_scenario_input_alias': a.alias, 'code_commit': commit,
              'code_dirty': str(dirty).lower(), 'created_by': CREATED_BY, 'created_at': created_at,
@@ -655,7 +640,7 @@ def main():
              'domain': rel_paths['domain'], 'target_elevation': rel_paths['bundle'] + ': elev',
              'reference_elevation': rel_paths['era5']}
     ctx = {'W': W, 'gcm': a.gcm, 'alias': a.alias, 'unit': unit, 'out_dir': out_dir, 'sources': sources,
-           'static_cache': cache, 'clat': clat, 'clon': clon, 'flat': flat, 'flon': flon,
+           'static_cache': cache, 'static_key': static_key, 'clat': clat, 'clon': clon, 'flat': flat, 'flon': flon,
            'attrs': attrs, 'commit': commit}
     jobs = [{'var': v, 'years': years, 'ctx': ctx, 'mask': mask} for v in variables]
     nproc = a.processes or len(jobs)
@@ -689,8 +674,7 @@ def main():
             'inputs': sorted(input_sha),
             'input_sha256': dict(sorted(input_sha.items())),
             'method': method_record(v, rel_paths),
-            'fingerprint': {'code_tree': current['code_tree'], 'method_version': METHOD_VERSION,
-                            'software': current['software'], 'conda_env': os.environ.get('CONDA_DEFAULT_ENV')},
+            'fingerprint': provenance.fingerprint(current['code_tree'], METHOD_VERSION, current['software']),
             'years': f'{yrs[0]}-{yrs[-1]}' if yrs else None,
             'rebuild_command': f'python3 {CREATED_BY} --gcm {a.gcm} --alias {a.alias} --variables {v} '
                                f'--years {yrs[0]}-{yrs[-1]} --parameter-set {a.parameter_set} '
@@ -700,11 +684,13 @@ def main():
             'files': files,
             'qc': {'status': 'not_checked', 'evidence': qc_evidence}}
         if prev:
-            prov['extended'] = (prev.get('extended') or []) + [{'at': created_at, 'code_commit': commit, 'years': years}]
-        tmp = f'{out_dir[v]}/provenance.yaml.part'
-        with open(tmp, 'w') as fh:
-            yaml.safe_dump(prov, fh, sort_keys=False)
-        os.replace(tmp, f'{out_dir[v]}/provenance.yaml')
+            ext = {'at': created_at, 'code_commit': commit, 'years': years}
+            chain = provenance.code_equivalence(prev['fingerprint']['code_tree'], current['code_tree'], CREATED_BY,
+                                                METHOD_VERSION)
+            if chain:   # extended under entries of the code-equivalence record
+                ext['code_equivalence'] = chain
+            prov['extended'] = (prev.get('extended') or []) + [ext]
+        provenance.write(f'{out_dir[v]}/provenance.yaml', prov)
     print(f'done: {len(variables)} variable(s) x {len(years)} year(s) in {time.time() - t0:.0f} s -> {base}')
 
 

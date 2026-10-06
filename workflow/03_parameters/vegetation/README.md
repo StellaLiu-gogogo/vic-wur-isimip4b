@@ -17,6 +17,8 @@ Classification: production workflow code (user, 2026-10-01).
 | `vegetation_component.sbatch` | Slurm template: producer, then verifier, in one job |
 | `submit_vegetation_component.py` | renders and submits the job, job record under `logs/03_parameters/<job-name>_<slurm-job-id>/` |
 
+Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary and verifier exit status, job records) come from `workflow/common/` (see its README); the verifier exits with 0 only for `passed` (1 failed, 3 warning, 4 not_checked).
+
 ## Inputs
 
 - Base bundle `parameters/<status>/<set>/bundle/vic_global_5min_humanimpact_16class_root-b-zeng2001.nc`

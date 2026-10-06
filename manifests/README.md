@@ -2,6 +2,10 @@
 
 Manifests provide machine-readable evidence about accepted data and products. They describe what was actually used, accepted, or delivered; configuration describes what was intended.
 
+## `code-equivalence.yaml`
+
+Records changes of producing code that leave every result unchanged (old and new Git tree hashes of the producer's directory and `workflow/common/`, the test that showed identical data, the user's approval), so that a forcing unit produced before the change can still be extended with more years (`docs/directory-contracts.md`, "Forcing unit and provenance record"). Entries are added in the commit of the change and never edited or removed.
+
 ## `inputs/`
 
 Records authoritative source identity, dataset version, expected coverage, file inventory, sizes, checksums, and verification status for accepted external inputs.

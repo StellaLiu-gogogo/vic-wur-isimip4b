@@ -42,14 +42,15 @@ repository that is not clean, or with --scratch, everything goes to scratch/vege
 
 Usage: build_vegetation.py [--parameter-set ID] [--parameter-status candidates] [--processes 16] [--scratch]
 """
-import argparse, csv, datetime, hashlib, json, os, subprocess, sys, time
+import argparse, csv, hashlib, json, os, sys, time
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
 import numpy as np
 import netCDF4 as nc
-import yaml
 from scipy.spatial import cKDTree
+
+from common import gitstate, hashing, provenance, workdir
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 CREATED_BY = 'workflow/03_parameters/vegetation/build_vegetation.py'
@@ -75,34 +76,9 @@ LEVELS = {1: 'same_cell', 2: 'same_class_within_500km', 3: 'same_class_same_kopp
 
 
 # ---------------------------------------------------------------------------------------------- helpers
-def workdir():
-    return os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
-
-
-def sha256(path, n=1 << 24):
-    h = hashlib.sha256()
-    with open(path, 'rb') as fh:
-        for b in iter(lambda: fh.read(n), b''):
-            h.update(b)
-    return h.hexdigest()
-
-
-def md5(path, n=1 << 24):
-    h = hashlib.md5()
-    with open(path, 'rb') as fh:
-        for b in iter(lambda: fh.read(n), b''):
-            h.update(b)
-    return h.hexdigest()
-
-
 def git_state():
-    commit = subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
-    dirty = bool(subprocess.run(['git', '-C', REPO, 'status', '--porcelain'], capture_output=True, text=True, check=True).stdout.strip())
-    return commit, dirty
-
-
-def utcnow():
-    return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    """(commit, dirty) of the repository (common/gitstate.py)."""
+    return gitstate.state(REPO)
 
 
 def unit_sphere(lat, lon):
@@ -210,7 +186,7 @@ def landuse_units(W, require_accepted):
         u = f'{W}/forcing/landuse/{soc}'; p = f'{u}/provenance.yaml'
         if not os.path.exists(p):
             raise SystemExit(f'missing land-use forcing unit {u}')
-        prov = yaml.safe_load(open(p))
+        prov = provenance.read(p)
         ok = prov.get('code_dirty') is False and (prov.get('qc') or {}).get('status') == 'passed'
         if not ok:
             msg = f'land-use unit {soc} is not accepted (code_dirty {prov.get("code_dirty")}, qc {prov.get("qc")})'
@@ -299,7 +275,7 @@ def main():
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates'])
     ap.add_argument('--processes', type=int, default=16, help='parallel readers of the land-use files')
     ap.add_argument('--scratch', action='store_true', help='test run: write under scratch/vegetation-component/')
-    a = ap.parse_args(); t0 = time.time(); W = workdir()
+    a = ap.parse_args(); t0 = time.time(); W = workdir.root()
     commit, dirty = git_state(); to_scratch = dirty or a.scratch
     pset = f'{W}/parameters/{a.parameter_status}/{a.parameter_set}'
     rel_obj = f'parameters/{a.parameter_status}/{a.parameter_set}/vegetation'
@@ -337,8 +313,8 @@ def main():
     print(f'tiles: base {int(base_tiles.sum())}, added {int(added.sum())}, final {int(tiles.sum())}; '
           f'Koppen on active cells: {int((kg[mask] > 0).sum())} of {int(mask.sum())}', flush=True)
 
-    sha = {'base_bundle': sha256(f_base), 'domain': sha256(f_dom), 'koppen': sha256(f_kg)}
-    created_at = utcnow()
+    sha = {'base_bundle': hashing.sha256(f_base), 'domain': hashing.sha256(f_dom), 'koppen': hashing.sha256(f_kg)}
+    created_at = provenance.utcnow()
     attrs = {'title': 'VIC-WUR 16-class vegetation component with the land-use tile union',
              'created_by': CREATED_BY, 'code_commit': commit, 'code_dirty': str(dirty).lower(), 'created_at': created_at,
              'method_version': METHOD_VERSION, 'parameter_set': f'{a.parameter_status}/{a.parameter_set}',
@@ -428,8 +404,8 @@ def main():
     report['runtime_s'] = round(time.time() - t0)
     json.dump(report, open(f'{qc}/reports/build_report.json', 'w'), indent=1)
 
-    files = [{'path': os.path.basename(p), 'size_bytes': os.path.getsize(p), 'sha256': sha256(p), 'md5': md5(p)}
-             for p in (f_out, f_csv)]
+    files = [{'path': os.path.basename(p), 'size_bytes': os.path.getsize(p), 'sha256': hashing.sha256(p),
+              'md5': hashing.md5(p)} for p in (f_out, f_csv)]
     prov = {'object': rel_obj if not to_scratch else os.path.relpath(out, W), 'created_by': CREATED_BY,
             'code_commit': commit, 'code_dirty': dirty, 'created_at': created_at, 'method_version': METHOD_VERSION,
             'inputs': {'base_bundle': os.path.relpath(f_base, W), 'domain': os.path.relpath(f_dom, W),
@@ -443,9 +419,7 @@ def main():
             'rebuild_command': f'python3 {CREATED_BY} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
                                + (' --scratch' if a.scratch else ''),
             'files': files, 'qc': {'status': 'not_checked', 'evidence': os.path.relpath(qc, W)}}
-    with open(f'{out}/provenance.yaml.part', 'w') as fh:
-        yaml.safe_dump(prov, fh, sort_keys=False)
-    os.replace(f'{out}/provenance.yaml.part', f'{out}/provenance.yaml')
+    provenance.write(f'{out}/provenance.yaml', prov)
     print(f'done in {time.time() - t0:.0f} s -> {out}')
 
 
