@@ -12,6 +12,10 @@ For each run (resolve_campaign.py) the renderer
   4. writes config/resolved.yaml (campaign, segment, run, resources and resolved inputs) and the run manifest
      run_manifest.json with status `rendered`.
 
+Parents come from the whole campaign: a run whose parent segment is a run of the campaign starts from the parent's
+end state. When the parent is not rendered in the same call (--run-id), the parent run must exist and have
+completed with its end state, whose sha256 is recorded; otherwise the renderer stops.
+
 Run directory: runs/<campaign-id>/<run-id>/ with config/, logs/, states/, output/, forcing/ and
 run_manifest.json; with --scratch: scratch/<campaign-id>/<run-id>/ (test renders; never submitted as a
 campaign run). An existing run directory is never rendered again: a retry of the same run reuses its files
@@ -197,6 +201,27 @@ def forcing_plan(W, campaign, run, alias):
     return links, units, mapping
 
 
+def link_record(W, links):
+    """{run-relative link: workdir-relative source} of the forcing view, checked by run_manifest.py verify-inputs."""
+    return {f'forcing/{name}': os.path.relpath(target, W) for name, target in links}
+
+
+def parent_run_state(parent_dir, init_state, run_id):
+    """Identity of the end state of a parent run that is not rendered in this call: its last attempt completed and the
+    state file exists. Returns {run_id, attempt, state_sha256}; stops otherwise."""
+    try:
+        with open(os.path.join(parent_dir, 'run_manifest.json')) as fh:
+            pm = json.load(fh)
+    except FileNotFoundError:
+        pm = {'attempts': []}
+    last = pm['attempts'][-1] if pm['attempts'] else {}
+    if last.get('status') != 'completed' or not os.path.isfile(init_state):
+        raise RenderError(f'{run_id}: its parent run {os.path.basename(parent_dir)} has not completed with the end '
+                          f'state {init_state} (last attempt: {last.get("status", "none")}); render the parent '
+                          'together with this run, or after the parent has completed')
+    return {'run_id': pm['run_id'], 'attempt': last['attempt'], 'state_sha256': file_hash(init_state)}
+
+
 def check_start_year(run, mapping):
     """VIC checks only the start-year file of every forcing: the climate file's first time must not be later
     than the model start, and each plugin file's first time must equal the climate file's first time
@@ -254,6 +279,21 @@ def check_outputs_cover_protocol(campaign, protocol_dir):
 
 
 # ------------------------------------------------------------------------------------------------ text blocks
+OUTPUT_STREAMS = {'daily': 'NDAYS 1', 'monthly': 'NMONTHS 1'}
+HISTORY_FREQUENCY = 'NYEARS 1'
+
+
+def check_output_files(campaign):
+    """The expected outputs (output/daily.<year>-01-01.nc, output/monthly.<year>-01.nc) and the run check
+    (monitor/check_run.py) are written for these streams with one file per stream and calendar year; other output
+    configurations stop the render instead of producing runs whose outputs would never be found."""
+    o = campaign['output']
+    if o['streams'] != OUTPUT_STREAMS or o['history_frequency'] != HISTORY_FREQUENCY:
+        raise RenderError(f'output streams {o["streams"]} with history_frequency {o["history_frequency"]} are not '
+                          f'supported: the expected outputs and monitor/check_run.py know only {OUTPUT_STREAMS} with '
+                          f'{HISTORY_FREQUENCY}')
+
+
 def output_streams(campaign, result_dir):
     o = campaign['output']; agg = o.get('aggregation', {})
     lines = []
@@ -305,10 +345,13 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
                           '(docs/directory-contracts.md, rule 14) or use --scratch')
     protocol_dir = f'{W}/{campaign["protocol"]["path"]}'
     segments, chains = rc.resolve(campaign, protocol_dir)
-    runs = rc.runs(campaign, segments, label)
+    all_runs = rc.runs(campaign, segments, label)
+    runs = all_runs
     if run_id:
         runs = [r for r in runs if r['run_id'] == run_id] or sys.exit(f'no run {run_id} in the campaign')
+    in_campaign = {r['segment_id'] for r in all_runs}; in_call = {r['segment_id'] for r in runs}
     nvars = check_outputs_cover_protocol(campaign, protocol_dir)
+    check_output_files(campaign)
     model = check_build(W, campaign, resources)
     params = parameter_files(W, campaign)
     _, _, aliases = rc.load_protocol(protocol_dir, campaign['protocol']['simulation_round'])
@@ -325,9 +368,12 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         links, units, mapping = forcing_plan(W, campaign, run, alias)
         check_start_year(run, mapping)
         parent = seg['parent']
-        init_state = None
-        if parent and parent in {r['segment_id'] for r in runs} and not campaign.get('restriction'):
+        init_state = None; parent_state = {}
+        if parent and parent in in_campaign and not campaign.get('restriction'):
             init_state = f'{base}/{parent}/states/state.{run["start_year"]:04d}0101_00000.nc'
+            # a parent rendered in this call has no state yet: the job binds it (run_manifest.py verify-inputs)
+            parent_state = {'run_id': parent, 'attempt': None, 'state_sha256': None} if parent in in_call else \
+                parent_run_state(f'{base}/{parent}', init_state, run['run_id'])
         elif campaign['initialisation']['without_parent'] != 'cold_start':
             raise RenderError(f'{run["run_id"]}: parent {parent} is not simulated and the campaign gives no state')
         for sub in ('config', 'logs', 'states', 'output', 'forcing'):
@@ -392,7 +438,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             'segment': seg, 'climate_input_alias': alias, 'dhf_unit': usoc,
             'experiments_using_segment': seg['experiments'],
             'parent': {'segment_id': parent, 'init_state': init_state and os.path.relpath(init_state, W),
-                       'initialisation': 'state of the parent run' if init_state else 'cold_start'},
+                       'initialisation': 'state of the parent run' if init_state else 'cold_start', **parent_state},
             'campaign_file': os.path.relpath(campaign_path, REPO) if os.path.isabs(campaign_path) else campaign_path,
             'campaign_sha256': file_hash(campaign_path), 'campaign': campaign,
             'resources_file': campaign['resources'], 'resources': resources,
@@ -423,6 +469,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             'inputs': {'parameter_set': campaign['parameter_set']['id'], 'parameters': params,
                        'forcing_units': units},
             'forcing_view': {k: {str(y): v for y, v in m.items()} for k, m in mapping.items()},
+            'forcing_links': link_record(W, links),
             'rendered_files': {rel: text_sha256(text) for rel, text in files.items()},
             'expected_outputs': expected,
             'attempts': []}

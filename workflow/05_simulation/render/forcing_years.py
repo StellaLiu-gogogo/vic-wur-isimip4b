@@ -17,7 +17,7 @@ constant and the spin-up climate cycle):
             water-use demand is mm/day of a calendar year (annual volume / days in year).
   cycle     spin-up climate: simulation year Y maps to a + (Y - a) mod L in the declared window [a, b]
             (L = b - a + 1); when that year has a different day count, the next year of the window (cyclic)
-            with the same day count is used.
+            with the same day count is used. A year that maps to itself is recorded as identity.
 
 The mapping of every year is returned as data and recorded in the run manifest.
 """
@@ -51,7 +51,8 @@ def map_identity_or_constant(sim_years, unit_years, constant):
 
 
 def map_cycle(sim_years, window, unit_years):
-    """{sim_year: (source_year, 'cycle')} for spin-up climate over the window [a, b]."""
+    """{sim_year: (source_year, rule)} for spin-up climate over the window [a, b]; the rule is 'identity' when the
+    source year is the simulation year (the file and its time axis are of that year), else 'cycle'."""
     a, b = int(window[0]), int(window[1])
     span = list(range(a, b + 1))
     missing = sorted(set(span) - set(unit_years))
@@ -63,7 +64,7 @@ def map_cycle(sim_years, window, unit_years):
         for k in range(n):
             s = span[(i + k) % n]
             if days(s) == days(y):
-                out[y] = (s, 'cycle'); break
+                out[y] = (s, 'identity' if s == y else 'cycle'); break
         else:
             raise ValueError(f'cycle window {a}-{b} has no {days(y)}-day year for {y}')
     return out

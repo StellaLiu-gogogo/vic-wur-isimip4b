@@ -7,10 +7,13 @@ parameter manifest, forcing files with the sha256 of their unit's provenance.yam
 with its source year and rule). submit_run.py adds one attempt per submission (scheduler job id, time,
 inputs fingerprint). The job itself calls this script twice:
 
-  verify-inputs  before VIC starts: every input file must still have the recorded checksum (parallel);
-                 the attempt records the result and the job stops on a mismatch
+  verify-inputs  before VIC starts: every input file must still have the recorded checksum (parallel), every
+                 link of the forcing view must point to its recorded source file, and the parent state file
+                 (INIT_STATE) must belong to a completed parent run and have the recorded checksum; the attempt
+                 records the result and the job stops on a mismatch
   complete       after VIC ends: scheduler state and exit code, elapsed time, the VIC timing table and
-                 log warnings, the expected outputs and state file present, and the run status
+                 log warnings, the expected outputs and state file present, and the run status; ends with exit
+                 status 1 (common.qc.EXIT_CODES['failed']) when the attempt failed, so the Slurm job fails too
 
 A retry with identical inputs is a new attempt in the same manifest (docs/glossary.md, "Run").
 
@@ -18,8 +21,10 @@ Usage: run_manifest.py verify-inputs --run-dir DIR --job-id ID [--processes 8]
        run_manifest.py complete --run-dir DIR --job-id ID --exit-code N [--reason TEXT]
        run_manifest.py rescan-logs --run-dir DIR --job-id ID
 """
-import argparse, datetime, glob, hashlib, json, os, re, subprocess, sys
+import argparse, contextlib, datetime, fcntl, glob, hashlib, json, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
+
+from common import qc
 
 SCHEMA = 'isimip4b-run-manifest-1'
 NAME = 'run_manifest.json'
@@ -42,13 +47,43 @@ def load(run_dir):
         return json.load(fh)
 
 
+class ManifestConflict(RuntimeError):
+    pass
+
+
+def attempt_ids(manifest):
+    return [(a['attempt'], str(a['slurm_job_id'])) for a in manifest['attempts']]
+
+
 def save(run_dir, manifest):
-    """Write atomically: a crash never leaves a truncated manifest."""
+    """Write atomically: a crash never leaves a truncated manifest. The attempts on disk must be the first attempts
+    of `manifest`: a writer that read the manifest before another one added an attempt is refused, so no recorded
+    attempt is ever lost."""
     path = os.path.join(run_dir, NAME); tmp = path + '.tmp'
+    if os.path.exists(path):
+        on_disk = attempt_ids(load(run_dir))
+        if attempt_ids(manifest)[:len(on_disk)] != on_disk:
+            raise ManifestConflict(f'{path} has attempts {on_disk} that this write would drop or replace '
+                                   f'({attempt_ids(manifest)}); another process changed the run')
     with open(tmp, 'w') as fh:
         json.dump(manifest, fh, indent=1, sort_keys=False)
         fh.write('\n'); fh.flush(); os.fsync(fh.fileno())
     os.replace(tmp, path)
+
+
+@contextlib.contextmanager
+def run_lock(run_dir):
+    """Hold the lock of a run directory (flock on the directory itself, so the run layout gets no extra file) for
+    one submission: check, submit, record and release. A second submission of the same run stops at once."""
+    fd = os.open(run_dir, os.O_RDONLY)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit(f'{run_dir}: another submission of this run is in progress')
+        yield
+    finally:
+        os.close(fd)
 
 
 JOB_FILE = 'config/job.sbatch'
@@ -61,6 +96,8 @@ def inputs_fingerprint(manifest):
     keys = {'executable_sha256': manifest['model']['executable_sha256'],
             'inputs': manifest['inputs'], 'forcing_view': manifest['forcing_view'],
             'rendered': {k: v for k, v in manifest['rendered_files'].items() if k != JOB_FILE}}
+    if (manifest.get('parent') or {}).get('init_state'):   # parent state: path, run, attempt and sha256 when known
+        keys['parent'] = manifest['parent']
     return hashlib.sha256(json.dumps(keys, sort_keys=True).encode()).hexdigest()
 
 
@@ -73,7 +110,8 @@ def attempt(manifest, job_id):
 
 # ------------------------------------------------------------------------------------------- verify-inputs
 def checks(manifest, workdir):
-    """(workdir path, algorithm, expected) of every input file."""
+    """(workdir path, algorithm, expected) of every input file; the parent state file when its sha256 was recorded
+    at rendering (a parent rendered in the same call is bound by parent_state())."""
     out = []
     for p in manifest['inputs']['parameters'].values():
         out.append((p['path'], 'md5', p['md5']))
@@ -81,7 +119,44 @@ def checks(manifest, workdir):
         for f in u['files'].values():
             out.append((f['path'], 'sha256', f['sha256']))
     out.append((manifest['model']['executable'], 'sha256', manifest['model']['executable_sha256']))
+    parent = manifest['parent']
+    if parent.get('init_state') and parent.get('state_sha256'):
+        out.append((parent['init_state'], 'sha256', parent['state_sha256']))
     return out
+
+
+def link_mismatches(manifest, run_dir, workdir):
+    """Links of the forcing view (forcing_links: run-relative link -> workdir-relative source, recorded at rendering;
+    absent in manifests rendered before 2026-10-07) that are missing or do not point to their source file. VIC opens
+    the links, not the unit files."""
+    bad = []
+    for link, source in (manifest.get('forcing_links') or {}).items():
+        p = os.path.join(run_dir, link)
+        if not os.path.islink(p) or os.path.realpath(p) != os.path.realpath(os.path.join(workdir, source)):
+            bad.append(link)
+    return bad
+
+
+def parent_state(manifest, workdir):
+    """Parent state of a run whose parent was rendered in the same call: the parent run's last attempt must have
+    completed and its state file exist; returns (record, problem). Earlier attempts of this run that recorded a
+    parent state fix its sha256, so a retry starts from the same state."""
+    parent = manifest['parent']
+    if not parent.get('init_state') or parent.get('state_sha256'):
+        return None, None
+    path = os.path.join(workdir, parent['init_state'])
+    prd = os.path.dirname(os.path.dirname(path))
+    pm = load(prd) if os.path.exists(os.path.join(prd, NAME)) else {'attempts': []}
+    last = pm['attempts'][-1] if pm['attempts'] else {}
+    if last.get('status') != 'completed' or not os.path.isfile(path):
+        return None, parent['init_state']
+    rec = {'run_id': pm.get('run_id'), 'attempt': last['attempt'], 'path': parent['init_state'],
+           'sha256': file_hash(path, 'sha256')}
+    for a in manifest['attempts']:
+        b = (a.get('input_verification') or {}).get('parent_state')
+        if b and b['sha256'] != rec['sha256']:
+            return rec, parent['init_state']
+    return rec, None
 
 
 def verify_inputs(run_dir, job_id, workdir, processes):
@@ -90,14 +165,19 @@ def verify_inputs(run_dir, job_id, workdir, processes):
 
     def one(item):
         rel, algo, want = item
-        got = file_hash(os.path.join(workdir, rel), algo)
+        p = os.path.join(workdir, rel)
+        got = file_hash(p, algo) if os.path.isfile(p) else None
         return rel, got == want
     t0 = datetime.datetime.now()
     with ThreadPoolExecutor(processes) as ex:
         res = list(ex.map(one, todo))
-    bad = [rel for rel, ok in res if not ok]
+    bad = [rel for rel, ok in res if not ok] + link_mismatches(m, run_dir, workdir)
+    pstate, problem = parent_state(m, workdir)
+    bad += [problem] if problem else []
     a['input_verification'] = {'files': len(res), 'mismatches': bad, 'passed': not bad, 'checked_at': utcnow(),
                                'seconds': round((datetime.datetime.now() - t0).total_seconds(), 1)}
+    if pstate:
+        a['input_verification']['parent_state'] = pstate
     if bad:
         a['status'] = 'failed'; a['failure_reason'] = 'input checksum mismatch'
     else:
@@ -207,6 +287,8 @@ def complete(run_dir, job_id, exit_code, workdir, reason=None):
     m['status'] = a['status']
     save(run_dir, m)
     print(f'run {m["run_id"]} attempt {a["attempt"]}: {a["status"]}')
+    if not ok:
+        qc.exit_with('failed')
 
 
 def rescan_logs(run_dir, job_id):

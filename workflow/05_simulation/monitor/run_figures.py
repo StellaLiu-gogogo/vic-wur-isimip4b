@@ -45,6 +45,12 @@ def draw_map(path, field, mask, title, units, vmin, vmax, cmap='viridis', log=Fa
     fig.savefig(path, dpi=110, bbox_inches='tight'); plt.close(fig)
 
 
+def kept_missing(a, mask):
+    """Zero for missing values off the active cells; on active cells a missing value stays missing (NaN), so that it is
+    never reported as zero withdrawal or demand (the run check fails it, check_run.py budget)."""
+    return np.where(mask, a, np.nan_to_num(a))
+
+
 def water_use(year, monthly, mask, area, lat, lon, cons_frac, out_nc, figs, provenance):
     """Write the derived file; return global monthly series and annual maps for the figures."""
     nm = len(monthly.dimensions['time']); ny, nx = mask.shape
@@ -74,7 +80,7 @@ def water_use(year, monthly, mask, area, lat, lon, cons_frac, out_nc, figs, prov
             src = {k: read(monthly, v, m) for k, v in SOURCES.items()}
             de = read(monthly, 'OUT_DE_GW_SECT', m) + read(monthly, 'OUT_DE_SURF_SECT', m)
             for k, (sec, i) in enumerate(SECTORS.items()):
-                parts = {s_: np.nan_to_num(src[s_][i]) for s_ in SOURCES}
+                parts = {s_: kept_missing(src[s_][i], mask) for s_ in SOURCES}
                 ww = sum(parts.values())
                 for s_, a in parts.items():
                     var[f'withdrawal_{s_}'][m, k] = np.where(mask, a, 1e20).astype('f4')
@@ -84,7 +90,7 @@ def water_use(year, monthly, mask, area, lat, lon, cons_frac, out_nc, figs, prov
                 annual[sec]['withdrawal'] += ww
                 annual[sec]['remote'] += parts['remote']; annual[sec]['groundwater'] += parts['groundwater']
                 if sec in cons_frac:
-                    d = np.nan_to_num(de[i]); c = ww * np.nan_to_num(cons_frac[sec])
+                    d = kept_missing(de[i], mask); c = ww * np.nan_to_num(cons_frac[sec])
                     var['demand'][m, k] = np.where(mask, d, 1e20).astype('f4')
                     var['consumption_estimate'][m, k] = np.where(mask, c, 1e20).astype('f4')
                     series[sec]['demand'][m] = km3(d, area); series[sec]['consumption_estimate'][m] = km3(c, area)

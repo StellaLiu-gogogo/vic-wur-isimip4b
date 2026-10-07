@@ -17,7 +17,8 @@ Checks per calendar year
   budget          per cell and month: withdrawn <= demand, consumed <= withdrawn,
                   GW + SURF + DAM + TREM + NREN (all sectors) = OUT_WITHDRAWN (the GWM FALSE definition in
                   plugins/wateruse/src/wu_output.c), and the variant GW + SURF + REM + DAM (informative);
-                  tolerance 1e-4 mm plus 1e-5 relative (float32 output)
+                  tolerance 1e-4 mm plus 1e-5 relative (float32 output); every monthly water-use variable it
+                  reads must have a value on every active cell and month (any sector): a missing value fails it
   state           the end-state file exists
 GRDC comparison (whole run)
   The run is driven by GCM climate, so its days and months do not correspond to observed weather: the main
@@ -88,9 +89,13 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
     tot = {k: np.zeros(mask.shape) for k in ('OUT_WITHDRAWN', 'OUT_DEMAND', 'OUT_CONSUMED', 'OUT_RETURNED')}
     irr = {k: np.zeros(nm) for k in ('received', 'requirement', 'applied')}
     viol = {'withdrawn_gt_demand': 0, 'consumed_gt_withdrawn': 0, 'sum_ne_withdrawn': 0, 'sum_with_rem_ne_withdrawn': 0}
-    worst = {k: 0.0 for k in viol}; wb_err = 0.0
+    worst = {k: 0.0 for k in viol}; wb_err = 0.0; missing = {}
     for t in range(nm):
         m = {k: read(monthly, k, t) for k in list(sect) + list(tot) + ['OUT_WI_REM_SECT']}
+        for k, a in m.items():               # active cells without a value (in any sector): counted before use
+            n = int(((~np.isfinite(a)).any(axis=0) & mask).sum() if a.ndim == 3 else (~np.isfinite(a) & mask).sum())
+            if n:
+                missing[k] = missing.get(k, 0) + n
         for k in sect:
             sect[k] += np.nan_to_num(m[k])
         for k in tot:
@@ -109,8 +114,9 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
         wb_err = max(wb_err, float(np.nanmax(np.abs(read(monthly, 'OUT_WATER_ERROR', t))[mask], initial=0)))
     out['budget'] = {'cell_months_checked': int(mask.sum()) * nm, 'violations': viol, 'largest_excess_mm': worst,
                      'tolerance': f'{ABS_TOL} mm + {REL_TOL} x value',
-                     'status': 'passed' if all(viol[k] == 0 for k in ('withdrawn_gt_demand', 'consumed_gt_withdrawn',
-                                                                      'sum_ne_withdrawn')) else 'failed',
+                     'missing_values': missing,
+                     'status': 'passed' if not missing and all(viol[k] == 0 for k in (
+                         'withdrawn_gt_demand', 'consumed_gt_withdrawn', 'sum_ne_withdrawn')) else 'failed',
                      'note': 'sum_with_rem_ne_withdrawn is informative: under GWM FALSE OUT_WITHDRAWN counts water '
                              'taken from other cells for this cell (TREM), not water this cell gave away (REM)'}
     wi = sum(sect[k] for k in WI); de = sect['OUT_DE_GW_SECT'] + sect['OUT_DE_SURF_SECT']

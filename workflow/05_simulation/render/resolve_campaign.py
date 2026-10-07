@@ -161,8 +161,22 @@ def select_experiments(campaign, experiments):
     return [e for e in chosen if e['specifier'] not in excluded], excluded, pool
 
 
+def check_protocol_commit(campaign, protocol_dir):
+    """The protocol snapshot records its commit in COMMIT (raw/external/isimip-protocol-4/<commit>/COMMIT); it must
+    be the commit the campaign pins, so that segments and years come from the protocol version the run records."""
+    want = campaign['protocol']['commit']
+    try:
+        with open(os.path.join(protocol_dir, 'COMMIT')) as fh:
+            have = fh.read().strip()
+    except FileNotFoundError:
+        raise CampaignError(f'{protocol_dir} has no COMMIT file; cannot confirm protocol commit {want}')
+    if have != want:
+        raise CampaignError(f'protocol snapshot {protocol_dir} is commit {have}, the campaign pins {want}')
+
+
 def resolve(campaign, protocol_dir):
     """All segments of the campaign per GCM (dict id -> Segment, dependency order) and the experiment chains."""
+    check_protocol_commit(campaign, protocol_dir)
     rnd = campaign['protocol']['simulation_round']
     experiments, years, _ = load_protocol(protocol_dir, rnd)
     chosen, _, pool = select_experiments(campaign, experiments)

@@ -52,5 +52,9 @@ if [ $rc -eq 0 ]; then
 fi
 
 $MANIFEST complete --run-dir "$RUN_DIR" --job-id "$SLURM_JOB_ID" --exit-code $rc
+crc=$?
 echo "end $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-exit $rc
+# the job fails when VIC failed or when the completion step failed or recorded the attempt as failed (missing
+# outputs or state), so that jobs waiting with afterok do not start
+if [ $rc -ne 0 ]; then exit $rc; fi
+exit $crc

@@ -6,7 +6,8 @@ The protocol-coverage test reads the pinned protocol from $ISIMIP4B_WORKDIR and 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
-import os, sys, tempfile, unittest
+import json, os, shutil, sys, tempfile, unittest
+from unittest import mock
 
 import yaml
 
@@ -195,6 +196,160 @@ class ManifestTest(unittest.TestCase):
         m = {'model': {'executable_sha256': 'a'}, 'inputs': {'x': 1}, 'forcing_view': {}, 'rendered_files': {}}
         f1 = rm.inputs_fingerprint(m); m['inputs']['x'] = 2
         self.assertNotEqual(f1, rm.inputs_fingerprint(m))
+
+
+
+# ------------------------------------------------------------------------------------------------ render harness
+def segment(climate, soc, period, years, parent):
+    import resolve_campaign as rc
+    return rc.Segment(G, climate, soc, 'default', period, years[0], years[1], parent=parent)
+
+
+HIST = f'{G}_historical_histsoc_default_historical'
+FUT = f'{G}_ssp370_ssp3hsoc-noadapt_default_future'
+PRE = f'{G}_picontrol_1850soc_default_pre-industrial'
+
+
+class RenderHarness(unittest.TestCase):
+    """render() on a temporary workdir with the build, parameter, protocol and forcing steps replaced by fixed
+    results: the parts under test are the parent and output decisions and the run manifest."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.W = self.tmp.name
+        self.campaign = smoke(); self.campaign.pop('restriction')         # an unrestricted campaign
+        self.segments = {HIST: segment('historical', 'histsoc', 'historical', (1850, 2021), PRE),
+                         FUT: segment('ssp370', 'ssp3hsoc-noadapt', 'future', (2022, 2100), HIST)}
+        params = {k: {'path': f'parameters/{k}.nc'} for k in ('domain', 'parameters', 'routing', 'decomposition',
+                                                              'irrigation', 'dams', 'water_use')}
+        model = {'commit': 'm' * 40, 'freeze_status': 'provisional', 'build': 'builds/vic/m', 'build_status': 'built',
+                 'executable': 'builds/vic/m/vic.exe', 'executable_sha256': 'e' * 64, 'runtime_modules': []}
+        aliases = {'historical': ['historical', 'esm-hist'], 'ssp370': ['ssp370', 'esm-ssp370']}
+        rc = rr.rc
+        self.patches = [
+            mock.patch.object(rc, 'load_campaign', side_effect=lambda p: self.campaign),
+            mock.patch.object(rc, 'resolve', side_effect=lambda c, p: (self.segments, {})),
+            mock.patch.object(rc, 'load_protocol', return_value=(None, None, aliases)),
+            mock.patch.object(rr, 'git_state', return_value=('c' * 40, False)),
+            mock.patch.object(rr, 'check_outputs_cover_protocol', return_value=105),
+            mock.patch.object(rr, 'check_build', return_value=model),
+            mock.patch.object(rr, 'parameter_files', return_value=params),
+            mock.patch.object(rr, 'decomposition_groups', return_value={'groups': 128, 'largest_group_cells': 10,
+                                                                        'smallest_group_cells': 1, 'active_cells': 100}),
+            mock.patch.object(rr, 'forcing_plan', return_value=([], {}, {})),
+            mock.patch.object(rr, 'render_job', return_value=('job\n', 5))]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.tmp.cleanup()
+
+    def render(self, run_id=None):
+        return rr.render(SMOKE, None, run_id, scratch=False, W=self.W)
+
+    def manifest(self, run_id):
+        with open(os.path.join(self.W, 'runs', 'smoke', run_id, 'run_manifest.json')) as fh:
+            return json.load(fh)
+
+    def completed_parent(self, status='completed', state=True):
+        """A rendered parent run HIST with one attempt of the given status and, optionally, its end state."""
+        prd = os.path.join(self.W, 'runs', 'smoke', HIST)
+        os.makedirs(os.path.join(prd, 'states'))
+        with open(os.path.join(prd, 'run_manifest.json'), 'w') as fh:
+            json.dump({'run_id': HIST, 'status': status, 'attempts': [{'attempt': 1, 'status': status}]}, fh)
+        path = os.path.join(prd, 'states', 'state.20220101_00000.nc')
+        if state:
+            with open(path, 'w') as fh:
+                fh.write('end state of the parent')
+        return path
+
+
+class ParentStateTest(RenderHarness):
+    """Finding 2: --run-id selects which run is rendered, not where it starts from."""
+
+    def test_child_alone_without_parent_run_stops(self):
+        with self.assertRaises(rr.RenderError):
+            self.render(FUT)
+        self.assertFalse(os.path.exists(os.path.join(self.W, 'runs', 'smoke', FUT)))
+
+    def test_child_alone_with_unfinished_parent_stops(self):
+        self.completed_parent(status='failed')
+        with self.assertRaises(rr.RenderError):
+            self.render(FUT)
+        shutil.rmtree(os.path.join(self.W, 'runs', 'smoke', HIST))
+        self.completed_parent(state=False)
+        with self.assertRaises(rr.RenderError):
+            self.render(FUT)
+
+    def test_child_alone_uses_completed_parent(self):
+        state = self.completed_parent()
+        self.render(FUT)
+        p = self.manifest(FUT)['parent']
+        self.assertEqual(p['init_state'], os.path.relpath(state, self.W))
+        self.assertEqual((p['run_id'], p['attempt'], p['state_sha256']), (HIST, 1, rr.file_hash(state)))
+        with open(os.path.join(self.W, 'runs', 'smoke', FUT, 'config', 'vic_global.txt')) as fh:
+            self.assertIn(f'INIT_STATE              {state}', fh.read())
+
+    def test_parent_and_child_together(self):
+        self.render()
+        self.assertEqual(self.manifest(HIST)['parent']['initialisation'], 'cold_start')   # PRE not in the campaign
+        p = self.manifest(FUT)['parent']
+        self.assertEqual(p['init_state'], f'runs/smoke/{HIST}/states/state.20220101_00000.nc')
+        self.assertEqual((p['run_id'], p['attempt'], p['state_sha256']), (HIST, None, None))
+
+    def test_cold_start_record_unchanged(self):
+        self.render(HIST)
+        self.assertEqual(self.manifest(HIST)['parent'], {'segment_id': PRE, 'init_state': None,
+                                                          'initialisation': 'cold_start'})
+
+
+class OutputFilesTest(RenderHarness):
+    """Finding 9: the expected outputs and the run check know only the daily and monthly yearly files."""
+
+    def test_other_streams_stop(self):
+        self.campaign['output']['streams'] = {'annual': 'NYEARS 1'}
+        with self.assertRaises(rr.RenderError):
+            self.render(HIST)
+        self.assertFalse(os.path.exists(os.path.join(self.W, 'runs', 'smoke', HIST)))
+
+    def test_other_history_frequency_stops(self):
+        self.campaign['output']['history_frequency'] = 'NMONTHS 1'
+        with self.assertRaises(rr.RenderError):
+            self.render(HIST)
+
+    def test_smoke_streams_render(self):
+        self.render(HIST)
+        exp = self.manifest(HIST)['expected_outputs']
+        self.assertEqual(exp[:2], ['output/daily.1850-01-01.nc', 'output/monthly.1850-01.nc'])
+        self.assertEqual(exp[-1], 'states/state.20220101_00000.nc')
+
+
+class ForcingLinksTest(ForcingPlanTest):
+    """Finding 5: the run manifest records every link of the forcing view with its source, for verify-inputs."""
+
+    def test_links_recorded(self):
+        links, _, _ = rr.forcing_plan(self.W, smoke(), self.run, 'esm-hist')
+        rec = rr.link_record(self.W, links)
+        self.assertEqual(rec['forcing/landuse/coverage_histsoc_2016.nc'], 'forcing/landuse/histsoc/coverage_histsoc_2016.nc')
+        self.assertEqual(len(rec), len(links))
+
+
+class SpinupStartTest(unittest.TestCase):
+    """Finding 6: a spin-up whose first year maps to the same year of the climate unit can start."""
+
+    def test_first_year_same_source(self):
+        import forcing_years as fy
+        m = fy.map_cycle([1849, 1850], (1840, 1849), range(1840, 1850))
+        self.assertEqual(m[1849], (1849, 'identity'))
+        self.assertEqual(m[1850], (1841, 'cycle'))                          # 1840 is a leap year
+        rr.check_start_year({'run_id': 's', 'start_year': 1849}, {'climate/tair': {1849: {'rule': m[1849][1]}}})
+
+    def test_first_year_other_source_still_stops(self):
+        import forcing_years as fy
+        m = fy.map_cycle([1850], (1840, 1849), range(1840, 1850))
+        with self.assertRaises(rr.RenderError):
+            rr.check_start_year({'run_id': 's', 'start_year': 1850}, {'climate/tair': {1850: {'rule': m[1850][1]}}})
 
 
 if __name__ == '__main__':

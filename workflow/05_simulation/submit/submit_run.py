@@ -5,7 +5,8 @@ in the run manifest, then release the job.
   new runs   render_run.py renders runs/<campaign-id>/<run-id>/ (an existing directory stops it), then each
              run's config/job.sbatch is submitted with --hold; the attempt (scheduler job id, time, inputs
              fingerprint) is written to run_manifest.json before the job is released, so the job always finds
-             its attempt. A run whose parent run is submitted in the same call waits for it (afterok).
+             its attempt; the run directory is locked from the check to the release, so a second submission of
+             the same run stops. A run whose parent run is submitted in the same call waits for it (afterok).
   --retry    resubmit an existing run directory whose last attempt did not complete: the rendered files must
              be unchanged (sha256 recorded at rendering) and the inputs fingerprint equal, so the retry is a new
              attempt of the same run (docs/glossary.md, "Run"). Nothing is rendered again, except with
@@ -40,27 +41,32 @@ def utcnow():
 
 
 def submit(run_dir, dependency=None):
-    m = rm.load(run_dir)
-    if any(a['status'] in ('submitted', 'running') for a in m['attempts']):
-        raise SystemExit(f'{run_dir}: an attempt is still submitted or running')
-    for rel, digest in m['rendered_files'].items():
-        with open(os.path.join(run_dir, rel)) as fh:
-            if hashlib.sha256(fh.read().encode()).hexdigest() != digest:
-                raise SystemExit(f'{run_dir}/{rel} differs from the rendered file; a changed run needs a new render')
-    if rm.inputs_fingerprint(m) != m['inputs_fingerprint']:
-        raise SystemExit(f'{run_dir}: inputs fingerprint changed; a retry must have identical inputs')
-    cmd = ['sbatch', '--parsable', '--hold'] + ([f'--dependency=afterok:{dependency}'] if dependency else [])
-    r = subprocess.run(cmd + [os.path.join(run_dir, 'config', 'job.sbatch')], capture_output=True, text=True)
-    if r.returncode != 0:
-        raise SystemExit(f'sbatch failed: {r.stderr}')
-    job_id = r.stdout.strip().split(';')[0]
-    commit, dirty = rr.git_state()
-    m['attempts'].append({'attempt': len(m['attempts']) + 1, 'slurm_job_id': int(job_id), 'submitted_at': utcnow(),
-                          'submitted_by_commit': commit, 'code_dirty': dirty, 'dependency': dependency,
-                          'inputs_fingerprint': m['inputs_fingerprint'], 'status': 'submitted'})
-    m['status'] = 'submitted'
-    rm.save(run_dir, m)
-    subprocess.run(['scontrol', 'release', job_id], check=True)
+    with rm.run_lock(run_dir):          # one submission of a run at a time: check, submit, record, release
+        m = rm.load(run_dir)
+        if any(a['status'] in ('submitted', 'running') for a in m['attempts']):
+            raise SystemExit(f'{run_dir}: an attempt is still submitted or running')
+        for rel, digest in m['rendered_files'].items():
+            with open(os.path.join(run_dir, rel)) as fh:
+                if hashlib.sha256(fh.read().encode()).hexdigest() != digest:
+                    raise SystemExit(f'{run_dir}/{rel} differs from the rendered file; a changed run needs a new render')
+        if rm.inputs_fingerprint(m) != m['inputs_fingerprint']:
+            raise SystemExit(f'{run_dir}: inputs fingerprint changed; a retry must have identical inputs')
+        cmd = ['sbatch', '--parsable', '--hold'] + ([f'--dependency=afterok:{dependency}'] if dependency else [])
+        r = subprocess.run(cmd + [os.path.join(run_dir, 'config', 'job.sbatch')], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(f'sbatch failed: {r.stderr}')
+        job_id = r.stdout.strip().split(';')[0]
+        commit, dirty = rr.git_state()
+        m['attempts'].append({'attempt': len(m['attempts']) + 1, 'slurm_job_id': int(job_id), 'submitted_at': utcnow(),
+                              'submitted_by_commit': commit, 'code_dirty': dirty, 'dependency': dependency,
+                              'inputs_fingerprint': m['inputs_fingerprint'], 'status': 'submitted'})
+        m['status'] = 'submitted'
+        try:
+            rm.save(run_dir, m)
+        except rm.ManifestConflict as e:   # the held job is never released without its attempt
+            subprocess.run(['scancel', job_id])
+            raise SystemExit(f'{e}; job {job_id} cancelled')
+        subprocess.run(['scontrol', 'release', job_id], check=True)
     print(f'submitted {m["run_id"]} as job {job_id} (attempt {len(m["attempts"])})')
     return job_id
 

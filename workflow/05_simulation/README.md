@@ -64,10 +64,10 @@ declares plugin switches, initialisation, DHF forcing units, spin-up and output;
 | `forcing_years.py` | year mapping rules and the forcing view of symbolic links |
 | `render_run.py` | checks build, parameters and forcing units; renders the run directory |
 | `../templates/vic/global_param.txt` | VIC global-parameter template (physics and options checked against the source of the locked commit) |
-| `../templates/slurm/vic_run.sbatch` | Slurm template: input checksums, VIC, manifest completion |
+| `../templates/slurm/vic_run.sbatch` | Slurm template: input checksums, VIC, manifest completion; the job fails when VIC or the completion fails |
 
 **Segments.** `resolve_campaign.py` reads `definitions/experiments/ISIMIP4b.yaml` and `period.yaml` of the
-protocol commit the campaign pins, keeps the experiments of the campaign's sector and selection, and
+protocol commit the campaign pins (the snapshot's `COMMIT` file must equal `protocol.commit`), keeps the experiments of the campaign's sector and selection, and
 derives per GCM the segments `<gcm>_<climate>_<soc>_<sens>_<period>`: an explicit period entry defines a
 segment; "Identical to the similar **c/s[/sens]** run above" refers to the segment with that composition
 in the same period (it must be defined explicitly by some experiment); "Does not have to be simulated,
@@ -97,7 +97,7 @@ accepted units; units are never modified or copied. Rules (`forcing_years.py`):
 |---|---|---|
 | identity | the unit has the year | the same year |
 | constant | the DHF scenario is listed in the campaign's `dhf_forcing.constant` (`1850soc`, `2021soc`) and the unit lacks the year | the first year of the unit with the same number of days (365/366): VIC reads daily records within the year and the water-use demand is mm/day of its calendar year |
-| cycle | spin-up climate | `a + (Y − a) mod L` in the campaign's window `[a, b]`; when the day count differs, the next year of the window with the same count |
+| cycle | spin-up climate | `a + (Y − a) mod L` in the campaign's window `[a, b]`; when the day count differs, the next year of the window with the same count (a year that maps to itself is recorded as identity) |
 
 `2021soc-from-histsoc` uses the `2021soc` unit (`dhf_forcing.units`). The mapping of every simulation year
 (source file, rule) is in the run manifest (`forcing_view`).
@@ -117,10 +117,20 @@ submitted): `config/` (`vic_global.txt`, `vic_constants.txt` with the dam consta
 (the view), `logs/`, `states/`, `output/`, `run_manifest.json`. An existing run directory is never
 rendered again; renders of campaign runs need a clean repository.
 
+**Initial state.** Parent relations come from the whole campaign, whatever `--run-id` selects. A run whose
+parent segment is a run of the campaign (and the campaign has no `restriction`) starts from the parent's end
+state (`INIT_STATE`): when the parent is rendered in the same call, the job checks before VIC starts that the
+parent run completed and records the state's sha256 in the attempt; when the run is rendered alone, the parent
+run must already have completed with its end state, whose run, attempt and sha256 are recorded in
+`parent`, else the renderer stops. A run whose parent is not a run of the campaign follows
+`initialisation.without_parent`.
+
 **Checks before rendering.** Model commit of the campaign = `model/vic.lock.yaml` = build manifest; build
 status `built` or `tested`; resources modules = `runtime_modules` of the build; every parameter file in the
 parameter manifest; every forcing unit accepted (`code_dirty: false`, `qc.status: passed`); the campaign's
-output selection covers every protocol variable of the sector (mapped or listed as not provided); MPI tasks
+output selection covers every protocol variable of the sector (mapped or listed as not provided); the output
+streams are `daily` (`NDAYS 1`) and `monthly` (`NMONTHS 1`) with `history_frequency: NYEARS 1`, the only
+files the expected outputs and `check_run.py` know (other stream configurations stop the render); MPI tasks
 ≤ decomposition groups (VIC gives whole groups to ranks, largest first, `rout_decomposition.c`; extra ranks
 stay empty, and with the 128-group file more than about 6 ranks shorten nothing, so the cores go to OpenMP
 threads).
@@ -129,8 +139,8 @@ threads).
 
 | File | Role |
 |---|---|
-| `submit_run.py` | renders the runs of a campaign (label) and submits each job on hold, records the attempt, releases it; a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files` |
-| `run_manifest.py` | `verify-inputs` (job step before VIC: checksums of parameters, forcing files and executable) and `complete` (job step after VIC, also on failure) |
+| `submit_run.py` | renders the runs of a campaign (label) and submits each job on hold, records the attempt, releases it (the run directory is locked meanwhile, so a second submission of the same run stops, and a manifest write never drops a recorded attempt); a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files` |
+| `run_manifest.py` | `verify-inputs` (job step before VIC: checksums of parameters, forcing files, executable and parent state file; every forcing-view link points to its recorded source) and `complete` (job step after VIC, also on failure; exit status 1 when the attempt failed) |
 
 ```bash
 conda activate isimip4b
@@ -153,7 +163,7 @@ VIC starts.
 
 | File | Role |
 |---|---|
-| `check_run.py` | checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR`), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE), end state; GRDC comparison for the whole run |
+| `check_run.py` | checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR`), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), end state; GRDC comparison for the whole run |
 | `run_figures.py` | the derived file `reports/water_use_by_sector_<year>.nc` (monthly withdrawal per sector municipal, manufacturing, irrigation and its sources groundwater, surface, dam, remote, nonrenewable; VIC demand and estimated consumption for municipal and manufacturing; VIC-WUR writes the sources per sector but no sector total) and the figures of water use by sector and source, source shares, sector maps, distributions of withdrawal/demand and of remote and groundwater shares, and the water balance |
 | `grdc.py` | GRDC daily export (`raw/external/grdc/export-2024-11`, `manifests/inputs/grdc.yaml`): station files, upstream area along the routing network, station-to-cell mapping (closest upstream area within 3 cells, area error ≤ 30 %), monthly means (≥ 20 valid days) and climatology (≥ 5 years per month) |
 | `check_run.sbatch`, `submit_check.py` | Slurm job of the check (one core, about 7 min and 13 GB for one year), job record under `logs/05_simulation/<job-name>_<slurm-job-id>/`; `submit_run.py` submits it after every run job, to start when the run has succeeded |
@@ -171,19 +181,21 @@ catchment of at least 10 000 km2; daily series of the same dates are drawn for v
 |---|---|
 | `campaign_id`, `run_id`, `segment_id`, `label`, `production`, `run_dir`, `period` | identity |
 | `status` | `rendered`, `submitted`, `running`, `completed` or `failed` (of the last attempt) |
-| `parent` | parent segment, `init_state` (workdir path) or `cold_start` |
+| `parent` | parent segment, `init_state` (workdir path) or `cold_start`; with a state: parent `run_id`, its completed `attempt` and the state's `state_sha256` (null when the parent was rendered in the same call; the attempt's `input_verification.parent_state` then records them) |
 | `workflow` | rendering commit, `code_dirty`, script, time |
 | `campaign_config` | campaign file and its sha256 |
 | `model` | commit, freeze status, build directory and status, executable and its sha256, runtime modules |
 | `inputs` | parameter set; parameter files with md5 (parameter manifest); forcing units with `code_commit`, `created_at`, `qc_status` and every file read with its sha256 (unit provenance) |
 | `forcing_view` | per series and simulation year: source file and rule |
+| `forcing_links` | every link of the forcing view (run-relative) with its source file (workdir-relative), checked by `verify-inputs` (runs rendered from 2026-10-07) |
 | `rendered_files` | sha256 of `vic_global.txt`, `vic_constants.txt`, `job.sbatch`, `resolved.yaml` |
-| `inputs_fingerprint` | sha256 over executable, inputs, forcing view and rendered model files (not the Slurm job file) |
+| `inputs_fingerprint` | sha256 over executable, inputs, forcing view, rendered model files (not the Slurm job file) and, for a run with an initial state, `parent` |
 | `job_files` | earlier Slurm job files of the run kept by `--rerender-job`, with sha256, time, commit and resources |
 | `expected_outputs` | output files per year and the end state |
-| `attempts[]` | `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches), `started_at`, `ended_at`, `vic_exit_code`, `scheduler` (sacct rows: state, exit code, elapsed, MaxRSS, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `status`, `failure_reason` |
+| `attempts[]` | `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches, `parent_state`), `started_at`, `ended_at`, `vic_exit_code`, `scheduler` (sacct rows: state, exit code, elapsed, MaxRSS, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `status`, `failure_reason` |
 
-Tests: `tests/unit/test_simulation_resolve.py`, `tests/unit/test_simulation_render.py`.
+Tests: `tests/unit/test_simulation_resolve.py`, `tests/unit/test_simulation_render.py`,
+`tests/unit/test_simulation_submit.py`, `tests/unit/test_run_check_water_use.py`.
 
 ## Allowed content
 

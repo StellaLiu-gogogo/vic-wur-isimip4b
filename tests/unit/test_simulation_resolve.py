@@ -239,5 +239,32 @@ class YearMappingTest(unittest.TestCase):
             self.assertFalse(os.path.lexists(os.path.join(view, 'landuse', 'coverage_1850soc_1605.nc')))
 
 
+
+@unittest.skipUnless(os.path.isdir(PROTOCOL), 'pinned protocol not available ($ISIMIP4B_WORKDIR)')
+class ProtocolCommitTest(unittest.TestCase):
+    """Finding 10: the snapshot's COMMIT file must name the commit the campaign pins."""
+
+    def snapshot(self, d, commit):
+        os.symlink(os.path.join(PROTOCOL, 'definitions'), os.path.join(d, 'definitions'))
+        if commit is not None:
+            with open(os.path.join(d, 'COMMIT'), 'w') as fh:
+                fh.write(commit + '\n')
+        return d
+
+    def test_pinned_snapshot_resolves(self):
+        segs, _ = rc.resolve(campaign(), PROTOCOL)
+        self.assertEqual(len(segs), len(EXPECTED))
+
+    def test_other_commit_stops(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(rc.CampaignError):
+                rc.resolve(campaign(), self.snapshot(d, '0' * 40))
+
+    def test_missing_commit_record_stops(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(rc.CampaignError):
+                rc.resolve(campaign(), self.snapshot(d, None))
+
+
 if __name__ == '__main__':
     unittest.main()
