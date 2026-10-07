@@ -14,7 +14,10 @@ For each run (resolve_campaign.py) the renderer
 
 Parents come from the whole campaign: a run whose parent segment is a run of the campaign starts from the parent's
 end state. When the parent is not rendered in the same call (--run-id), the parent run must exist and have
-completed with its end state, whose sha256 is recorded; otherwise the renderer stops.
+completed with its end state, whose sha256 is recorded; otherwise the renderer stops. A run without a parent in the
+campaign starts as the campaign's initialisation.without_parent says: `cold_start` (no INIT_STATE) or
+`state_of_run` (the end state of an earlier, completed run named by initialisation.state_of_run: run_dir, state and
+reason; checked and recorded like a parent state, VIC does not check the date of a state file).
 
 Run directory: runs/<campaign-id>/<run-id>/ with config/, logs/, states/, output/, forcing/ and
 run_manifest.json; with --scratch: scratch/<campaign-id>/<run-id>/ (test renders; never submitted as a
@@ -368,14 +371,25 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         links, units, mapping = forcing_plan(W, campaign, run, alias)
         check_start_year(run, mapping)
         parent = seg['parent']
-        init_state = None; parent_state = {}
+        init_state = None; parent_state = {}; init_how = 'cold_start'
+        init = campaign['initialisation']
         if parent and parent in in_campaign and not campaign.get('restriction'):
             init_state = f'{base}/{parent}/states/state.{run["start_year"]:04d}0101_00000.nc'
+            init_how = 'state of the parent run'
             # a parent rendered in this call has no state yet: the job binds it (run_manifest.py verify-inputs)
             parent_state = {'run_id': parent, 'attempt': None, 'state_sha256': None} if parent in in_call else \
                 parent_run_state(f'{base}/{parent}', init_state, run['run_id'])
-        elif campaign['initialisation']['without_parent'] != 'cold_start':
-            raise RenderError(f'{run["run_id"]}: parent {parent} is not simulated and the campaign gives no state')
+        elif init['without_parent'] == 'state_of_run':
+            src = init.get('state_of_run') or {}
+            if not (src.get('run_dir', '').startswith('runs/') and src.get('state') and str(src.get('reason', '')).strip()):
+                raise RenderError('initialisation.state_of_run needs run_dir (under runs/), state and reason')
+            init_state = f'{W}/{src["run_dir"]}/{src["state"]}'
+            init_how = f'end state of the earlier run {src["run_dir"]} (campaign initialisation.state_of_run)'
+            parent_state = parent_run_state(f'{W}/{src["run_dir"]}', init_state, run['run_id'])
+            parent_state['reason'] = ' '.join(str(src['reason']).split())
+        elif init['without_parent'] != 'cold_start':
+            raise RenderError(f'{run["run_id"]}: parent {parent} is not simulated and initialisation.without_parent is '
+                              f'{init["without_parent"]!r} (cold_start or state_of_run)')
         for sub in ('config', 'logs', 'states', 'output', 'forcing'):
             os.makedirs(f'{rdir}/{sub}')
         fy.build_view(f'{rdir}/forcing', links)
@@ -402,7 +416,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             'MODEL_COMMIT': model['commit'], 'START_YEAR': run['start_year'], 'END_YEAR': run['end_year'],
             'DOMAIN': f'{W}/{params["domain"]["path"]}', 'PARAMETERS': f'{W}/{params["parameters"]["path"]}',
             'CONSTANTS': f'{rdir}/config/vic_constants.txt', 'FORCE_TYPES': force_types,
-            'INIT_STATE_LINES': f'INIT_STATE              {init_state}' if init_state else
+            'INIT_STATE_LINES': f'# {init_how}\nINIT_STATE              {init_state}' if init_state else
                                 '# cold start: no INIT_STATE (campaign initialisation.without_parent)',
             'STATE_LINES': state_lines,
             'ROUTING': tf(pl['routing']['enabled']), 'ROUT_STEPS_PER_DAY': pl['routing']['steps_per_day'],
@@ -427,8 +441,10 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             'EFR': tf(pl['efr']['enabled']), 'WOFOST': tf(pl['wofost']['enabled']),
             'RESULT_DIR': f'{rdir}/output/', 'LOG_DIR': f'{rdir}/logs/', 'OUTPUT_STREAMS': streams_text}
         vic_text = fill(open(os.path.join(REPO, VIC_TEMPLATE)).read(), values)
-        constants = (f'# VIC constants of run {run["run_id"]} (campaign plugins.dams)\n'
+        constants = (f'# VIC constants of run {run["run_id"]} (campaign plugins.dams, plugins.water_use)\n'
                      f'DAM_ALPHA {pl["dams"]["alpha"]}\nDAM_BETA {pl["dams"]["beta"]}\nDAM_GAMMA {pl["dams"]["gamma"]}\n')
+        if pl['water_use'].get('nonrenewable_limit_mm') is not None:   # absent or null: no limit (compiled default)
+            constants += f'NONRENEWABLE_LIMIT {float(pl["water_use"]["nonrenewable_limit_mm"])}\n'
         job_text, hours = render_job(W, rdir, campaign['campaign_id'], run['run_id'], run['start_year'],
                                      run['end_year'], resources, model)
         files = {'config/vic_global.txt': vic_text, 'config/vic_constants.txt': constants, 'config/job.sbatch': job_text}
@@ -438,7 +454,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             'segment': seg, 'climate_input_alias': alias, 'dhf_unit': usoc,
             'experiments_using_segment': seg['experiments'],
             'parent': {'segment_id': parent, 'init_state': init_state and os.path.relpath(init_state, W),
-                       'initialisation': 'state of the parent run' if init_state else 'cold_start', **parent_state},
+                       'initialisation': init_how, **parent_state},
             'campaign_file': os.path.relpath(campaign_path, REPO) if os.path.isabs(campaign_path) else campaign_path,
             'campaign_sha256': file_hash(campaign_path), 'campaign': campaign,
             'resources_file': campaign['resources'], 'resources': resources,

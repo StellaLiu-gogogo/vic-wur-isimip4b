@@ -304,6 +304,75 @@ class ParentStateTest(RenderHarness):
                                                           'initialisation': 'cold_start'})
 
 
+class StateOfRunTest(RenderHarness):
+    """initialisation.state_of_run: a run without a parent in the campaign starts from the end state of an earlier,
+    completed run, recorded and checked like a parent state."""
+
+    def setUp(self):
+        super().setUp()
+        self.src = os.path.join(self.W, 'runs', 'smoke', 'earlier__smoke2011-2020')
+        self.campaign['initialisation'] = {
+            'without_parent': 'state_of_run', 'state_at_end': True,
+            'state_of_run': {'run_dir': 'runs/smoke/earlier__smoke2011-2020',
+                             'state': 'states/state.20210101_00000.nc', 'reason': 'warm start for a test'}}
+
+    def earlier(self, status='completed', state=True):
+        os.makedirs(os.path.join(self.src, 'states'))
+        with open(os.path.join(self.src, 'run_manifest.json'), 'w') as fh:
+            json.dump({'run_id': 'earlier__smoke2011-2020', 'attempts': [{'attempt': 2, 'status': status}]}, fh)
+        path = os.path.join(self.src, 'states', 'state.20210101_00000.nc')
+        if state:
+            with open(path, 'w') as fh:
+                fh.write('end state of the earlier run')
+        return path
+
+    def test_uses_completed_earlier_run(self):
+        state = self.earlier()
+        self.render(HIST)
+        p = self.manifest(HIST)['parent']
+        self.assertEqual(p['init_state'], os.path.relpath(state, self.W))
+        self.assertEqual((p['run_id'], p['attempt'], p['state_sha256']),
+                         ('earlier__smoke2011-2020', 2, rr.file_hash(state)))
+        self.assertIn('earlier run runs/smoke/earlier__smoke2011-2020', p['initialisation'])
+        self.assertEqual(p['reason'], 'warm start for a test')
+        with open(os.path.join(self.W, 'runs', 'smoke', HIST, 'config', 'vic_global.txt')) as fh:
+            self.assertIn(f'INIT_STATE              {state}', fh.read())
+
+    def test_unfinished_or_missing_state_stops(self):
+        self.earlier(status='failed')
+        with self.assertRaises(rr.RenderError):
+            self.render(HIST)
+        shutil.rmtree(self.src); self.earlier(state=False)
+        with self.assertRaises(rr.RenderError):
+            self.render(HIST)
+        self.assertFalse(os.path.exists(os.path.join(self.W, 'runs', 'smoke', HIST)))
+
+    def test_reason_required(self):
+        self.earlier(); self.campaign['initialisation']['state_of_run']['reason'] = ' '
+        with self.assertRaises(rr.RenderError):
+            self.render(HIST)
+
+    def test_unknown_initialisation_stops(self):
+        self.campaign['initialisation']['without_parent'] = 'warm'
+        with self.assertRaises(rr.RenderError):
+            self.render(HIST)
+
+
+class NonrenewableLimitTest(RenderHarness):
+    def constants(self):
+        with open(os.path.join(self.W, 'runs', 'smoke', HIST, 'config', 'vic_constants.txt')) as fh:
+            return fh.read()
+
+    def test_no_limit_line_by_default(self):
+        self.render(HIST)
+        self.assertNotIn('NONRENEWABLE_LIMIT', self.constants())
+
+    def test_limit_written(self):
+        self.campaign['plugins']['water_use']['nonrenewable_limit_mm'] = 500
+        self.render(HIST)
+        self.assertIn('NONRENEWABLE_LIMIT 500.0', self.constants())
+
+
 class OutputFilesTest(RenderHarness):
     """Finding 9: the expected outputs and the run check know only the daily and monthly yearly files."""
 

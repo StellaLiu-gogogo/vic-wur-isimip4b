@@ -111,6 +111,14 @@ run is not an identity link in every family. Runs that start in a year a unit do
 pre-industrial segment starting 1601 with `1850soc`, `2021soc` historical runs starting 1850, `1850soc`
 future runs starting 2022, spin-ups before 1601) need that year in the unit itself (04_forcing).
 
+**Initial state.** A run whose parent segment is a run of the campaign starts from the parent's end state. A
+run without such a parent starts as the campaign's `initialisation.without_parent` says: `cold_start` (no
+`INIT_STATE`, the initial moisture of the parameter file) or `state_of_run`, the end state of an earlier,
+completed run named in the campaign (`run_dir`, `state`, `reason`), e.g. a warm start of a smoke run. The
+renderer requires that run's last attempt to be completed and its state file to exist, and records the run,
+attempt and the state's sha256 under `parent` in the run manifest; the job checks the sha256 before VIC starts.
+VIC does not check the date of a state file.
+
 **Run directory.** `runs/<campaign-id>/<run-id>/` (`--scratch`: `scratch/<campaign-id>/<run-id>/`, never
 submitted): `config/` (`vic_global.txt`, `vic_constants.txt` with the dam constants, `job.sbatch`,
 `resolved.yaml` with campaign, segment, resources, build, parameter files and forcing units), `forcing/`

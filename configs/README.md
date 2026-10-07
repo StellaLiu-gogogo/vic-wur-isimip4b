@@ -31,10 +31,10 @@ Keys of a campaign file (checked by `workflow/05_simulation/render/resolve_campa
 | `exclusions` | list of `{experiment, reason}` |
 | `sensitivity_equivalence` | sens scenario → `{same_as, reason}` (e.g. `2021co2` → `default`) |
 | `restriction` | non-production only: `periods` and `runs: {<label>: {years: [start, end]}}` |
-| `initialisation` | `without_parent` (`cold_start`), `state_at_end` |
+| `initialisation` | `without_parent`: `cold_start` (no INIT_STATE) or `state_of_run` (the end state of an earlier, completed run: `state_of_run` with `run_dir` under `runs/`, `state` inside it, and `reason`); `state_at_end` |
 | `spinup` | `length_years` and `climate_cycle` `[first, last]` (null when the campaign simulates no spin-up) |
 | `dhf_forcing` | `units` (segment soc scenario → land-use and water-use unit) and `constant` (scenarios constant in time) |
-| `plugins` | switches and settings of routing, irrigation, dams (operation constants), water use (sectors, withdrawal options), land use, EFR, WOFOST |
+| `plugins` | switches and settings of routing, irrigation, dams (operation constants), water use (sectors, withdrawal options, `nonrenewable_limit_mm`: limit of the non-renewable deficit in mm, null for none), land use, EFR, WOFOST |
 | `output` | format, compression, file frequency, streams, aggregation overrides, `isimip` (protocol variable → VIC outputs, frequency, streams, rule), `diagnostics`, `not_provided` (with reasons; together with `isimip` it must cover every protocol variable of the sector) |
 | `resources` | path of the resource file |
 | `open_decisions` | the open decisions the campaign runs under |
