@@ -29,6 +29,45 @@ def rcsv(name):
     return list(csv.DictReader(open(p))) if os.path.exists(p) else []
 
 
+def snow_compare_section(w):
+    """Smoke run against the sibling project's natural run (WFDE5) on the same cells, from snow_compare.py."""
+    sm = rcsv('snow_compare_summary.csv'); cl = rcsv('snow_compare_climate.csv'); rg = rcsv('snow_compare_regions.csv')
+    if not (sm and cl and rg):
+        return
+    s = {(r['run'], r['cells'], r['first_year']): r for r in sm}
+    sk = s[('smoke', 'smoke cells', '2011')]; n41 = s[('natural', 'smoke cells', '1979')]
+    c = {r['cells']: r for r in cl}
+    cs, ch = c['smoke cells'], c['active cells above 3000 m']
+    w(f'*Comparison with the natural run of the sibling project* (`snow_compare.py`; WFDE5 forcing, VIC `e083c9f3`, '
+      f'GWM FALSE, 1979–2019 after a 30-year spin-up, same 5′ grid; it stands in for the H line, whose monthly '
+      f'output exists only on Snellius scratch; `tables/snow_compare_*.csv`, figure `figures/snow_compare.png`):')
+    w('')
+    w(f'  - On the same {int(sk["n_cells"]):,} cells, December SWE grew by {float(sk["slope_km3_per_year"]):.0f} km³/yr '
+      f'in the smoke run and by {float(n41["slope_km3_per_year"]):.1f} km³/yr in the natural run (1979–2019). '
+      f'The natural run accumulates too, mainly in Alaska and the central Himalaya, up to '
+      f'{float(n41["max_swe_last_mm"]) / 1000:.0f} m SWE in 2019, but about '
+      f'{float(sk["slope_km3_per_year"]) / float(n41["slope_km3_per_year"]):.0f} times more slowly. In Patagonia and '
+      f'the Karakoram/Pamir it has no lasting snow at all.')
+    w(f'  - On these cells the smoke forcing is {float(cs["natural_tair_c_2010_2019"]) - float(cs["smoke_tair_c_2011_2020"]):.1f} K '
+      f'colder and has {float(cs["smoke_prec_mm_2011_2020"]) / float(cs["natural_prec_mm_2010_2019"]):.1f} times the '
+      f'precipitation of WFDE5 ({cs["smoke_prec_mm_2011_2020"]} against {cs["natural_prec_mm_2010_2019"]} mm/yr). '
+      f'Above 3000 m the difference is {float(ch["natural_tair_c_2010_2019"]) - float(ch["smoke_tair_c_2011_2020"]):.1f} K '
+      f'and {float(ch["smoke_prec_mm_2011_2020"]) / float(ch["natural_prec_mm_2010_2019"]):.1f} times.')
+    w(f'  - The temperature difference does not depend on how far a 5′ cell lies above its 0.5° parent (slope '
+      f'{cs["slope_dtair_vs_dz_k_per_km"]} K/km on these cells, {ch["slope_dtair_vs_dz_k_per_km"]} K/km above 3000 m, '
+      f'against −6.5 K/km if only one forcing had a lapse-rate correction); in figure 4 the points form horizontal '
+      f'bands, one per 0.5° cell. '
+      f'The difference therefore comes from the 0.5° climate of the two forcings (ISIMIP bias-adjusted to ERA5 '
+      f'against WFDE5), not from the 5′ elevation correction. Longwave and shortwave radiation were not compared.')
+    w('')
+    w('![Snow comparison](figures/snow_compare.png)')
+    w('')
+    w('*Figure 4. December SWE on the cells where snow rose every year in the smoke run, natural run (WFDE5) and smoke '
+      'run, six 10° boxes; temperature difference against the height of the 5′ cell above its 0.5° parent; annual '
+      'precipitation of the two forcings on the same cells.*')
+    w('')
+
+
 def drift_section(w):
     """Evidence of the 10-year smoke run (cold start) from spinup_drift.py, when its tables exist."""
     da = rcsv('drift_annual.csv')
@@ -85,6 +124,7 @@ def drift_section(w):
           f'and `tws` and every snow-based convergence test. How to treat it (cap the SWE and pass the excess to '
           f'runoff, mask the cells, or accept it) is a model decision for the user and is not settled here.')
     w('')
+    snow_compare_section(w)
     w('![Spin-up drift](figures/spinup_drift.png)')
     w('')
     w('*Figure 3. Left: global December totals of each store, minus December 2020. Right: area-weighted mean '

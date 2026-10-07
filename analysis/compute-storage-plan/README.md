@@ -36,6 +36,9 @@ run 2011–2020 and its store drift; D02 and D03 are with the user).
   `raw/ISIMIP4b/InputData/climate/atmosphere/bias-adjusted/global/daily/`:
   file sizes only.
 - `logs/04_forcing/climate-forcing-*/` (producer speed).
+- `../../deliverables/vic_natural_production_41yr_20260907/vic_natural_gwmFALSE_monthly_1979-2019_5arcmin_v1.nc`
+  (relative to the workdir; the sibling project's natural run, WFDE5, VIC `e083c9f3`; read only by
+  `snow_compare.py`, as a stand-in for the H line, whose monthly output is only on Snellius scratch).
 - Cluster state from `sinfo`, `scontrol`, `sshare` at run time; tariffs
   and policies from wiki.anunna.wur.nl (read 2026-10-05, constants in
   `plan.py`).
@@ -53,6 +56,7 @@ run 2011–2020 and its store drift; D02 and D03 are with the user).
 | `csp.py` | paths, the measured runs |
 | `measure_files.py` | per-variable storage (`h5ls -v`) of the smoke 2015 files. Compression, precision and chunking tests run on copies in `scratch/compute-storage-plan/` (netCDF4 samples, `nccopy` on whole files) and never touch `runs/` |
 | `spinup_drift.py` | drift of the water stores (soil layers, snow, river, reservoirs) in the 10-year smoke run after its cold start, for the spin-up length; where snow builds up every year |
+| `snow_compare.py` | snow that builds up every year: the smoke run against the sibling project's natural 41-year run (WFDE5) on the same cells; December SWE, air temperature and precipitation that VIC read, elevation test |
 | `plan.py` | segments and model years from the resolver, speed and sizes from the run records, demand per selection and GCM count, options, scenarios (job schedule on N nodes, storage over time), figures |
 | `report.py` | writes `report.md` from the results of `plan.py` |
 | `submit.py` | Slurm job of one step; job record in `logs/<step>_<job-id>/` |
@@ -62,6 +66,7 @@ conda activate isimip4b
 export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
 python3 analysis/compute-storage-plan/submit.py --step measure   # once; about 4.5 h (state zlib 9 alone 2.2 h)
 python3 analysis/compute-storage-plan/submit.py --step drift --cpus 2 --mem 32G --time 01:00:00   # about 5 min
+python3 analysis/compute-storage-plan/submit.py --step snowcmp --cpus 2 --mem 48G --time 03:00:00   # about 15 min
 python3 analysis/compute-storage-plan/submit.py --step plan --cpus 2 --mem 16G --time 01:00:00
 ```
 
@@ -76,7 +81,7 @@ constants at the top of `plan.py` and are listed in the report.
 
 - `report.md`;
 - `figures/storage_over_time.png`, `figures/critical_path_gantt.png` and
-  `figures/spinup_drift.png`;
+  `figures/spinup_drift.png`, `figures/snow_compare.png`;
 - `tables/*.csv`: demand, segments per selection, model-year timing,
   output by variable, compression tests, options, scenarios, schedules,
   storage timelines;

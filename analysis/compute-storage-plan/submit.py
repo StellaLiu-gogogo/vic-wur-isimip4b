@@ -4,9 +4,10 @@ kept in workdir/analysis/compute-storage-plan/logs/<step>_<slurm-job-id>/.
 
   measure  measure_files.py: storage per variable of the smoke files, compression tests on scratch copies
   drift    spinup_drift.py: drift of the water stores in the 10-year smoke run (cold start), for the spin-up length
+  snowcmp  snow_compare.py: snow that builds up every year, smoke run against the sibling project's natural run
   plan     plan.py: demand, options, scenarios, figures and report from the run records and the measurement tables
 
-Usage: submit.py --step measure|drift|plan [--measure-steps storage,copy,sample,lossy,fullfile] [--cpus 4] [--mem 96G]
+Usage: submit.py --step measure|drift|snowcmp|plan [--measure-steps storage,copy,sample,lossy,fullfile] [--cpus 4] [--mem 96G]
                  [--time 12:00:00] [--partition main]
 """
 import argparse, os, subprocess, sys
@@ -40,7 +41,7 @@ echo "end $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--step', required=True, choices=['measure', 'drift', 'plan'])
+    ap.add_argument('--step', required=True, choices=['measure', 'drift', 'snowcmp', 'plan'])
     ap.add_argument('--measure-steps', default='storage,copy,sample,lossy,fullfile')
     ap.add_argument('--cpus', type=int, default=4)
     ap.add_argument('--mem', default='96G')
@@ -52,6 +53,7 @@ def main():
     d = f'analysis/{csp.TASK}'
     commands = {'measure': f'/usr/bin/time -v python3 {d}/measure_files.py --steps {a.measure_steps}',
                 'drift': f'/usr/bin/time -v python3 {d}/spinup_drift.py',
+                'snowcmp': f'/usr/bin/time -v python3 {d}/snow_compare.py',
                 'plan': f'/usr/bin/time -v python3 {d}/plan.py'}[a.step]
     text = SBATCH.format(partition=a.partition, time=a.time, cpus=a.cpus, mem=a.mem, logs=logs, conda=conda,
                          workdir=csp.workdir(), repo=csp.REPO, step=a.step, commands=commands)
