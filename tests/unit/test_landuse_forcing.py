@@ -9,8 +9,10 @@ Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
 import importlib.util, io, os, subprocess, sys, tempfile, unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
+
+from common import gitstate
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LANDUSE = os.path.join(HERE, '..', '..', 'workflow', '04_forcing', 'landuse')
@@ -153,12 +155,28 @@ class SubmitRenderTest(unittest.TestCase):
         self.assertIn('#SBATCH --job-name=landuse-forcing-histsoc-2015-2016-scratch-test', text)
         self.assertIn('--unit-dir /nonexistent/workdir/scratch/landuse-converter/runs/test/histsoc', text)
 
+    def dry_run_clean(self, *args):
+        """--dry-run in this process with the Git state replaced by a clean repository, so that the result does not
+        depend on the state of the working copy that runs the tests."""
+        with mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': '/nonexistent/workdir'}):
+            sys.modules.pop('isimip_landuse_to_vic_annual', None)       # imported by the submit script by name
+            spec = importlib.util.spec_from_file_location('lu_submit', os.path.join(LANDUSE, 'submit_landuse_forcing.py'))
+            sub = importlib.util.module_from_spec(spec); spec.loader.exec_module(sub)
+        out = io.StringIO()
+        with mock.patch.object(gitstate, 'state', return_value=('0' * 40, False)), \
+                mock.patch.object(sub.jobrecord, 'conda_base', return_value='/conda'), \
+                mock.patch.object(sys, 'argv', ['submit', *args, '--dry-run']), redirect_stdout(out):
+            sub.main()
+        return out.getvalue()
+
     def test_unit_job(self):
-        text = self.dry_run('--scenario', 'ssp1vlsoc-noadapt', '--years', '2022-2100')
+        text = self.dry_run_clean('--scenario', 'ssp1vlsoc-noadapt', '--years', '2022-2100')
+        self.assertNotIn('{{', text)
         self.assertIn('--processes 16', text)
         self.assertIn('#SBATCH --mem=144G', text)
-        if '-scratch' not in text:                               # clean repository: production unit
-            self.assertNotIn('--unit-dir', text)
+        self.assertIn('#SBATCH --job-name=landuse-forcing-ssp1vlsoc-noadapt-2022-2100\n', text)
+        self.assertNotIn('--unit-dir', text)                     # clean repository: the verifier checks the unit itself
+        self.assertNotIn('--scratch', text)
 
     def test_verify_only_job(self):
         text = self.dry_run('--scenario', 'histsoc', '--years', '1850-2021', '--verify-only')

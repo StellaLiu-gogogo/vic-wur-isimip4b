@@ -1,12 +1,13 @@
 """Unit tests for workflow/01_acquisition/transfer_batch.sh against a local stand-in for DKRZ: a temporary "remote"
 directory reached through a stand-in `ssh` that runs the remote command on this machine (so the real rsync protocol
 is used), and a wrapper around rsync that can emulate an interrupted transfer or an upstream change during the
-transfer. Nothing outside the temporary directory is read or written; no network access.
+transfer. Nothing outside the temporary directory is read or written; no network access. MD5SUMS (accepted files,
+`<md5>  <path>`, readable by `md5sum -c` in the destination root) is checked too.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
-import os, shutil, stat, subprocess, tempfile, unittest
+import hashlib, os, shutil, stat, subprocess, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, '..', '..', 'workflow', '01_acquisition', 'transfer_batch.sh')
@@ -128,6 +129,46 @@ class TransferTest(unittest.TestCase):
         self.assertNotEqual(rows['a/clean.nc']['status'], 'OK')
         self.assertEqual(self.raw('a/clean.nc'), b'x' * 3000)
 
+
+    def md5sums(self):
+        p = os.path.join(self.mandir, 'MD5SUMS')
+        if not os.path.exists(p):
+            return []
+        with open(p) as fh:
+            return fh.read().splitlines()
+
+    def test_md5sums_lists_accepted_files(self):
+        rc, rows, out = self.run_batch(self.batch(['b/sized.nc', 'a/clean.nc', 'a/big.nc'], approved={'b/sized.nc': 5}))
+        self.assertNotEqual(rc, 0, out)                                 # b/sized.nc is not accepted
+        expected = [f'{hashlib.md5(self.FILES[p]).hexdigest()}  {p}' for p in ('a/big.nc', 'a/clean.nc')]
+        self.assertEqual(self.md5sums(), expected)                      # accepted files only, sorted by path
+        self.assertEqual(rows['a/big.nc']['md5_local'], hashlib.md5(self.FILES['a/big.nc']).hexdigest())
+        r = subprocess.run(['md5sum', '-c', os.path.join(self.mandir, 'MD5SUMS')], cwd=self.dst,
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_md5sums_without_accepted_files(self):
+        rc, _, out = self.run_batch(self.batch(['a/big.nc']), FAKE_INTERRUPT='a/big.nc')
+        self.assertNotEqual(rc, 0, out)
+        self.assertEqual(self.md5sums(), [])
+
+    def test_md5sums_after_resumed_batch(self):
+        lst = self.batch(['a/clean.nc', 'a/big.nc'])
+        self.run_batch(lst, FAKE_INTERRUPT='a/big.nc')
+        rc, _, out = self.run_batch(lst)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([l.split('  ', 1)[1] for l in self.md5sums()], ['a/big.nc', 'a/clean.nc'])
+
+    # Review of 2026-10-07, finding P3 (not fixed in task J): MD5SUMS is opened for appending, so running a batch
+    # again (e.g. to re-verify it) appends a second line for every file accepted again. Remove the decorator when
+    # transfer_batch.sh writes each accepted file once.
+    @unittest.expectedFailure
+    def test_md5sums_once_per_file_after_rerun(self):
+        lst = self.batch(['a/clean.nc', 'a/big.nc'])
+        for _ in range(2):
+            rc, _, out = self.run_batch(lst)
+            self.assertEqual(rc, 0, out)
+        self.assertEqual([l.split('  ', 1)[1] for l in self.md5sums()], ['a/big.nc', 'a/clean.nc'])
 
 if __name__ == '__main__':
     unittest.main()

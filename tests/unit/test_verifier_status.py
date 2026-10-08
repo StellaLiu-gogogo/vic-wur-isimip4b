@@ -214,6 +214,138 @@ class ClimateVerifierTest(unittest.TestCase):
         self.assertEqual((code, s['per_year']['2015'], prov), (4, 'not_checked', 'not_checked'))
 
 
+
+# ------------------------------------------------------------------------------------------------ forcing units
+def unit_provenance(unit):
+    """provenance.yaml of a synthetic forcing unit, as written by its producer (qc.status not_checked)."""
+    return {'forcing_unit': unit, 'created_by': 'producer', 'code_commit': 'c' * 40, 'code_dirty': False,
+            'created_at': '2026-10-01T00:00:00Z', 'files': [{'path': 'x.nc', 'sha256': 'x' * 64}],
+            'qc': {'status': 'not_checked'}}
+
+
+class UnitProvenanceChecks:
+    """The verifier run on the forcing unit itself (forcing/<family>/..., no --unit-dir or --scratch): the summary
+    goes to qc/forcing/<unit>/ and qc.status and qc.evidence are set in the unit's provenance.yaml; the other keys of
+    the record are kept. Mixed into a subclass of a verifier test, whose own tests then also run on the unit."""
+
+    def write_provenance(self, unit):
+        self.unit_name = unit; self.evidence = f'qc/forcing/{unit}'
+        self.prov_path = f'{self.W}/forcing/{unit}/provenance.yaml'
+        with open(self.prov_path, 'w') as fh:
+            yaml.safe_dump(unit_provenance(unit), fh, sort_keys=False)
+
+    def prov(self):
+        with open(self.prov_path) as fh:
+            return yaml.safe_load(fh)
+
+    def assert_qc(self, status):
+        p = self.prov()
+        self.assertEqual(p['qc'], {'status': status, 'evidence': self.evidence})
+        self.assertEqual({k: v for k, v in p.items() if k != 'qc'},
+                         {k: v for k, v in unit_provenance(self.unit_name).items() if k != 'qc'})
+        with open(f'{self.W}/{self.evidence}/summary.json') as fh:
+            self.assertEqual(json.load(fh)['status'], status)
+
+    def test_provenance_passed(self):
+        self.status = {2015: 'passed', 2016: 'passed'}
+        self.assertEqual(self.main(None)[0], 0)
+        self.assert_qc('passed')
+
+    def test_provenance_failed(self):
+        self.status = {2015: 'passed', 2016: 'failed'}
+        self.assertEqual(self.main(None)[0], 1)
+        self.assert_qc('failed')
+
+    def test_provenance_back_to_not_checked(self):
+        """A passed unit whose 2015 file is replaced and only 2016 verified again is no longer passed."""
+        self.status = {2015: 'passed', 2016: 'passed'}
+        self.main(None)
+        self.assert_qc('passed')
+        touch(self.data_file(2015), 'replaced')
+        self.assertEqual(self.main('2016')[0], 4)
+        self.assert_qc('not_checked')
+
+
+class LanduseUnitTest(UnitProvenanceChecks, LanduseVerifierTest):
+    def setUp(self):
+        super().setUp()
+        self.unit = f'{self.W}/forcing/landuse/histsoc'; os.makedirs(self.unit)
+        for y in (2015, 2016):
+            touch(self.data_file(y), f'data {y}')
+        self.write_provenance('landuse/histsoc')
+        self.reports = f'{self.W}/qc/forcing/landuse/histsoc/reports'; os.makedirs(self.reports)
+
+    def data_file(self, y):
+        return f'{self.unit}/coverage_histsoc_{y}.nc'
+
+    def main(self, years, unit_dir=None):
+        argv = ['--scenario', 'histsoc'] + (['--unit-dir', unit_dir] if unit_dir else []) + \
+            (['--years', years] if years else [])
+        with mock.patch.object(self.vf, 'verify_file', self.fake_verify):
+            code = run_main(self.vf, argv, self.W)
+        qc_dir = f'{unit_dir}/qc' if unit_dir else f'{self.W}/qc/forcing/landuse/histsoc'
+        return code, json.load(open(f'{qc_dir}/summary.json'))
+
+    def test_unit_dir_leaves_provenance(self):
+        self.status = {2015: 'passed', 2016: 'passed'}
+        code, s = self.main(None, unit_dir=self.unit)
+        self.assertEqual((code, s['status']), (0, 'passed'))
+        self.assertEqual(self.prov(), unit_provenance('landuse/histsoc'))
+        self.assertFalse(os.path.exists(f'{self.W}/qc/forcing/landuse/histsoc/summary.json'))
+
+
+class WaterUseUnitTest(UnitProvenanceChecks, WaterUseVerifierTest):
+    def setUp(self):
+        super().setUp()
+        self.unit = f'{self.W}/forcing/water_use/histsoc'; os.makedirs(self.unit)
+        for y in (2015, 2016):
+            for f in self.files(y):
+                touch(f, os.path.basename(f))
+        self.write_provenance('water_use/histsoc')
+        self.reports = f'{self.W}/qc/forcing/water_use/histsoc/reports'; os.makedirs(self.reports)
+
+    def data_file(self, y):
+        return self.files(y)[0]
+
+    def main(self, years, unit_dir=None):
+        argv = ['--scenario', 'histsoc'] + (['--unit-dir', unit_dir] if unit_dir else []) + \
+            (['--years', years] if years else [])
+        with mock.patch.object(self.vf, 'verify_year', self.fake_verify), \
+                mock.patch.dict(self.vf.YEARS, {'histsoc': (2015, 2016)}):
+            code = run_main(self.vf, argv, self.W)
+        qc_dir = f'{unit_dir}/qc' if unit_dir else f'{self.W}/qc/forcing/water_use/histsoc'
+        return code, json.load(open(f'{qc_dir}/summary.json'))
+
+    def test_unit_dir_leaves_provenance(self):
+        self.status = {2015: 'passed', 2016: 'passed'}
+        code, s = self.main(None, unit_dir=self.unit)
+        self.assertEqual((code, s['status']), (0, 'passed'))
+        self.assertEqual(self.prov(), unit_provenance('water_use/histsoc'))
+
+
+class ClimateUnitTest(UnitProvenanceChecks, ClimateVerifierTest):
+    UNIT = 'climate/ec-earth3-esm-1-1/esm-hist/prec'
+
+    def setUp(self):
+        super().setUp()
+        self.unit = f'{self.W}/forcing/{self.UNIT}'; os.makedirs(self.unit)
+        for y in (2015, 2016):
+            touch(self.data_file(y), f'prec {y}')
+        self.write_provenance(self.UNIT)
+        self.reports = f'{self.W}/qc/forcing/{self.UNIT}/reports'; os.makedirs(self.reports)
+        os.makedirs(f'{self.W}/tmp')
+
+    def data_file(self, y):
+        return f'{self.unit}/prec_ec-earth3-esm-1-1_esm-hist_{y}.nc'
+
+    def main(self, years):
+        argv = ['--gcm', 'ec-earth3-esm-1-1', '--alias', 'esm-hist', '--variables', 'prec']
+        with mock.patch.object(self.vf, 'verify_file', self.fake_verify), mock.patch.object(self.vf, 'Pool', FakePool), \
+                mock.patch.object(self.vf, 'Context', lambda *a: None), \
+                mock.patch.object(self.vf.tempfile, 'tempdir', f'{self.W}/tmp'), mock.patch.dict(os.environ):
+            code = run_main(self.vf, argv + (['--years', years] if years else []), self.W)
+        return code, json.load(open(f'{self.W}/qc/forcing/{self.UNIT}/summary.json')), self.prov()['qc']['status']
+
 class VegetationVerifierTest(unittest.TestCase):
     """A 2 x 2 component with one active-cell tile per cell and no land-use forcing files: forcing_tiles fails."""
 

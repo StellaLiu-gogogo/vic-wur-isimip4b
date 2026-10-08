@@ -103,6 +103,22 @@ class JobExitTest(unittest.TestCase):
         self.assertNotEqual(self.job_exit(3, 1), 0)
         self.assertNotEqual(self.job_exit(3, 0), 0)
 
+    def test_failed_input_check_skips_vic(self):
+        """The template's lines from verify-inputs to the end of the VIC block, with verify-inputs replaced by false
+        (a non-zero exit status) and the VIC launcher by a marker: VIC must not start and rc must stay non-zero."""
+        with open(SLURM_TEMPLATE) as fh:
+            text = fh.read()
+        start = text.index('$MANIFEST verify-inputs'); end = text.index('\nfi\n', start) + 4
+        block = text[start:end]
+        for key, value in (('CHECK_PROCESSES', '2'), ('MODULE_LOADS', ''), ('LAUNCHER', 'echo VIC_STARTED;'),
+                           ('EXECUTABLE', 'vic')):
+            block = block.replace('{{' + key + '}}', value)
+        self.assertNotIn('{{', block)
+        script = f'set -uo pipefail\nRUN_DIR=/x\nSLURM_JOB_ID=1\nMANIFEST=false\n{block}echo "rc=$rc"\n'
+        r = subprocess.run(['bash', '-c', script], capture_output=True, text=True)
+        self.assertNotIn('VIC_STARTED', r.stdout)
+        self.assertIn('rc=1', r.stdout)
+
 
 # ------------------------------------------------------------------------------------------------ finding 1
 class ConcurrentSubmitTest(unittest.TestCase):
@@ -193,11 +209,18 @@ class InputCheckTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def verify(self):
+    def verify(self, stops=False):
+        """Run verify-inputs for attempt 1 and return its record. With stops=True it must end with a non-zero exit
+        status (the job script then stops before VIC starts); otherwise it must return normally."""
+        code = None
         try:
             rm.verify_inputs(self.rd, 101, self.W, 2)
-        except SystemExit:
-            pass
+        except SystemExit as e:
+            code = 1 if isinstance(e.code, str) else e.code           # sys.exit(message) exits with status 1
+        if stops:
+            self.assertTrue(code, 'verify-inputs found a mismatch but did not end with a non-zero exit status')
+        else:
+            self.assertIsNone(code)
         return rm.load(self.rd)['attempts'][0]['input_verification']
 
     def test_clean_run_passes(self):
@@ -208,14 +231,14 @@ class InputCheckTest(unittest.TestCase):
         link = os.path.join(self.rd, 'forcing', 'landuse', 'coverage_histsoc_2016.nc')
         os.remove(link)
         os.symlink('../../../../../forcing/landuse/histsoc/coverage_histsoc_2015.nc', link)   # wrong year
-        v = self.verify()
+        v = self.verify(stops=True)
         self.assertFalse(v['passed'])
         self.assertIn('forcing/landuse/coverage_histsoc_2016.nc', v['mismatches'])
 
     def test_changed_parent_state_fails(self):
         with open(self.state, 'w') as fh:
             fh.write('another state')
-        v = self.verify()
+        v = self.verify(stops=True)
         self.assertFalse(v['passed'])
         self.assertIn(rm.load(self.rd)['parent']['init_state'], v['mismatches'])
 
@@ -253,7 +276,7 @@ class InputCheckTest(unittest.TestCase):
         rm.save(self.rd, m)
         pm = rm.load(self.prd); pm['attempts'][0]['status'] = 'failed'; pm['status'] = 'failed'
         rm.save(self.prd, pm)
-        v = self.verify()
+        v = self.verify(stops=True)
         self.assertFalse(v['passed'])
 
 

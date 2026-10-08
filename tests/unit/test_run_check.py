@@ -1,17 +1,24 @@
 """Unit tests for workflow/05_simulation/monitor/grdc.py (routing network, upstream area, station mapping,
-GRDC file reading, monthly means and climatology) on small synthetic inputs.
+GRDC file reading, monthly means and climatology) on small synthetic inputs, and for the overall status of
+check_run.py main() (coverage, water-use budget and end-state file) on a tiny synthetic run in a temporary workdir,
+with the GRDC comparison, the figures and git replaced by fixed results.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
-import os, sys, tempfile, unittest
+import contextlib, io, json, os, sys, tempfile, unittest
+from unittest import mock
 
 import numpy as np
+import netCDF4 as nc
 import pandas as pd
+import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', '..', 'workflow', '05_simulation', 'monitor'))
-import grdc   # noqa: E402
+import grdc          # noqa: E402
+import check_run     # noqa: E402
+import run_figures   # noqa: E402
 
 # 3 x 4 grid; ids = 100 + flat index; cell (2, 3) inactive. Two rivers:
 #   row 0: (0,0) -> (0,1) -> (0,2) -> (0,3) outlet
@@ -79,6 +86,132 @@ class SeriesTest(unittest.TestCase):
         self.assertAlmostEqual(clim[0], np.mean([12 * k for k in range(10)]))
         self.assertEqual(lo[0], 0.0); self.assertEqual(hi[0], 108.0)
 
+
+
+# ------------------------------------------------------------------------------------------------ check_run.main
+YEAR = 2015
+RUN_MASK = np.array([[1, 1, 1], [1, 1, 0]], bool)
+FILL = 9.96921e36
+
+
+def write_nc(path, dims, variables, dtype='f4'):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with nc.Dataset(path, 'w') as d:
+        for k, n in dims.items():
+            d.createDimension(k, n)
+        for name, (vdims, data) in variables.items():
+            v = d.createVariable(name, dtype, vdims, fill_value=np.float32(FILL) if dtype == 'f4' else None)
+            v[:] = data
+
+
+class CheckRunMainTest(unittest.TestCase):
+    """A one-year run of 2 x 3 cells (one inactive) with consistent output: the overall status is passed only when
+    the coverage and budget checks pass and the end-state file exists."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); W = self.W = self.tmp.name
+        self.rd = f'{W}/runs/c/r'
+        ny, nx = RUN_MASK.shape
+        write_nc(f'{W}/parameters/p/domain.nc', {'lat': ny, 'lon': nx},
+                 {'lat': (('lat',), [10.0, 10.5]), 'lon': (('lon',), [20.0, 20.5, 21.0]),
+                  'mask': (('lat', 'lon'), RUN_MASK.astype('f8')), 'area': (('lat', 'lon'), np.full((ny, nx), 1e8))},
+                 dtype='f8')
+        ids = np.arange(ny * nx).reshape(ny, nx)
+        write_nc(f'{W}/parameters/p/routing.nc', {'lat': ny, 'lon': nx},
+                 {'downstream_id': (('lat', 'lon'), ids), 'downstream': (('lat', 'lon'), ids)}, dtype='i4')
+        view = {}
+        for sector in ('municipal', 'manufacturing'):
+            for var, value in (('consumption_fraction', 0.5), ('demand', 0.01)):
+                rel = f'forcing/water_use/histsoc/{sector}_{var}_histsoc_{YEAR}.nc'
+                write_nc(f'{W}/{rel}', {'time': 1, 'lat': ny, 'lon': nx},
+                         {var: (('time', 'lat', 'lon'), np.full((1, ny, nx), value))})
+                view[f'water_use/{sector}_{var}'] = {str(YEAR): {'source': rel, 'rule': 'identity'}}
+        for sub in ('config', 'states', 'output', 'logs'):
+            os.makedirs(f'{self.rd}/{sub}')
+        with open(f'{self.rd}/run_manifest.json', 'w') as fh:
+            json.dump({'run_id': 'r', 'run_dir': 'runs/c/r', 'forcing_view': view,
+                       'period': {'start': f'{YEAR}-01-01', 'end': f'{YEAR}-12-31'}}, fh)
+        with open(f'{self.rd}/config/resolved.yaml', 'w') as fh:
+            yaml.safe_dump({'parameters': {'domain': {'path': 'parameters/p/domain.nc'},
+                                           'routing': {'path': 'parameters/p/routing.nc'}}}, fh)
+        self.daily()
+        self.monthly()
+        self.state = f'{self.rd}/states/state.{YEAR + 1}0101_00000.nc'
+        with open(self.state, 'w') as fh:
+            fh.write('state')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def daily(self, gap=False):
+        """Daily runoff, baseflow and discharge of 1 everywhere; with gap, no discharge on one active cell and day."""
+        ny, nx = RUN_MASK.shape
+        q = np.ones((365, ny, nx)); q[100, 0, 1] = FILL if gap else 1.0
+        write_nc(f'{self.rd}/output/daily.{YEAR}-01-01.nc', {'time': 365, 'lat': ny, 'lon': nx},
+                 {'OUT_RUNOFF': (('time', 'lat', 'lon'), np.ones((365, ny, nx))),
+                  'OUT_BASEFLOW': (('time', 'lat', 'lon'), np.ones((365, ny, nx))),
+                  'OUT_DISCHARGE': (('time', 'lat', 'lon'), q)})
+
+    def monthly(self, withdrawn=25.0):
+        """Monthly water use: 1 mm per sector and source (5 x 5 = 25 mm withdrawn), demand 50 mm."""
+        ny, nx = RUN_MASK.shape
+        sect = np.ones((12, 5, ny, nx))
+        vals = {v: (('time', 'wu_class', 'lat', 'lon'), sect) for v in check_run.WI + ('OUT_DE_GW_SECT', 'OUT_DE_SURF_SECT')}
+        vals['OUT_WI_REM_SECT'] = (('time', 'wu_class', 'lat', 'lon'), np.zeros((12, 5, ny, nx)))
+        cell = {'OUT_WITHDRAWN': withdrawn, 'OUT_DEMAND': 50.0, 'OUT_CONSUMED': 5.0, 'OUT_RETURNED': 20.0,
+                'OUT_RECEIVED': 1.0, 'OUT_REQUIREMENT': 1.0, 'OUT_APPLIED': 1.0, 'OUT_WATER_ERROR': 0.0,
+                'OUT_DISCHARGE': 1.0}
+        vals.update({v: (('time', 'lat', 'lon'), np.full((12, ny, nx), x)) for v, x in cell.items()})
+        write_nc(f'{self.rd}/output/monthly.{YEAR}-01.nc', {'time': 12, 'wu_class': 5, 'lat': ny, 'lon': nx}, vals)
+
+    def main(self):
+        """check_run.main() on the synthetic run; returns (summary.json, reports/check.json)."""
+        no_stations = pd.DataFrame({'row': [], 'col': [], 'lat': [], 'lon': []})
+        with mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': self.W}), \
+                mock.patch.object(sys, 'argv', ['check_run', '--run-dir', self.rd]), \
+                mock.patch.object(check_run, 'grdc_compare', return_value=(no_stations, {}, [YEAR], None)), \
+                mock.patch.object(check_run, 'grdc_figures', return_value=({'stations_mapped': 0}, [])), \
+                mock.patch.object(check_run, 'draw'), \
+                mock.patch.object(run_figures, 'water_use_figures', return_value=[]), \
+                mock.patch.object(run_figures, 'water_balance', return_value=({}, 'wb.png')), \
+                mock.patch.object(check_run.os, 'popen', return_value=io.StringIO('c' * 40)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            check_run.main()
+        qc = f'{self.W}/qc/runs/c/r'
+        with open(f'{qc}/summary.json') as fh, open(f'{qc}/reports/check.json') as gh:
+            return json.load(fh), json.load(gh)
+
+    def test_complete_run_passes(self):
+        summary, report = self.main()
+        self.assertEqual((summary['status'], report['status']), ('passed', 'passed'), report['years'])
+        self.assertEqual(summary['object'], 'runs/c/r')
+        y = report['years'][str(YEAR)]
+        self.assertEqual((y['coverage']['status'], y['budget']['status']), ('passed', 'passed'))
+        self.assertEqual(report['state_files'], [{'path': f'states/state.{YEAR + 1}0101_00000.nc', 'size_bytes': 5}])
+        self.assertTrue(os.path.isfile(f'{self.W}/qc/runs/c/r/reports/water_use_by_sector_{YEAR}.nc'))
+
+    def test_missing_state_fails(self):
+        os.remove(self.state)
+        summary, report = self.main()
+        self.assertEqual((summary['status'], report['status']), ('failed', 'failed'))
+        self.assertEqual(report['state_files'], [])
+        self.assertEqual(report['years'][str(YEAR)]['budget']['status'], 'passed')
+
+    def test_coverage_gap_fails(self):
+        self.daily(gap=True)
+        summary, report = self.main()
+        cov = report['years'][str(YEAR)]['coverage']
+        self.assertEqual((cov['status'], cov['active_cells_with_missing_values']), ('failed', 1))
+        self.assertEqual(summary['status'], 'failed')
+
+    def test_budget_violation_fails(self):
+        self.monthly(withdrawn=60.0)                                   # more than the demand, not the sum of sources
+        summary, report = self.main()
+        b = report['years'][str(YEAR)]['budget']
+        self.assertEqual(b['status'], 'failed')
+        self.assertEqual(b['violations']['withdrawn_gt_demand'], 12 * RUN_MASK.sum())
+        self.assertEqual(report['years'][str(YEAR)]['coverage']['status'], 'passed')
+        self.assertEqual(summary['status'], 'failed')
 
 if __name__ == '__main__':
     unittest.main()
