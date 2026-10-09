@@ -45,7 +45,9 @@ def main():
     a = ap.parse_args()
     W = lu.WORKDIR
     commit, dirty = lu.git_state()
-    to_scratch = a.scratch or (dirty and not a.verify_only)   # a dirty repository redirects the producer, not existing files
+    # decided once, here: a repository that is not clean redirects the producer to scratch (not existing files,
+    # which --verify-only checks in place); otherwise the producer stops if the repository changes before it runs
+    to_scratch = a.scratch or (dirty and not a.verify_only)
     if a.scratch_label and not (a.scratch and re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', a.scratch_label)):
         raise SystemExit('--scratch-label needs --scratch and lowercase words joined by hyphens')
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
@@ -59,7 +61,8 @@ def main():
     out = f'{sbase}/{a.scenario}' if to_scratch else f'{W}/forcing/{unit}'
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
     producer = f'--scenario {a.scenario} --years {years[0]}-{years[-1]} {params} --processes {nproc}' + \
-        (' --scratch' if a.scratch else '') + (f' --scratch-label {a.scratch_label}' if a.scratch_label else '')
+        (' --scratch' if to_scratch else f' --expect-commit {commit}') + \
+        (f' --scratch-label {a.scratch_label}' if a.scratch_label else '')
     verifier = f'--scenario {a.scenario} --years {years[0]}-{years[-1]} {params} --processes {nproc}' + \
         (f' --unit-dir {out}' if to_scratch else '')
     stage_logs = workdir.logs('04_forcing', W)

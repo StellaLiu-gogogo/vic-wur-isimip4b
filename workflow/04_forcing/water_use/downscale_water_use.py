@@ -516,6 +516,9 @@ def main():
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--processes', type=int, default=1, help='years produced in parallel (about 3 GB each)')
     ap.add_argument('--scratch', action='store_true', help=f'test run: write under {SCRATCH}/ even from a clean repository')
+    ap.add_argument('--expect-commit', default=None,
+                    help='set by the submit script for an accepted output: stop unless the repository is clean and at '
+                         'this commit')
     ap.add_argument('--scratch-label', default=None, help=f'with --scratch: write under {SCRATCH}/runs/<LABEL>/<soc>/')
     a = ap.parse_args(); t0 = time.time()
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
@@ -525,6 +528,9 @@ def main():
     if a.scratch_label and not (a.scratch and re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', a.scratch_label)):
         raise SystemExit('--scratch-label needs --scratch and lowercase words joined by hyphens')
     commit, dirty = git_state()
+    if a.expect_commit and (dirty or commit != a.expect_commit):
+        raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
+                         f'is now at {commit} and {"not clean" if dirty else "clean"}; submit the job again')
     unit = f'water_use/{a.scenario}'
     to_scratch = dirty or a.scratch
     sbase = f'{WORKDIR}/{SCRATCH}' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')

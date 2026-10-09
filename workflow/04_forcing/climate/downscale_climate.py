@@ -552,11 +552,17 @@ def main():
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--processes', type=int, default=None, help='parallel workers (default: one per variable)')
     ap.add_argument('--scratch', action='store_true', help=f'test run: write under {SCRATCH}/ even from a clean repository')
+    ap.add_argument('--expect-commit', default=None,
+                    help='set by the submit script for an accepted output: stop unless the repository is clean and at '
+                         'this commit')
     ap.add_argument('--scratch-label', default=None,
                     help=f'with --scratch: write under {SCRATCH}/runs/<label>/ (lowercase words joined by hyphens)')
     a = ap.parse_args(); t0 = time.time(); W = workdir.root()
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
     commit, dirty = git_state(); to_scratch = dirty or a.scratch
+    if a.expect_commit and (dirty or commit != a.expect_commit):
+        raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
+                         f'is now at {commit} and {"not clean" if dirty else "clean"}; submit the job again')
     variables = select_variables(a.variables, to_scratch)
     if to_scratch:
         print(f'{"repository is not clean" if dirty else "--scratch"}: writing under {W}/{SCRATCH}/ (not forcing units)',

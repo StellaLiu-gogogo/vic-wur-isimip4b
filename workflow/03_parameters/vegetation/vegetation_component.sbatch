@@ -24,7 +24,9 @@ export OMP_NUM_THREADS=1
 cd {{REPO}}
 echo "host $(hostname), start $(date -u +%Y-%m-%dT%H:%M:%SZ), commit $(git rev-parse HEAD)"
 
-/usr/bin/time -v python3 workflow/03_parameters/vegetation/build_vegetation.py {{PRODUCER_ARGS}}
+if [ "{{RUN_PRODUCER}}" = yes ]; then
+    /usr/bin/time -v python3 workflow/03_parameters/vegetation/build_vegetation.py {{PRODUCER_ARGS}}
+fi
 /usr/bin/time -v python3 workflow/03_parameters/vegetation/verify_vegetation.py {{VERIFIER_ARGS}}
 
 echo "end $(date -u +%Y-%m-%dT%H:%M:%SZ)"

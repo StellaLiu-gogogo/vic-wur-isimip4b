@@ -2,12 +2,16 @@
 """Render climate_forcing.sbatch, submit it, and create the job record logs/04_forcing/<job-name>_<slurm-job-id>/.
 
 The job is submitted on hold, the record (job.sbatch, job.yaml) is written, and the job is then released; the
-job moves its scheduler output into the record when it starts (docs/directory-contracts.md, `logs/`).
+job moves its scheduler output into the record when it starts (docs/directory-contracts.md, `logs/`). With
+--verify-only the job runs only the verifier on the existing files (e.g. the whole unit after an extension; it
+updates qc.status in provenance.yaml). The submit script decides whether the producer writes to scratch (a
+repository that is not clean) and passes the decision on; a producer started for a forcing unit stops when the
+repository is no longer clean at the submitted commit.
 
 Usage: submit_climate_forcing.py --gcm ec-earth3-esm-1-1 --alias esm-hist --years 2015 [--variables ...]
-       [--scratch] [--time 08:00:00] [--mem 64G] [--cpus 8] [--partition main] [--dry-run]
+       [--scratch] [--verify-only] [--time 08:00:00] [--mem 64G] [--cpus 8] [--partition main] [--dry-run]
 """
-import argparse, os, sys
+import argparse, glob, os, sys
 
 from common import jobrecord, workdir
 
@@ -26,6 +30,7 @@ def main():
     ap.add_argument('--variables', default=None)
     ap.add_argument('--scratch', action='store_true')
     ap.add_argument('--scratch-label', default=None, help='with --scratch: scratch/climate-forcing/runs/<label>/')
+    ap.add_argument('--verify-only', action='store_true', help='run only the verifier on the existing output')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--time', default='08:00:00')
@@ -35,29 +40,35 @@ def main():
     ap.add_argument('--dry-run', action='store_true', help='render and print the job without submitting')
     a = ap.parse_args()
     W = workdir.root()
-    commit, dirty = dc.git_state(); to_scratch = a.scratch or dirty
+    # decided once, here: a repository that is not clean redirects the producer to scratch (not existing files,
+    # which --verify-only checks in place); otherwise the producer stops if the repository changes before it runs
+    commit, dirty = dc.git_state(); to_scratch = a.scratch or (dirty and not a.verify_only)
     variables = dc.select_variables(a.variables, to_scratch)
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
     span = f'{years[0]}' if len(years) == 1 else f'{years[0]}-{years[-1]}'
     job_name = f'climate-forcing-{a.gcm}-{a.alias}-{span}' + ('-scratch' if to_scratch else '') + \
-        (f'-{a.scratch_label}' if a.scratch_label else '')
+        (f'-{a.scratch_label}' if a.scratch_label else '') + ('-verify' if a.verify_only else '')
     common = f'--gcm {a.gcm} --alias {a.alias} --variables {",".join(variables)} --years {years[0]}-{years[-1]}'
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
     label = f' --scratch-label {a.scratch_label}' if a.scratch_label else ''
-    producer = f'{common} {params} --processes {min(a.cpus, len(variables))}' + (' --scratch' + label if a.scratch else '')
+    producer = f'{common} {params} --processes {min(a.cpus, len(variables))}' + (' --scratch' + label if to_scratch else f' --expect-commit {commit}')
     verifier = f'{common} {params} --processes {a.cpus}' + (' --scratch' + label if to_scratch else '')
     stage_logs = workdir.logs('04_forcing', W)
     text = jobrecord.render(TEMPLATE, {
         'JOB_NAME': job_name, 'PARTITION': a.partition, 'TIME': a.time, 'CPUS': str(a.cpus), 'MEM': a.mem,
         'STAGE_LOGS': stage_logs, 'CONDA_BASE': jobrecord.conda_base(), 'WORKDIR': W, 'REPO': REPO,
-        'PRODUCER_ARGS': producer, 'VERIFIER_ARGS': verifier})
+        'RUN_PRODUCER': 'no' if a.verify_only else 'yes', 'PRODUCER_ARGS': producer, 'VERIFIER_ARGS': verifier})
     if a.dry_run:
         print(text); return
     base = (f'{W}/scratch/climate-forcing' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')) if to_scratch \
         else f'{W}/forcing/climate'
+    if a.verify_only:
+        empty = [v for v in variables if not glob.glob(f'{base}/{a.gcm}/{a.alias}/{v}/*.nc')]
+        if empty:
+            raise SystemExit(f'no files to verify for {empty} under {base}/{a.gcm}/{a.alias}')
     details = {
         'resources': {'partition': a.partition, 'time': a.time, 'cpus_per_task': a.cpus, 'mem': a.mem},
-        'commands': {'producer': f'python3 workflow/04_forcing/climate/downscale_climate.py {producer}',
+        'commands': {'producer': None if a.verify_only else f'python3 workflow/04_forcing/climate/downscale_climate.py {producer}',
                      'verifier': f'python3 workflow/04_forcing/climate/verify_forcing.py {verifier}'},
         'inputs': sorted({os.path.relpath(dc.isimip_file(W, a.gcm, a.alias, s, yy), W)
                           for yy in years for v in variables for s in dc.VARIABLES[v]['sources']}) + [

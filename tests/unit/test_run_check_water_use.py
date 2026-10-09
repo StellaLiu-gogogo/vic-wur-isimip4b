@@ -53,7 +53,7 @@ class WaterUseMissingTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def monthly(self, missing=()):
+    def monthly(self, missing=(), extra=None):
         """Monthly file with 1 mm of withdrawal per sector and source; the variables in `missing` are fill values on
         every cell."""
         ny, nx = MASK.shape
@@ -65,6 +65,7 @@ class WaterUseMissingTest(unittest.TestCase):
         vals.update({v: (('time', 'lat', 'lon'), np.full((12, ny, nx), x)) for v, x in cell.items()})
         for v in missing:
             vals[v] = (vals[v][0], np.full(vals[v][1].shape, FILL))
+        vals.update(extra or {})
         write(f'{self.rd}/output/monthly.{YEAR}-01.nc', {'time': 12, 'wu_class': 5, 'lat': ny, 'lon': nx}, vals)
 
     def check(self):
@@ -100,6 +101,23 @@ class WaterUseMissingTest(unittest.TestCase):
         out = self.check()
         self.assertEqual(out['budget']['status'], 'failed', out['budget'])
         self.assertEqual(out['budget']['missing_values'], {'OUT_WI_DAM_SECT': 12 * MASK.sum()})
+
+
+class NonrenewableDeficitTest(WaterUseMissingTest):
+    """With OUT_NONREN_DEFICIT in the monthly output the check reports the deficit (mm over the cell -> km3)."""
+
+    def test_deficit_reported(self):
+        ny, nx = MASK.shape
+        deficit = np.repeat(np.arange(1.0, 13.0)[:, None, None], ny * nx, axis=1).reshape(12, ny, nx)   # 1..12 mm
+        self.monthly(extra={'OUT_NONREN_DEFICIT': (('time', 'lat', 'lon'), deficit)})
+        out = self.check()
+        km3 = [m * 1e8 * MASK.sum() * 1e-12 for m in range(1, 13)]           # mm x 1e8 m2 per active cell
+        self.assertTrue(np.allclose(out['nonrenewable']['deficit_end_of_month_km3'], km3))
+        self.assertAlmostEqual(out['nonrenewable']['deficit_end_of_year_km3'], km3[-1])
+
+    def test_absent_without_deficit_output(self):
+        self.monthly()
+        self.assertNotIn('nonrenewable', self.check())
 
 
 if __name__ == '__main__':

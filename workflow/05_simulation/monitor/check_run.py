@@ -19,6 +19,9 @@ Checks per calendar year
                   plugins/wateruse/src/wu_output.c), and the variant GW + SURF + REM + DAM (informative);
                   tolerance 1e-4 mm plus 1e-5 relative (float32 output); every monthly water-use variable it
                   reads must have a value on every active cell and month (any sector): a missing value fails it
+  nonrenewable    with OUT_NONREN_DEFICIT in the monthly output (NONRENEWABLE_WITHDRAWAL): the deficit at the end of
+                  each month (km3), water taken as non-renewable and not yet repaid from the baseflow; OUT_BASEFLOW
+                  (and so qtot) still contains the repaid water (plugins/routing/src/rout_run.c)
   state           the end-state file exists
 GRDC comparison (whole run)
   The run is driven by GCM climate, so its days and months do not correspond to observed weather: the main
@@ -119,6 +122,11 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
                          'withdrawn_gt_demand', 'consumed_gt_withdrawn', 'sum_ne_withdrawn')) else 'failed',
                      'note': 'sum_with_rem_ne_withdrawn is informative: under GWM FALSE OUT_WITHDRAWN counts water '
                              'taken from other cells for this cell (TREM), not water this cell gave away (REM)'}
+    if 'OUT_NONREN_DEFICIT' in monthly.variables:
+        deficit = [km3(np.nan_to_num(read(monthly, 'OUT_NONREN_DEFICIT', t)), area) for t in range(nm)]
+        out['nonrenewable'] = {'deficit_end_of_month_km3': deficit, 'deficit_end_of_year_km3': deficit[-1],
+                               'note': 'non-renewable water not yet repaid; OUT_BASEFLOW and qtot include the repaid '
+                                       'part, which does not reach the river'}
     wi = sum(sect[k] for k in WI); de = sect['OUT_DE_GW_SECT'] + sect['OUT_DE_SURF_SECT']
     out['irrigation'] = {'withdrawal_km3': km3(wi[4], area), 'groundwater_km3': km3(sect['OUT_WI_GW_SECT'][4], area),
                          'received_km3': float(irr['received'].sum()), 'applied_km3': float(irr['applied'].sum()),

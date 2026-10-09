@@ -117,7 +117,10 @@ run without such a parent starts as the campaign's `initialisation.without_paren
 completed run named in the campaign (`run_dir`, `state`, `reason`), e.g. a warm start of a smoke run. The
 renderer requires that run's last attempt to be completed and its state file to exist, and records the run,
 attempt and the state's sha256 under `parent` in the run manifest; the job checks the sha256 before VIC starts.
-VIC does not check the date of a state file.
+VIC does not check the date of a state file, and it restores a state by array position, checking only its
+dimensions (the dams plugin by dam index): the earlier run must have the same model commit, executable sha256
+and parameter files (md5 per role) as the new run, else the renderer stops. A state dated after the run start
+keeps the dams that were active at that date active (D19).
 
 **Run directory.** `runs/<campaign-id>/<run-id>/` (`--scratch`: `scratch/<campaign-id>/<run-id>/`, never
 submitted): `config/` (`vic_global.txt`, `vic_constants.txt` with the dam constants, `job.sbatch`,
@@ -138,7 +141,12 @@ status `built` or `tested`; resources modules = `runtime_modules` of the build; 
 parameter manifest; every forcing unit accepted (`code_dirty: false`, `qc.status: passed`); the campaign's
 output selection covers every protocol variable of the sector (mapped or listed as not provided); the output
 streams are `daily` (`NDAYS 1`) and `monthly` (`NMONTHS 1`) with `history_frequency: NYEARS 1`, the only
-files the expected outputs and `check_run.py` know (other stream configurations stop the render); MPI tasks
+files the expected outputs and `check_run.py` know (other stream configurations stop the render); with
+`plugins.water_use.nonrenewable_withdrawal` the monthly output contains `OUT_NONREN_DEFICIT` (the routing plugin
+repays the deficit from the baseflow that enters the river, but `OUT_BASEFLOW` keeps it, `rout_run.c`); with the
+land-use plugin, the QC of the vegetation component behind the parameter file (bundle `provenance.yaml`,
+`inputs.vegetation_component`) is `passed` and has checked the land-use files of the run with their current
+sha256 (`forcing_tiles.checked_files`), since VIC stops in the first year a class has coverage but no tile; MPI tasks
 ≤ decomposition groups (VIC gives whole groups to ranks, largest first, `rout_decomposition.c`; extra ranks
 stay empty, and with the 128-group file more than about 6 ranks shorten nothing, so the cores go to OpenMP
 threads).
@@ -171,7 +179,7 @@ VIC starts.
 
 | File | Role |
 |---|---|
-| `check_run.py` | checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR`), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), end state; GRDC comparison for the whole run |
+| `check_run.py` | checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR`), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), the non-renewable deficit at the end of each month when `OUT_NONREN_DEFICIT` is written, end state; GRDC comparison for the whole run |
 | `run_figures.py` | the derived file `reports/water_use_by_sector_<year>.nc` (monthly withdrawal per sector municipal, manufacturing, irrigation and its sources groundwater, surface, dam, remote, nonrenewable; VIC demand and estimated consumption for municipal and manufacturing; VIC-WUR writes the sources per sector but no sector total) and the figures of water use by sector and source, source shares, sector maps, distributions of withdrawal/demand and of remote and groundwater shares, and the water balance |
 | `grdc.py` | GRDC daily export (`raw/external/grdc/export-2024-11`, `manifests/inputs/grdc.yaml`): station files, upstream area along the routing network, station-to-cell mapping (closest upstream area within 3 cells, area error ≤ 30 %), monthly means (≥ 20 valid days) and climatology (≥ 5 years per month) |
 | `check_run.sbatch`, `submit_check.py` | Slurm job of the check (one core, about 7 min and 13 GB for one year), job record under `logs/05_simulation/<job-name>_<slurm-job-id>/`; `submit_run.py` submits it after every run job, to start when the run has succeeded |

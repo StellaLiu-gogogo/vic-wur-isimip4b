@@ -297,6 +297,9 @@ def main():
     ap.add_argument('--processes', type=int, default=1, help='years converted in parallel (about 6 GB each)')
     ap.add_argument('--scratch', action='store_true',
                     help='test run: write under scratch/landuse-converter/ even from a clean repository')
+    ap.add_argument('--expect-commit', default=None,
+                    help='set by the submit script for an accepted output: stop unless the repository is clean and at '
+                         'this commit')
     ap.add_argument('--scratch-label', default=None,
                     help='with --scratch: write under scratch/landuse-converter/runs/<LABEL>/<soc>/')
     a = ap.parse_args(); t0 = time.time()
@@ -305,6 +308,9 @@ def main():
     if years[0] < y0 or years[-1] > y1:
         raise SystemExit(f'{a.scenario} covers {y0}-{y1}, not {a.years}')
     commit, dirty = git_state()
+    if a.expect_commit and (dirty or commit != a.expect_commit):
+        raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
+                         f'is now at {commit} and {"not clean" if dirty else "clean"}; submit the job again')
     unit = f'landuse/{a.scenario}'
     to_scratch = dirty or a.scratch
     if a.scratch_label and not (a.scratch and re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', a.scratch_label)):

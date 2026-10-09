@@ -90,7 +90,9 @@ From a repository that is not clean, or with `--scratch`, the producer
 writes to `scratch/vegetation-component/vegetation/` (QC under its `qc/`).
 The producer refuses to write into an existing, non-empty component
 directory, and outside scratch it requires every land-use unit to be
-accepted (`code_dirty: false`, `qc.status: passed`).
+accepted (`code_dirty: false`, `qc.status: passed`). The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or `--expect-commit <commit>`); a producer submitted for the component stops when the repository is no longer clean at that commit when the job starts, so the producer and the verifier never look at different places. `--verify-only` submits a job that runs only the verifier on the existing component (it updates `qc.status`; a repository that is not clean does not redirect it). The verifier records every land-use file its `forcing_tiles` check read, with the sha256 of the unit's
+`provenance.yaml` (`checked_files` in `reports/verify.json`); `render_run.py` renders a run only when the land-use
+files it reads are among them, so the QC has to be run again (`--verify-only`) after a land-use unit changes.
 
 ## Decisions
 

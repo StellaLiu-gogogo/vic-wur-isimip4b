@@ -69,7 +69,9 @@ If the repository is not clean, or with `--scratch`, the producer writes to
 `scratch/landuse-converter/<soc>/` (with `--scratch-label L`: `scratch/landuse-converter/runs/L/<soc>/`)
 instead of the forcing unit (and records `code_dirty: true` when not clean); the submit script then points
 the verifier at that directory with `--unit-dir`. Use `--scratch` for every test run so that no test ever
-lands in `forcing/`.
+lands in `forcing/`. The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or
+`--expect-commit <commit>`); a producer submitted for a forcing unit stops when the repository is no longer
+clean at that commit when the job starts.
 
 ## Decisions
 

@@ -116,7 +116,7 @@ non-empty `forcing/water_use/<soc>/`; replacing an accepted unit needs the user'
 written under a temporary name and renamed when complete; `provenance.yaml` is written last. The input
 files are checked against their manifests (md5) before anything is written. If the repository is not
 clean, or with `--scratch`, everything goes to `scratch/water-use-forcing/<soc>/` (with `--scratch-label L`:
-`scratch/water-use-forcing/runs/L/<soc>/`) and the verifier writes to `<that directory>/qc/`.
+`scratch/water-use-forcing/runs/L/<soc>/`) and the verifier writes to `<that directory>/qc/`. The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or `--expect-commit <commit>`); a producer submitted for a forcing unit stops when the repository is no longer clean at that commit when the job starts, so the producer and the verifier never look at different places. `--verify-only` submits a job that runs only the verifier on the existing files of the unit (it updates `qc.status`; a repository that is not clean does not redirect it).
 
 No cache is used: the parent-child relation is the 6 × 6 subdivision of the grid and the population sums
 take seconds.

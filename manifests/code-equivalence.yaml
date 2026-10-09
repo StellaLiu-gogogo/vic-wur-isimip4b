@@ -45,3 +45,42 @@ equivalences:
       attribute block (recomputed); lost_demand_ledger.csv and lost_parents_2015.csv byte-identical, qa_2015.json
       equal except run time; provenance.yaml differs only in created_at and files[].sha256.
     approved: user, 2026-10-05
+  - id: submit-decision-verify-only-climate
+    producer: workflow/04_forcing/climate/downscale_climate.py
+    method_version: '1.1'
+    from:
+      workflow/04_forcing/climate: a9575dda38073f62f0d98f7724ee9e6e20a5e679
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    to:
+      workflow/04_forcing/climate: 4e134c7c5d789c4028f8161122e3f912c6099e5a
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    change: >-
+      task I (cross-module review of 2026-10-07, P2-2 and P2-3): the submit script decides once whether the producer
+      writes to scratch and passes it on (--scratch or --expect-commit); the producer stops when the repository is no
+      longer clean at the submitted commit; verification-only jobs (--verify-only); README. Method unchanged.
+    evidence: >-
+      Scratch test on 2026-10-08, ec-earth3-esm-1-1 esm-hist lwdown 2015, same inputs and commit base 6e41ff2: before =
+      worktree of 6e41ff2, after = the change (Slurm array job 43240551, comparison job 43240673). The data file is
+      identical in every variable (raw bytes, dtype, dimensions, chunking, filters) and every attribute except
+      code_dirty; provenance.yaml differs only in code_dirty, files[].created_at and files[].sha256.
+    approved: user, 2026-10-09
+  - id: submit-decision-verify-only-water-use
+    producer: workflow/04_forcing/water_use/downscale_water_use.py
+    method_version: '1.0'
+    from:
+      workflow/04_forcing/water_use: 135655c691a32541c9bfae933662cbfc352491bd
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    to:
+      workflow/04_forcing/water_use: 16a5ee926a0a0e3bf3c6ba1c3a01d1aaa2530db2
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    change: >-
+      task I (cross-module review of 2026-10-07, P2-2 and P2-3): the submit script decides once whether the producer
+      writes to scratch and passes it on (--scratch or --expect-commit); the producer stops when the repository is no
+      longer clean at the submitted commit; verification-only jobs (--verify-only); README. Method unchanged. (The
+      producer does not extend units; the entry keeps the recorded fingerprint traceable.)
+    evidence: >-
+      Scratch test on 2026-10-08, histsoc 2015, same inputs and commit base 6e41ff2 (array job 43240551, comparison job
+      43240673): all six files identical in every variable and attribute except code_dirty and created_at;
+      lost_demand_ledger.csv, lost_parents_2015.csv and qa_2015.json byte-identical; provenance.yaml differs only in
+      code_dirty, created_at and files[].sha256.
+    approved: user, 2026-10-09

@@ -275,8 +275,14 @@ def main():
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates'])
     ap.add_argument('--processes', type=int, default=16, help='parallel readers of the land-use files')
     ap.add_argument('--scratch', action='store_true', help='test run: write under scratch/vegetation-component/')
+    ap.add_argument('--expect-commit', default=None,
+                    help='set by the submit script for an accepted output: stop unless the repository is clean and at '
+                         'this commit')
     a = ap.parse_args(); t0 = time.time(); W = workdir.root()
     commit, dirty = git_state(); to_scratch = dirty or a.scratch
+    if a.expect_commit and (dirty or commit != a.expect_commit):
+        raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
+                         f'is now at {commit} and {"not clean" if dirty else "clean"}; submit the job again')
     pset = f'{W}/parameters/{a.parameter_status}/{a.parameter_set}'
     rel_obj = f'parameters/{a.parameter_status}/{a.parameter_set}/vegetation'
     out = f'{W}/{SCRATCH}/vegetation' if to_scratch else f'{W}/{rel_obj}'

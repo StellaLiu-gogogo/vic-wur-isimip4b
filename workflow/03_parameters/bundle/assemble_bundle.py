@@ -111,8 +111,14 @@ def main():
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates'])
     ap.add_argument('--scratch', action='store_true')
+    ap.add_argument('--expect-commit', default=None,
+                    help='set by the submit script for an accepted output: stop unless the repository is clean and at '
+                         'this commit')
     a = ap.parse_args(); W = workdir()
     commit, dirty = git_state()
+    if a.expect_commit and (dirty or commit != a.expect_commit):
+        raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
+                         f'is now at {commit} and {"not clean" if dirty else "clean"}; submit the job again')
     pset_rel = f'parameters/{a.parameter_status}/{a.parameter_set}'; pset = f'{W}/{pset_rel}'
     to_scratch = a.scratch or dirty
     out_dir = f'{W}/{SCRATCH}/bundle' if to_scratch else f'{pset}/bundle'

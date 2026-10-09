@@ -4,7 +4,9 @@
 Checks (each with its own status; the component passes only when all pass):
   cv_closure          active cells: Cv finite, >= 0, |sum - 1| <= 1e-12; inactive cells: Cv NaN
   nveg                Nveg = number of tiles (Cv > 0) among classes 1-15; tiles in [Nveg, Nveg + 1]; -1 off the domain
-  forcing_tiles       for every coverage file of the five land-use units (re-read here): coverage > 0 only on tiles
+  forcing_tiles       for every coverage file of the five land-use units (re-read here): coverage > 0 only on tiles;
+                      the files read are recorded with the sha256 of their unit's provenance.yaml (checked_files),
+                      which render_run.py compares with the land-use files of a run
   complete_parameters every tile has finite values of every vegetation parameter, all months and root zones
   ranges              physical bounds on tiles (BOUNDS below); fcanopy > 1e-4 (VIC MIN_FCANOPY, strict);
                       root_fract sums to 1 per tile (1e-6) for classes 1-15 (class 16 is bare soil without
@@ -52,6 +54,20 @@ def _violations(path):
     return [int(((cov[k] > 0) & ~tiles[k]).sum()) for k in range(cov.shape[0])]
 
 
+def landuse_files(W):
+    """[(soc, path)] of every coverage file of the five land-use units, and {workdir path: sha256 recorded in the unit's
+    provenance.yaml (None when not recorded, so that render_run.py refuses the file)} of the same files."""
+    files, checked = [], {}
+    for soc in bv.SOC:
+        u = f'{W}/forcing/landuse/{soc}'
+        prov = f'{u}/provenance.yaml'
+        sha = {f['path']: f['sha256'] for f in provenance.read(prov)['files']} if os.path.exists(prov) else {}
+        names = [f for f in sorted(os.listdir(u)) if f.startswith(f'coverage_{soc}_') and f.endswith('.nc')]
+        files += [(soc, f'{u}/{f}') for f in names]
+        checked.update({f'forcing/landuse/{soc}/{f}': sha.get(f) for f in names})
+    return files, checked
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
@@ -88,10 +104,7 @@ def main():
     del cv, act
 
     # ---- every forcing tile is a parameter tile (all files of all five units, re-read here)
-    files = []
-    for soc in bv.SOC:
-        u = f'{W}/forcing/landuse/{soc}'
-        files += [(soc, f'{u}/{f}') for f in sorted(os.listdir(u)) if f.startswith(f'coverage_{soc}_') and f.endswith('.nc')]
+    files, checked_files = landuse_files(W)
     _SHARED['tiles'] = tiles
     per_soc = {soc: {'files': 0, 'violations_by_class': [0] * bv.NCLASS} for soc in bv.SOC}
     with ProcessPoolExecutor(a.processes, mp_context=get_context('fork')) as ex:   # fails at once if a worker dies
@@ -100,7 +113,8 @@ def main():
             per_soc[soc]['violations_by_class'] = [x + y for x, y in zip(per_soc[soc]['violations_by_class'], viol)]
     total = sum(sum(p['violations_by_class']) for p in per_soc.values())
     checks['forcing_tiles'] = {'per_soc': per_soc, 'files': len(files), 'violations': total,
-                               'status': 'passed' if total == 0 and len(files) == 172 * 2 + 79 * 3 else 'failed'}
+                               'status': 'passed' if total == 0 and len(files) == 172 * 2 + 79 * 3 else 'failed',
+                               'checked_files': checked_files}
 
     # ---- parameters per class
     added = np.zeros(tiles.shape, bool); ab = v['added_tile_bits'][:]

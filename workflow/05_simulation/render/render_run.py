@@ -204,6 +204,66 @@ def forcing_plan(W, campaign, run, alias):
     return links, units, mapping
 
 
+def check_same_identity(run_dir, model, params, run_id):
+    """VIC restores a state by array position and checks only its dimensions (drivers/shared_image/src/vic_restore.c,
+    check_init_state_file); the dams plugin restores its states by dam index (plugins/dams/src/dam_state.c). A state
+    of another run is therefore restored only into a run with the same model executable and the same parameter files
+    (md5 per role); otherwise the renderer stops."""
+    with open(os.path.join(run_dir, 'run_manifest.json')) as fh:
+        pm = json.load(fh)
+    def identity(m, p):
+        return {'model commit': m.get('commit'), 'executable sha256': m.get('executable_sha256'),
+                **{f'parameter file {r} (md5)': v.get('md5') for r, v in p.items()}}
+    have = identity(pm.get('model') or {}, (pm.get('inputs') or {}).get('parameters') or {})
+    want = identity(model, params)
+    diff = sorted(k for k in set(have) | set(want) if have.get(k) != want.get(k))
+    if diff:
+        raise RenderError(f'{run_id}: the earlier run {run_dir} differs from this run in {diff}; its end state would '
+                          'be restored into other model parameters (VIC checks only the dimensions)')
+
+
+OUT_NONREN_DEFICIT = 'OUT_NONREN_DEFICIT'
+
+
+def check_nonrenewable_output(campaign):
+    """With NONRENEWABLE_WITHDRAWAL the routing plugin repays the non-renewable deficit from the baseflow that enters the
+    river, but OUT_BASEFLOW keeps it (plugins/routing/src/rout_run.c); OUT_NONREN_DEFICIT (mm, value at the end of the
+    period) must therefore be in the monthly output, for the run check and for qtot in postprocessing."""
+    if not campaign['plugins']['water_use']['nonrenewable_withdrawal']:
+        return
+    o = campaign['output']
+    monthly = set(o.get('diagnostics', {}).get('monthly', [])) | \
+        {n for v in o['isimip'].values() if 'monthly' in v['streams'] for n in v['vic']}
+    if OUT_NONREN_DEFICIT not in monthly:
+        raise RenderError(f'plugins.water_use.nonrenewable_withdrawal is true, but {OUT_NONREN_DEFICIT} is not in the '
+                          'monthly output (output.diagnostics.monthly): the deficit taken from the baseflow before it '
+                          'reaches the river would not be recorded')
+
+
+def check_landuse_tiles(W, params, units, usoc):
+    """VIC stops in the first year in which a land-use class has coverage > 0 in a cell without a tile of that class
+    (plugins/landuse/src/lu_force.c). The vegetation component behind the run's parameter file (bundle provenance,
+    inputs.vegetation_component) must be accepted, and its QC (verify_vegetation.py, check forcing_tiles) must have
+    checked exactly the land-use files of this run (same sha256); otherwise the QC has to be run again
+    (submit_vegetation_component.py --verify-only)."""
+    rel = params['parameters']['path']
+    bprov = read_yaml(f'{W}/{os.path.dirname(rel)}/provenance.yaml')
+    veg = (bprov.get('inputs') or {}).get('vegetation_component')
+    if bprov.get('object') != rel or not veg:
+        raise RenderError(f'{rel}: its provenance.yaml names no vegetation component, so the land-use tiles cannot be '
+                          'checked against the land-use forcing')
+    q = read_yaml(f'{W}/{os.path.dirname(veg)}/provenance.yaml').get('qc') or {}
+    if q.get('status') != 'passed':
+        raise RenderError(f'vegetation component {os.path.dirname(veg)} is not accepted (qc.status {q.get("status")})')
+    with open(f'{W}/{q["evidence"]}/reports/verify.json') as fh:
+        checked = json.load(fh)['checks']['forcing_tiles'].get('checked_files') or {}
+    bad = sorted(f['path'] for f in units[f'landuse/{usoc}']['files'].values() if checked.get(f['path']) != f['sha256'])
+    if bad:
+        raise RenderError(f'the vegetation QC ({q["evidence"]}) did not check {len(bad)} land-use files this run reads '
+                          f'as they are now, e.g. {bad[:2]}; run it again on the current land-use units '
+                          '(workflow/03_parameters/vegetation/submit_vegetation_component.py --verify-only)')
+
+
 def link_record(W, links):
     """{run-relative link: workdir-relative source} of the forcing view, checked by run_manifest.py verify-inputs."""
     return {f'forcing/{name}': os.path.relpath(target, W) for name, target in links}
@@ -355,6 +415,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
     in_campaign = {r['segment_id'] for r in all_runs}; in_call = {r['segment_id'] for r in runs}
     nvars = check_outputs_cover_protocol(campaign, protocol_dir)
     check_output_files(campaign)
+    check_nonrenewable_output(campaign)
     model = check_build(W, campaign, resources)
     params = parameter_files(W, campaign)
     _, _, aliases = rc.load_protocol(protocol_dir, campaign['protocol']['simulation_round'])
@@ -370,6 +431,8 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         alias = rc.input_alias(aliases, seg['climate'], campaign['gcms'][seg['gcm']]['climate_input'])
         links, units, mapping = forcing_plan(W, campaign, run, alias)
         check_start_year(run, mapping)
+        if campaign['plugins']['landuse']['enabled']:
+            check_landuse_tiles(W, params, units, campaign['dhf_forcing']['units'][seg['soc']])
         parent = seg['parent']
         init_state = None; parent_state = {}; init_how = 'cold_start'
         init = campaign['initialisation']
@@ -386,6 +449,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             init_state = f'{W}/{src["run_dir"]}/{src["state"]}'
             init_how = f'end state of the earlier run {src["run_dir"]} (campaign initialisation.state_of_run)'
             parent_state = parent_run_state(f'{W}/{src["run_dir"]}', init_state, run['run_id'])
+            check_same_identity(f'{W}/{src["run_dir"]}', model, params, run['run_id'])
             parent_state['reason'] = ' '.join(str(src['reason']).split())
         elif init['without_parent'] != 'cold_start':
             raise RenderError(f'{run["run_id"]}: parent {parent} is not simulated and initialisation.without_parent is '

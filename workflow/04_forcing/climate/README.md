@@ -123,6 +123,7 @@ goes to `scratch/climate-forcing/<gcm>/<alias>/<variable>/` with its QC in
 `qc/` next to it; `--scratch-label <label>` puts a test run under
 `scratch/climate-forcing/runs/<label>/` instead, so that it does not replace
 an earlier one. Use `--scratch` for every test run.
+The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or `--expect-commit <commit>`); a producer submitted for a forcing unit stops when the repository is no longer clean at that commit when the job starts, so the producer and the verifier never look at different places. `--verify-only` submits a job that runs only the verifier on the existing files of the units, e.g. the whole unit after an extension (it updates `qc.status`; a repository that is not clean does not redirect it).
 
 An existing unit is never overwritten. Running the producer for years a unit
 does not contain extends it when the conditions in

@@ -224,6 +224,7 @@ class RenderHarness(unittest.TestCase):
         model = {'commit': 'm' * 40, 'freeze_status': 'provisional', 'build': 'builds/vic/m', 'build_status': 'built',
                  'executable': 'builds/vic/m/vic.exe', 'executable_sha256': 'e' * 64, 'runtime_modules': []}
         aliases = {'historical': ['historical', 'esm-hist'], 'ssp370': ['ssp370', 'esm-ssp370']}
+        self.model, self.params = model, params
         rc = rr.rc
         self.patches = [
             mock.patch.object(rc, 'load_campaign', side_effect=lambda p: self.campaign),
@@ -236,6 +237,7 @@ class RenderHarness(unittest.TestCase):
             mock.patch.object(rr, 'decomposition_groups', return_value={'groups': 128, 'largest_group_cells': 10,
                                                                         'smallest_group_cells': 1, 'active_cells': 100}),
             mock.patch.object(rr, 'forcing_plan', return_value=([], {}, {})),
+            mock.patch.object(rr, 'check_landuse_tiles'),              # needs the forcing_plan record (own tests)
             mock.patch.object(rr, 'render_job', return_value=('job\n', 5))]
         for p in self.patches:
             p.start()
@@ -319,7 +321,8 @@ class StateOfRunTest(RenderHarness):
     def earlier(self, status='completed', state=True):
         os.makedirs(os.path.join(self.src, 'states'))
         with open(os.path.join(self.src, 'run_manifest.json'), 'w') as fh:
-            json.dump({'run_id': 'earlier__smoke2011-2020', 'attempts': [{'attempt': 2, 'status': status}]}, fh)
+            json.dump({'run_id': 'earlier__smoke2011-2020', 'attempts': [{'attempt': 2, 'status': status}],
+                       'model': self.model, 'inputs': {'parameters': self.params}}, fh)   # same model and parameters
         path = os.path.join(self.src, 'states', 'state.20210101_00000.nc')
         if state:
             with open(path, 'w') as fh:
