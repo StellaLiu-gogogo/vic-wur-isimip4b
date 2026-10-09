@@ -73,10 +73,22 @@ def main():
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates'])
     ap.add_argument('--bundle-dir', default=None, help='verify an assembled file in this directory (scratch test)')
+    ap.add_argument('--expect-commit', default=None,
+                    help='set by the submit script: stop unless the repository is clean at this commit')
+    ap.add_argument('--qc-to-scratch', action='store_true',
+                    help='set by the submit script when the repository was not clean: results go to scratch')
     a = ap.parse_args(); W = ab.workdir()
+    commit, dirty = ab.git_state()
+    if a.expect_commit and (dirty or commit != a.expect_commit):
+        raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
+                         f'is now at {commit} and {"not clean" if dirty else "clean"}; submit the job again')
+    # a verifier that is not committed never changes the status of the file (rule 14): its results go to scratch
+    uncommitted = not a.bundle_dir and (dirty or a.qc_to_scratch)
     rel_pset = f'parameters/{a.parameter_status}/{a.parameter_set}'; pset = f'{W}/{rel_pset}'
     bdir = a.bundle_dir or f'{pset}/bundle'
     qc = f'{bdir}/qc' if a.bundle_dir else f'{W}/qc/{rel_pset}/bundle'
+    if uncommitted:
+        qc = f'{W}/{ab.SCRATCH}/verify-uncommitted/qc/{rel_pset}/bundle'
     os.makedirs(f'{qc}/reports', exist_ok=True)
     out = nc.Dataset(f'{bdir}/{ab.OUT_NAME}'); nat = nc.Dataset(f'{pset}/{ab.NATURAL}')
     veg = nc.Dataset(f'{pset}/{ab.VEGETATION}')
@@ -133,8 +145,9 @@ def main():
         json.dump(report, fh, indent=1)
     with open(f'{qc}/summary.json', 'w') as fh:
         json.dump({k: report[k] for k in ('object', 'checked_at', 'status', 'checked_by')} |
-                  {'checks': {k: v['status'] for k, v in checks.items()}}, fh, indent=1)
-    if not a.bundle_dir:
+                  {'checks': {k: v['status'] for k, v in checks.items()}} |
+                  ({'note': 'verifier code not committed (repository not clean): results kept in scratch, the status of the object is unchanged'} if uncommitted else {}), fh, indent=1)
+    if not a.bundle_dir and not uncommitted:
         p = f'{bdir}/provenance.yaml'; prov = yaml.safe_load(open(p))
         prov['qc'] = {'status': status, 'evidence': os.path.relpath(qc, W)}
         with open(p + '.part', 'w') as fh:

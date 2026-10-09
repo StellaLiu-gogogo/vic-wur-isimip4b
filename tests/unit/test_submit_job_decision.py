@@ -1,7 +1,8 @@
 """Unit tests for the submit scripts of the producers (04_forcing climate, land use, water use; 03_parameters
-vegetation, bundle): where the job writes is decided once, at submission, and passed to the producer; a producer
-started for an accepted output stops when the repository is no longer the submitted one; every submit script can
-submit a verification-only job (--verify-only). Jobs are rendered with --dry-run; Git and conda are mocked.
+vegetation, bundle): where the job writes is decided once, at submission, and passed to the producer and the
+verifier; a producer or verifier started for an accepted output stops when the repository is no longer the
+submitted one; a verifier from a repository that is not clean keeps its results in scratch; every submit script
+can submit a verification-only job (--verify-only). Jobs are rendered with --dry-run; Git and conda are mocked.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
@@ -61,6 +62,15 @@ def producer_args(stage, text):
     return line[0].split(STAGES[stage][3], 1)[1].split()
 
 
+VERIFIERS = {'climate': 'verify_forcing.py', 'landuse': 'verify_forcing.py', 'water_use': 'verify_forcing.py',
+             'vegetation': 'verify_vegetation.py', 'bundle': 'verify_bundle.py'}
+
+
+def verifier_args(stage, text):
+    line = [l for l in text.splitlines() if VERIFIERS[stage] in l and 'python3' in l][0]
+    return line.split(VERIFIERS[stage], 1)[1].split()
+
+
 class SubmissionDecisionTest(unittest.TestCase):
     """P2-3: the producer gets the decision of the submit script."""
 
@@ -100,6 +110,21 @@ class ProducerStopsTest(unittest.TestCase):
                     self.assertIn('submitted', code)
 
 
+class ParameterVerifierStopsTest(unittest.TestCase):
+    """P2-7: the vegetation and bundle verifiers submitted for a commit stop when the repository changed."""
+
+    def test_stops(self):
+        for verifier, producer in (('verify_vegetation', 'build_vegetation'), ('verify_bundle', 'assemble_bundle')):
+            v = importlib.import_module(verifier); p = importlib.import_module(producer)
+            for git in (DIRTY, ('c' * 40, False)):
+                with self.subTest(verifier=verifier, git=git), mock.patch.object(p, 'git_state', return_value=git), \
+                        mock.patch.object(sys, 'argv', [verifier, '--expect-commit', CLEAN[0]]):
+                    with self.assertRaises(SystemExit) as cm:
+                        v.main()
+                    self.assertIsInstance(cm.exception.code, str)
+                    self.assertIn('submitted', cm.exception.code)
+
+
 class VerifyOnlyTest(unittest.TestCase):
     """P2-2: every submit script can submit a job that runs only the verifier on the existing output."""
 
@@ -110,12 +135,23 @@ class VerifyOnlyTest(unittest.TestCase):
                 self.assertIsNone(producer_args(stage, text))
                 self.assertIn('-verify', re.search(r'--job-name=(\S+)', text).group(1))
 
-    def test_verify_only_does_not_redirect_existing_output(self):
-        """As for land use: a repository that is not clean redirects the producer, not existing files."""
+    def test_verify_only_checks_existing_output_in_place(self):
+        """P2-7: from a repository that is not clean the verifier checks the existing output itself (no scratch copy)
+        but keeps its results in scratch (--qc-to-scratch); from a clean one it stops if the repository changes."""
         for stage in STAGES:
             with self.subTest(stage=stage):
-                text = render(stage, DIRTY, ['--verify-only'])
-                self.assertNotIn('-scratch', re.search(r'--job-name=(\S+)', text).group(1))
+                args = verifier_args(stage, render(stage, DIRTY, ['--verify-only']))
+                self.assertFalse({'--scratch', '--unit-dir', '--component-dir', '--bundle-dir'} & set(args))
+                self.assertIn('--qc-to-scratch', args)
+                args = verifier_args(stage, render(stage, CLEAN, ['--verify-only']))
+                self.assertEqual(args[args.index('--expect-commit') + 1], CLEAN[0])
+                self.assertNotIn('--qc-to-scratch', args)
+
+    def test_verifier_of_a_production_job_expects_the_commit(self):
+        for stage in STAGES:
+            with self.subTest(stage=stage):
+                args = verifier_args(stage, render(stage, CLEAN))
+                self.assertEqual(args[args.index('--expect-commit') + 1], CLEAN[0])
 
 
 if __name__ == '__main__':

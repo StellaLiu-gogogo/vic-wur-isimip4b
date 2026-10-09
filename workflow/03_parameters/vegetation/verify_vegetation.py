@@ -74,11 +74,23 @@ def main():
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates'])
     ap.add_argument('--component-dir', default=None, help='verify a component in this directory (scratch test)')
     ap.add_argument('--processes', type=int, default=16)
+    ap.add_argument('--expect-commit', default=None,
+                    help='set by the submit script: stop unless the repository is clean at this commit')
+    ap.add_argument('--qc-to-scratch', action='store_true',
+                    help='set by the submit script when the repository was not clean: results go to scratch')
     a = ap.parse_args(); W = workdir.root()
+    commit, dirty = bv.git_state()
+    if a.expect_commit and (dirty or commit != a.expect_commit):
+        raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
+                         f'is now at {commit} and {"not clean" if dirty else "clean"}; submit the job again')
+    # a verifier that is not committed never changes the status of the component (rule 14): its results go to scratch
+    uncommitted = not a.component_dir and (dirty or a.qc_to_scratch)
     pset = f'{W}/parameters/{a.parameter_status}/{a.parameter_set}'
     rel_obj = f'parameters/{a.parameter_status}/{a.parameter_set}/vegetation'
     comp = a.component_dir or f'{W}/{rel_obj}'
     qc_dir = f'{comp}/qc' if a.component_dir else f'{W}/qc/{rel_obj}'
+    if uncommitted:
+        qc_dir = f'{W}/{bv.SCRATCH}/verify-uncommitted/qc/{rel_obj}'
     os.makedirs(f'{qc_dir}/reports', exist_ok=True); os.makedirs(f'{qc_dir}/figures', exist_ok=True)
     prov = provenance.read(f'{comp}/provenance.yaml')
     with nc.Dataset(f'{pset}/{bv.DOMAIN}') as d:
@@ -207,8 +219,10 @@ def main():
     summary = {'object': rel_obj if not a.component_dir else os.path.relpath(comp, W), 'status': status,
                'checked_by': 'workflow/03_parameters/vegetation/verify_vegetation.py', 'updated_at': now,
                'checks': {n: c['status'] for n, c in checks.items()}}
+    if uncommitted:
+        summary['note'] = 'verifier code not committed (repository not clean): results kept in scratch, the status of the object is unchanged'
     qc.write_summary(qc_dir, summary)
-    if not a.component_dir:
+    if not a.component_dir and not uncommitted:
         provenance.set_qc(f'{comp}/provenance.yaml', status, f'qc/{rel_obj}')
     print(json.dumps(summary, indent=1))
     qc.exit_with(status)

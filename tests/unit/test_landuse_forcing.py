@@ -179,10 +179,12 @@ class SubmitRenderTest(unittest.TestCase):
         self.assertNotIn('--scratch', text)
 
     def test_verify_only_job(self):
-        text = self.dry_run('--scenario', 'histsoc', '--years', '1850-2021', '--verify-only')
+        text = self.dry_run_clean('--scenario', 'histsoc', '--years', '1850-2021', '--verify-only')
         self.assertIn('if [ "no" = yes ]', text)                   # producer not run
         self.assertIn('#SBATCH --job-name=landuse-forcing-histsoc-1850-2021-verify', text)
-        self.assertNotIn('--unit-dir', text)                       # the unit itself, even from a dirty repository
+        self.assertNotIn('--unit-dir', text)                       # the unit itself
+        verifier = [l for l in text.splitlines() if 'verify_forcing.py' in l][0]
+        self.assertIn('--expect-commit ' + '0' * 40, verifier)     # (a repository that is not clean: test_submit_job_decision)
         self.assertIn('if [ "yes" = yes ]', self.dry_run('--scenario', 'histsoc', '--years', '2015', '--scratch'))
 
 

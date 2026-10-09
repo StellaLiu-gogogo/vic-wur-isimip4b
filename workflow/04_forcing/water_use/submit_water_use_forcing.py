@@ -52,7 +52,7 @@ def main():
     nproc = max(1, min(a.processes, len(years)))
     mem = a.mem or f'{GB_PER_PROCESS * nproc}G'
     span = f'{years[0]}' if len(years) == 1 else f'{years[0]}-{years[-1]}'
-    job_name = f'water-use-forcing-{a.scenario}-{span}' + ('-scratch' if to_scratch else '') + \
+    job_name = f'water-use-forcing-{a.scenario}-{span}' + ('-scratch' if to_scratch or dirty else '') + \
         (f'-{a.scratch_label}' if a.scratch_label else '') + ('-verify' if a.verify_only else '')
     unit = f'water_use/{a.scenario}'
     sbase = f'{W}/{wu.SCRATCH}' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')
@@ -61,8 +61,10 @@ def main():
     producer = f'--scenario {a.scenario} --years {years[0]}-{years[-1]} {params} --processes {nproc}' + \
         (' --scratch' if to_scratch else f' --expect-commit {commit}') + \
         (f' --scratch-label {a.scratch_label}' if a.scratch_label else '')
+    # a verifier from a repository that is not clean checks the output in place but keeps its results in scratch and
+    # never changes the output's status (--qc-to-scratch); otherwise it stops if the repository changes (--expect-commit)
     verifier = f'--scenario {a.scenario} --years {years[0]}-{years[-1]} {params} --processes {nproc}' + \
-        (f' --unit-dir {out}' if to_scratch else '')
+        (f' --unit-dir {out}' if to_scratch else (' --qc-to-scratch' if dirty else f' --expect-commit {commit}'))
     stage_logs = workdir.logs('04_forcing', W)
     text = jobrecord.render(TEMPLATE, {
         'JOB_NAME': job_name, 'PARTITION': a.partition, 'TIME': a.time, 'CPUS': str(nproc), 'MEM': mem,
@@ -80,7 +82,8 @@ def main():
         'inputs': [wu.WA, wu.GW, f'{wu.POP}/{wu.SCEN[a.scenario][1][0]}', wu.COUNTRYMASK,
                    wu.DOMAIN.format(status=a.parameter_status, pset=a.parameter_set)],
         'outputs': [os.path.relpath(out, W)],
-        'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'qc/forcing/{unit}'}
+        'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'scratch/water-use-forcing/verify-uncommitted/qc/forcing/{unit}' if dirty
+        else f'qc/forcing/{unit}'}
     jobrecord.submit(text, stage_logs, job_name, 'workflow/04_forcing/water_use/submit_water_use_forcing.py',
                      'workflow/04_forcing/water_use/water_use_forcing.sbatch', commit, dirty, details)
 

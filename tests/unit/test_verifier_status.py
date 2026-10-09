@@ -39,14 +39,26 @@ def write_report(reports, year, status, data_files):
                                                      'binding': qc.binding(data_files, VERIFIER)})
 
 
+# Git state the forcing verifiers see (common.qc.verifier_state), extra arguments, and the last exit status: tests
+# set them, so that results do not depend on the state of the working copy that runs the tests
+REPO_STATE = {'commit': '1' * 40, 'dirty': False}
+EXTRA_ARGV = []
+LAST = {}
+
+
 def run_main(mod, argv, workdir):
     """main() of a verifier; returns its exit status (None when it returns normally)."""
-    with mock.patch.object(sys, 'argv', ['verifier'] + argv), contextlib.redirect_stdout(io.StringIO()), \
-            mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': workdir}):
+    def state(repo, verifier_dir):
+        return {'verifier_commit': REPO_STATE['commit'], 'verifier_dirty': REPO_STATE['dirty'],
+                'verifier_code_tree': {verifier_dir: 't' * 40}}
+    LAST.clear()
+    with mock.patch.object(sys, 'argv', ['verifier'] + argv + EXTRA_ARGV), contextlib.redirect_stdout(io.StringIO()), \
+            mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': workdir}), mock.patch.object(qc, 'verifier_state', state):
         try:
             mod.main()
         except SystemExit as e:
-            return e.code if e.code is not None else 0
+            LAST['code'] = e.code if e.code is not None else 0
+            return LAST['code']
     return None
 
 
@@ -256,6 +268,41 @@ class UnitProvenanceChecks:
         self.assertEqual(self.main(None)[0], 1)
         self.assert_qc('failed')
 
+    def reset_state(self):
+        REPO_STATE.update(commit='1' * 40, dirty=False); EXTRA_ARGV.clear()
+
+    def test_uncommitted_verifier_leaves_unit(self):
+        """P2-7: a verifier from a repository that is not clean (or told so by the submit script) checks the unit but
+        keeps its results in scratch; the unit's provenance.yaml and qc/ are not touched."""
+        self.addCleanup(self.reset_state)
+        self.status = {2015: 'passed', 2016: 'passed'}
+        for dirty, extra in ((True, []), (False, ['--qc-to-scratch'])):
+            with self.subTest(dirty=dirty, extra=extra):
+                REPO_STATE['dirty'] = dirty; EXTRA_ARGV[:] = extra
+                with self.assertRaises(FileNotFoundError):              # no summary in the unit's qc/
+                    self.main(None)
+                self.assertEqual(LAST['code'], 0)
+                self.assertEqual(self.prov(), unit_provenance(self.unit_name))
+                with open(f'{self.W}/{self.SCRATCH_QC}/summary.json') as fh:
+                    s = json.load(fh)
+                self.assertEqual(s['status'], 'passed'); self.assertIn('not committed', s['note'])
+
+    def test_changed_repository_stops(self):
+        """P2-7: a verifier submitted for a commit stops when the repository is not clean at that commit."""
+        self.addCleanup(self.reset_state)
+        self.status = {2015: 'passed', 2016: 'passed'}
+        for commit, dirty in (('2' * 40, False), ('1' * 40, True)):
+            with self.subTest(commit=commit, dirty=dirty):
+                REPO_STATE['dirty'] = dirty; EXTRA_ARGV[:] = ['--expect-commit', '1' * 40]
+                REPO_STATE['commit'] = commit
+                try:
+                    self.main(None)
+                except FileNotFoundError:
+                    pass
+                self.assertIsInstance(LAST.get('code'), str)
+                self.assertIn('submitted', LAST['code'])
+                self.assertEqual(self.prov(), unit_provenance(self.unit_name))
+
     def test_provenance_back_to_not_checked(self):
         """A passed unit whose 2015 file is replaced and only 2016 verified again is no longer passed."""
         self.status = {2015: 'passed', 2016: 'passed'}
@@ -267,6 +314,8 @@ class UnitProvenanceChecks:
 
 
 class LanduseUnitTest(UnitProvenanceChecks, LanduseVerifierTest):
+    SCRATCH_QC = 'scratch/landuse-converter/verify-uncommitted/qc/forcing/landuse/histsoc'
+
     def setUp(self):
         super().setUp()
         self.unit = f'{self.W}/forcing/landuse/histsoc'; os.makedirs(self.unit)
@@ -295,6 +344,8 @@ class LanduseUnitTest(UnitProvenanceChecks, LanduseVerifierTest):
 
 
 class WaterUseUnitTest(UnitProvenanceChecks, WaterUseVerifierTest):
+    SCRATCH_QC = 'scratch/water-use-forcing/verify-uncommitted/qc/forcing/water_use/histsoc'
+
     def setUp(self):
         super().setUp()
         self.unit = f'{self.W}/forcing/water_use/histsoc'; os.makedirs(self.unit)
@@ -325,6 +376,7 @@ class WaterUseUnitTest(UnitProvenanceChecks, WaterUseVerifierTest):
 
 class ClimateUnitTest(UnitProvenanceChecks, ClimateVerifierTest):
     UNIT = 'climate/ec-earth3-esm-1-1/esm-hist/prec'
+    SCRATCH_QC = f'scratch/climate-forcing/verify-uncommitted/qc/forcing/{UNIT}'
 
     def setUp(self):
         super().setUp()

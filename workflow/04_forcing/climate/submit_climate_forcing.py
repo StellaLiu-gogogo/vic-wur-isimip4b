@@ -46,13 +46,15 @@ def main():
     variables = dc.select_variables(a.variables, to_scratch)
     y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
     span = f'{years[0]}' if len(years) == 1 else f'{years[0]}-{years[-1]}'
-    job_name = f'climate-forcing-{a.gcm}-{a.alias}-{span}' + ('-scratch' if to_scratch else '') + \
+    job_name = f'climate-forcing-{a.gcm}-{a.alias}-{span}' + ('-scratch' if to_scratch or dirty else '') + \
         (f'-{a.scratch_label}' if a.scratch_label else '') + ('-verify' if a.verify_only else '')
     common = f'--gcm {a.gcm} --alias {a.alias} --variables {",".join(variables)} --years {years[0]}-{years[-1]}'
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
     label = f' --scratch-label {a.scratch_label}' if a.scratch_label else ''
     producer = f'{common} {params} --processes {min(a.cpus, len(variables))}' + (' --scratch' + label if to_scratch else f' --expect-commit {commit}')
-    verifier = f'{common} {params} --processes {a.cpus}' + (' --scratch' + label if to_scratch else '')
+    # a verifier from a repository that is not clean checks the output in place but keeps its results in scratch and
+    # never changes the output's status (--qc-to-scratch); otherwise it stops if the repository changes (--expect-commit)
+    verifier = f'{common} {params} --processes {a.cpus}' + (' --scratch' + label if to_scratch else (' --qc-to-scratch' if dirty else f' --expect-commit {commit}'))
     stage_logs = workdir.logs('04_forcing', W)
     text = jobrecord.render(TEMPLATE, {
         'JOB_NAME': job_name, 'PARTITION': a.partition, 'TIME': a.time, 'CPUS': str(a.cpus), 'MEM': a.mem,
@@ -76,6 +78,7 @@ def main():
             dc.BUNDLE_FILE.format(status=a.parameter_status, pset=a.parameter_set), dc.ERA5_FILE],
         'outputs': [os.path.relpath(f'{base}/{a.gcm}/{a.alias}/{v}', W) for v in variables],
         'qc': [os.path.relpath(f'{base}/{a.gcm}/{a.alias}/{v}/qc', W) if to_scratch
+               else f'scratch/climate-forcing/verify-uncommitted/qc/forcing/climate/{a.gcm}/{a.alias}/{v}' if dirty
                else f'qc/forcing/climate/{a.gcm}/{a.alias}/{v}' for v in variables]}
     jobrecord.submit(text, stage_logs, job_name, 'workflow/04_forcing/climate/submit_climate_forcing.py',
                      'workflow/04_forcing/climate/climate_forcing.sbatch', commit, dirty, details)

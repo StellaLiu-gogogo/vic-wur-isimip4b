@@ -335,6 +335,10 @@ def main():
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--processes', type=int, default=None)
+    ap.add_argument('--expect-commit', default=None,
+                    help='set by the submit script: stop unless the repository is clean at this commit')
+    ap.add_argument('--qc-to-scratch', action='store_true',
+                    help='set by the submit script when the repository was not clean: results go to scratch')
     a = ap.parse_args()
     variables = a.variables.split(',')
     if a.scratch:
@@ -346,12 +350,20 @@ def main():
     ctx = CTX = Context(f'{pdir}/domain/vic_global_5min_domain_nogl.nc',
                   f'{pdir}/bundle/vic_global_5min_natural_static_root-b-zeng2001.nc', tmp)
     verifier = qc.verifier_state(REPO, 'workflow/04_forcing/climate')
+    commit, dirty = verifier['verifier_commit'], verifier['verifier_dirty']
+    if a.expect_commit and (dirty or commit != a.expect_commit):
+        raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
+                         f'is now at {commit} and {"not clean" if dirty else "clean"}; submit the job again')
+    # a verifier that is not committed never changes the status of a unit (rule 14): its results go to scratch
+    uncommitted = not a.scratch and (dirty or a.qc_to_scratch)
     jobs, dirs = [], {}
     for v in variables:
         unit = f'climate/{a.gcm}/{a.alias}/{v}'
         sbase = f'{W}/scratch/climate-forcing' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')
         unit_dir = f'{sbase}/{a.gcm}/{a.alias}/{v}' if a.scratch else f'{W}/forcing/{unit}'
         qc_dir = f'{unit_dir}/qc' if a.scratch else f'{W}/qc/forcing/{unit}'
+        if uncommitted:
+            qc_dir = f'{W}/scratch/climate-forcing/verify-uncommitted/qc/forcing/{unit}'
         reports, figs = f'{qc_dir}/reports', f'{qc_dir}/figures'
         os.makedirs(reports, exist_ok=True); os.makedirs(figs, exist_ok=True)
         files = sorted(glob.glob(f'{unit_dir}/{v}_{a.gcm}_{a.alias}_*.nc'))
@@ -379,9 +391,11 @@ def main():
                    'checked_by': CHECKED_BY, 'updated_at': provenance.utcnow(), 'files': len(vals),
                    **{s: vals.count(s) for s in ('passed', 'warning', 'failed', 'not_checked')},
                    'per_year': {str(k): s for k, s in sorted(per_year.items())}}
+        if uncommitted:
+            summary['note'] = 'verifier code not committed (repository not clean): results kept in scratch, the status of the object is unchanged'
         qc.write_summary(qc_dir, summary)
         prov_path = f'{unit_dir}/provenance.yaml'
-        if os.path.exists(prov_path):
+        if os.path.exists(prov_path) and not uncommitted:
             provenance.set_qc(prov_path, status, os.path.relpath(qc_dir, W))
         print(f'{unit}: {status} ({summary["passed"]} passed, {summary["warning"]} warning, {summary["failed"]} failed, '
               f'{summary["not_checked"]} not checked)')

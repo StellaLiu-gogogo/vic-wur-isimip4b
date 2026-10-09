@@ -137,9 +137,22 @@ def main():
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--processes', type=int, default=1, help='files verified in parallel (up to about 7.4 GB each)')
+    ap.add_argument('--expect-commit', default=None,
+                    help='set by the submit script: stop unless the repository is clean at this commit')
+    ap.add_argument('--qc-to-scratch', action='store_true',
+                    help='set by the submit script when the repository was not clean: results go to scratch')
     a = ap.parse_args()
     unit = f'landuse/{a.scenario}'; unit_dir = a.unit_dir or f'{WORKDIR}/forcing/{unit}'
+    verifier = qc.verifier_state(REPO, 'workflow/04_forcing/landuse')
+    commit, dirty = verifier['verifier_commit'], verifier['verifier_dirty']
+    if a.expect_commit and (dirty or commit != a.expect_commit):
+        raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
+                         f'is now at {commit} and {"not clean" if dirty else "clean"}; submit the job again')
+    # a verifier that is not committed never changes the status of a unit (rule 14): its results go to scratch
+    uncommitted = not a.unit_dir and (dirty or a.qc_to_scratch)
     qc_dir = f'{unit_dir}/qc' if a.unit_dir else f'{WORKDIR}/qc/forcing/{unit}'
+    if uncommitted:
+        qc_dir = f'{WORKDIR}/scratch/landuse-converter/verify-uncommitted/qc/forcing/{unit}'
     reports, figs = f'{qc_dir}/reports', f'{qc_dir}/figures'; os.makedirs(reports, exist_ok=True); os.makedirs(figs, exist_ok=True)
     f_dom = f'{WORKDIR}/parameters/{a.parameter_status}/{a.parameter_set}/domain/vic_global_5min_domain_nogl.nc'
     files = sorted(f for f in os.listdir(unit_dir) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc'))
@@ -147,7 +160,6 @@ def main():
         y = a.years.split('-'); want = set(range(int(y[0]), int(y[-1]) + 1))
         files = [f for f in files if int(f[:-3].rsplit('_', 1)[1]) in want]
     if not files: raise SystemExit(f'no coverage files in {unit_dir}')
-    verifier = qc.verifier_state(REPO, 'workflow/04_forcing/landuse')
     jobs = [(f'{unit_dir}/{f}', a.scenario, f_dom, reports, figs, verifier) for f in files]
     nproc = max(1, min(a.processes, len(jobs)))
     if nproc == 1:
@@ -168,9 +180,11 @@ def main():
                'files': len(all_files), 'passed': sum(v == 'passed' for v in per_year.values()),
                'failed': sum(v == 'failed' for v in per_year.values()), 'not_checked': sum(v == 'not_checked' for v in per_year.values()),
                'per_year': {str(k): v for k, v in sorted(per_year.items())}}
+    if uncommitted:
+        summary['note'] = 'verifier code not committed (repository not clean): results kept in scratch, the status of the object is unchanged'
     qc.write_summary(qc_dir, summary)
     prov_path = f'{unit_dir}/provenance.yaml'
-    if not a.unit_dir and os.path.exists(prov_path):
+    if not a.unit_dir and not uncommitted and os.path.exists(prov_path):
         provenance.set_qc(prov_path, status, f'qc/forcing/{unit}')
     print(f'unit {unit}: {status} ({summary["passed"]} passed, {summary["failed"]} failed, {summary["not_checked"]} not checked of {len(all_files)})')
     qc.exit_with(status)

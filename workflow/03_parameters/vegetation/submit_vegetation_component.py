@@ -40,11 +40,13 @@ def main():
     commit, dirty = bv.git_state(); to_scratch = a.scratch or (dirty and not a.verify_only)
     rel_obj = f'parameters/{a.parameter_status}/{a.parameter_set}/vegetation'
     out = f'{W}/{bv.SCRATCH}/vegetation' if to_scratch else f'{W}/{rel_obj}'
-    job_name = f'vegetation-component-{a.parameter_set}' + ('-scratch' if to_scratch else '') + \
+    job_name = f'vegetation-component-{a.parameter_set}' + ('-scratch' if to_scratch or dirty else '') + \
         ('-verify' if a.verify_only else '')
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status} --processes {a.processes}'
     producer = params + (' --scratch' if to_scratch else f' --expect-commit {commit}')
-    verifier = params + (f' --component-dir {out}' if to_scratch else '')
+    # a verifier from a repository that is not clean checks the output in place but keeps its results in scratch and
+    # never changes the output's status (--qc-to-scratch); otherwise it stops if the repository changes (--expect-commit)
+    verifier = params + (f' --component-dir {out}' if to_scratch else (' --qc-to-scratch' if dirty else f' --expect-commit {commit}'))
     stage_logs = workdir.logs('03_parameters', W)
     text = jobrecord.render(TEMPLATE, {
         'JOB_NAME': job_name, 'PARTITION': a.partition, 'TIME': a.time, 'CPUS': str(a.processes), 'MEM': a.mem,
@@ -63,7 +65,8 @@ def main():
                      'verifier': f'python3 workflow/03_parameters/vegetation/verify_vegetation.py {verifier}'},
         'inputs': [f'{pset}/{bv.BASE_BUNDLE}', f'{pset}/{bv.DOMAIN}', bv.KOPPEN] + [f'forcing/landuse/{s}' for s in bv.SOC],
         'outputs': [os.path.relpath(out, W)],
-        'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'qc/{rel_obj}'}
+        'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'{bv.SCRATCH}/verify-uncommitted/qc/{rel_obj}' if dirty
+        else f'qc/{rel_obj}'}
     jobrecord.submit(text, stage_logs, job_name, 'workflow/03_parameters/vegetation/submit_vegetation_component.py',
                      'workflow/03_parameters/vegetation/vegetation_component.sbatch', commit, dirty, details)
 

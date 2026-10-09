@@ -37,11 +37,13 @@ def main():
     commit, dirty = ab.git_state(); to_scratch = a.scratch or (dirty and not a.verify_only)
     rel_obj = f'parameters/{a.parameter_status}/{a.parameter_set}/bundle'
     out = f'{W}/{ab.SCRATCH}/bundle' if to_scratch else f'{W}/{rel_obj}'
-    job_name = f'parameter-bundle-{a.parameter_set}' + ('-scratch' if to_scratch else '') + \
+    job_name = f'parameter-bundle-{a.parameter_set}' + ('-scratch' if to_scratch or dirty else '') + \
         ('-verify' if a.verify_only else '')
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
     producer = params + (' --scratch' if to_scratch else f' --expect-commit {commit}')
-    verifier = params + (f' --bundle-dir {out}' if to_scratch else '')
+    # a verifier from a repository that is not clean checks the output in place but keeps its results in scratch and
+    # never changes the output's status (--qc-to-scratch); otherwise it stops if the repository changes (--expect-commit)
+    verifier = params + (f' --bundle-dir {out}' if to_scratch else (' --qc-to-scratch' if dirty else f' --expect-commit {commit}'))
     conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
         os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
     stage_logs = f'{W}/logs/03_parameters'
@@ -80,7 +82,8 @@ def main():
                      'verifier': f'python3 workflow/03_parameters/bundle/verify_bundle.py {verifier}'},
         'inputs': [f'{pset}/{ab.NATURAL}', f'{pset}/{ab.VEGETATION}', f'{pset}/{ab.DOMAIN}'],
         'outputs': [os.path.relpath(out, W)],
-        'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'qc/{rel_obj}'}
+        'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'{ab.SCRATCH}/verify-uncommitted/qc/{rel_obj}' if dirty
+        else f'qc/{rel_obj}'}
     with open(f'{job_dir}/job.yaml', 'w') as fh:
         yaml.safe_dump(record, fh, sort_keys=False)
     subprocess.run(['scontrol', 'release', job_id], check=True)

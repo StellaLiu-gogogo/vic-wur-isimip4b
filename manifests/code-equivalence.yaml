@@ -84,3 +84,41 @@ equivalences:
       lost_demand_ledger.csv, lost_parents_2015.csv and qa_2015.json byte-identical; provenance.yaml differs only in
       code_dirty, created_at and files[].sha256.
     approved: user, 2026-10-09
+  - id: uncommitted-verifier-climate
+    producer: workflow/04_forcing/climate/downscale_climate.py
+    method_version: '1.1'
+    from:
+      workflow/04_forcing/climate: 4e134c7c5d789c4028f8161122e3f912c6099e5a
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    to:
+      workflow/04_forcing/climate: 29d9f28bd90f1a8042845dd94e663fa269028ab5
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    change: >-
+      cross-module review of 2026-10-07, P2-7: a verifier run from a repository that is not clean checks the unit but
+      keeps its results in scratch (verify-uncommitted/) and never changes qc.status; the submit script passes
+      --qc-to-scratch or --expect-commit to the verifier; README. Producer and method unchanged.
+    evidence: >-
+      Scratch test on 2026-10-09, ec-earth3-esm-1-1 esm-hist lwdown 2015, same inputs and commit base 9a87e5e: before =
+      worktree of 9a87e5e, after = the change (Slurm array job 43250040, comparison job 43250092). The data file is
+      identical in every variable and attribute except code_dirty and created_at; provenance.yaml differs only in
+      code_dirty, created_at, files[].created_at and files[].sha256.
+    approved: user, 2026-10-09
+  - id: uncommitted-verifier-water-use
+    producer: workflow/04_forcing/water_use/downscale_water_use.py
+    method_version: '1.0'
+    from:
+      workflow/04_forcing/water_use: 16a5ee926a0a0e3bf3c6ba1c3a01d1aaa2530db2
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    to:
+      workflow/04_forcing/water_use: a2b412de9c79ef29a1c2e51fab656a96e4c35887
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    change: >-
+      cross-module review of 2026-10-07, P2-7: a verifier run from a repository that is not clean checks the unit but
+      keeps its results in scratch (verify-uncommitted/) and never changes qc.status; the submit script passes
+      --qc-to-scratch or --expect-commit to the verifier; README. Producer and method unchanged.
+    evidence: >-
+      Scratch test on 2026-10-09, histsoc 2015, same inputs and commit base 9a87e5e (array job 43250040, comparison job
+      43250092): all six files identical in every variable and attribute except code_dirty and created_at;
+      lost_demand_ledger.csv and lost_parents_2015.csv byte-identical; qa_2015.json equal except runtime_s;
+      provenance.yaml differs only in code_dirty, created_at and files[].sha256.
+    approved: user, 2026-10-09

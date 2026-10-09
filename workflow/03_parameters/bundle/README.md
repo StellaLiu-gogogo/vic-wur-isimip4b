@@ -54,7 +54,7 @@ python3 workflow/03_parameters/bundle/submit_bundle.py             # candidate f
 
 One core and about 10 GB; the copy writes about 4 GB. From a repository that is not clean, or with
 `--scratch`, everything goes to `scratch/parameter-bundle/bundle/` (QC under its `qc/`). The producer never
-overwrites an existing assembled file. The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or `--expect-commit <commit>`); a producer submitted for the parameter set stops when the repository is no longer clean at that commit when the job starts, so the producer and the verifier never look at different places. `--verify-only` submits a job that runs only the verifier on the existing assembled file (it updates `qc.status`; a repository that is not clean does not redirect it).
+overwrites an existing assembled file. The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or `--expect-commit <commit>`); a producer submitted for the parameter set stops when the repository is no longer clean at that commit when the job starts, so the producer and the verifier never look at different places. `--verify-only` submits a job that runs only the verifier on the existing assembled file (it updates `qc.status`; a repository that is not clean does not redirect it, but its results then go to `scratch/<stage scratch>/verify-uncommitted/qc/...` and the status is not changed; results of uncommitted verifier code are never moved from there: commit, then verify again).
 
 ## Decisions
 
