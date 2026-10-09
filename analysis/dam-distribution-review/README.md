@@ -56,4 +56,6 @@ python analysis/dam-distribution-review/review_dams.py --submit
   `gdw_tier_exclusions.csv`, `gdw_excluded_by_dor_largest.csv`.
 - `logs/review_<slurm-job-id>/`: job record.
 
-**Conclusion.** Pending; to be recorded in the context of D19 in `docs/decisions/open-decisions.md`.
+**Conclusion.** Pending; to be recorded in the context of D19 in `docs/decisions/open-decisions.md`. Recorded
+there on 2026-10-09: the GDW rule DOR >= 10 % leaves large run-of-river reservoirs out of the dam file
+(1 373 dams, 528 km3), added to D19 by the user.

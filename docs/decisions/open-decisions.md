@@ -8,7 +8,7 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-10-08.
+Last reviewed: 2026-10-09.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
@@ -69,7 +69,7 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | D16 | Elevation correction of downward longwave radiation (`lwdown`) in the climate forcing, consistent with the lapse-rate correction of `tair` | 04_forcing | | user | decided 2026-10-01 ([D16-lwdown-elevation-correction.md](D16-lwdown-elevation-correction.md)): option A, ratio method of Cosgrove et al. (2003) as in WATCH/WFDE5 |
 | D17 | Potential irrigation (`pirrww`, `pirrwwgw`, `pirruse`, `pirrusegw`): whether to report it and, if so, from additional runs with `POTENTIAL_IRRIGATION TRUE` | 08_delivery | | user | open |
 | D18 | Snow accumulating every year on high-mountain and glacier cells in the smoke run (about 21 times faster than in the WFDE5-driven natural run on the same cells): whether the climate forcing's elevation correction, the precipitation, or the model's snow treatment on such cells needs a change | - | none: parked; reviewed when the user has time, does not block any stage | user | open |
-| D19 | Dams and initial states per experiment: which dam parameters (construction years) each DHF scenario uses (`1850soc`, `2021soc`, `histsoc`, SSP units; dams with construction year 0), and how runs are spun up and warm-started (spin-up DHF and dams, date of an initial state against the run start, reuse of another run's end state) | 05_simulation | | user | open |
+| D19 | Dams and initial states per experiment: which dams the dam parameters contain (the GDW selection rule DOR ≥ 10 % leaves out large run-of-river reservoirs such as Three Gorges and Itaipu) and which of them (construction years) each DHF scenario uses (`1850soc`, `2021soc`, `histsoc`, SSP units; dams with construction year 0), and how runs are spun up and warm-started (spin-up DHF and dams, date of an initial state against the run start, reuse of another run's end state) | 05_simulation | | user | open |
 | D20 | First year of runs on constant DHF units: how the land-use and water-use units of `1850soc` and `2021soc` provide a file of a run's first year that lies outside their own years (`2021soc` historical from 1850, `1850soc` pre-industrial from 1601 and future from 2022, spin-ups), which VIC requires for the start year | 05_simulation | | user | open |
 
 ## Context
@@ -186,6 +186,23 @@ user (2026-10-08): dam parameters may need different files for different
 experiments, and the spin-up of the model has to be reconsidered. Until
 decided, no production segment is rendered, and a warm start whose state
 date differs from the run start is not used for results.
+
+Added to D19 on 2026-10-09 (user), from the analysis
+`dam-distribution-review` (`workdir/analysis/dam-distribution-review/`):
+the dam file (`vic_global_5min_dam_parameters_t3-extended-merged.nc`,
+7 925 dams, 6 641 km³) is the GDW tier T3_extended of `vic_parameter`
+(capacity ≥ 20 hm³, quality ≤ 4, degree of regulation DOR ≥ 10 %). The DOR
+rule leaves out 1 373 GDW reservoirs with 528 km³ that pass the other two
+rules, among them Three Gorges (39 km³, DOR 9 %), Itaipu (29 km³), Yacyretá
+(21 km³), Porto Primavera (20 km³), Xiluodu and Saratov (13 km³ each) and
+Grand Coulee (6 km³); Raza Dike (Razzaza, 26 km³) is left out because its
+DOR is missing (−99). The ISIMIP4b reservoirs-dams data (`histsoc`, 7 331
+dams, 7 035 km³ in 2021) contain these reservoirs. The question is whether
+the dam parameters keep the T3_extended selection, drop or change the DOR
+rule (and the treatment of a missing DOR), or are rebuilt from another
+source such as the ISIMIP4b data; the dam list has to be fixed before the
+per-scenario dam files of this decision are produced, because an initial
+state is restored by dam position.
 
 **D20 — First year of runs on constant DHF units.** Raised 2026-10-07 by the
 cross-module review. VIC checks the first time of each plugin file of the
