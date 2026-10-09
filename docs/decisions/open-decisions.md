@@ -8,7 +8,7 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-10-05.
+Last reviewed: 2026-10-08.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
@@ -68,6 +68,9 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | D15 | Migration of the legacy `vic_global/isimip4b/` area into this project | - | approved 2026-09-29 | user | decided ([D15-legacy-migration.md](D15-legacy-migration.md)) |
 | D16 | Elevation correction of downward longwave radiation (`lwdown`) in the climate forcing, consistent with the lapse-rate correction of `tair` | 04_forcing | | user | decided 2026-10-01 ([D16-lwdown-elevation-correction.md](D16-lwdown-elevation-correction.md)): option A, ratio method of Cosgrove et al. (2003) as in WATCH/WFDE5 |
 | D17 | Potential irrigation (`pirrww`, `pirrwwgw`, `pirruse`, `pirrusegw`): whether to report it and, if so, from additional runs with `POTENTIAL_IRRIGATION TRUE` | 08_delivery | | user | open |
+| D18 | Snow accumulating every year on high-mountain and glacier cells in the smoke run (about 21 times faster than in the WFDE5-driven natural run on the same cells): whether the climate forcing's elevation correction, the precipitation, or the model's snow treatment on such cells needs a change | - | none: parked; reviewed when the user has time, does not block any stage | user | open |
+| D19 | Dams and initial states per experiment: which dam parameters (construction years) each DHF scenario uses (`1850soc`, `2021soc`, `histsoc`, SSP units; dams with construction year 0), and how runs are spun up and warm-started (spin-up DHF and dams, date of an initial state against the run start, reuse of another run's end state) | 05_simulation | | user | open |
+| D20 | First year of runs on constant DHF units: how the land-use and water-use units of `1850soc` and `2021soc` provide a file of a run's first year that lies outside their own years (`2021soc` historical from 1850, `1850soc` pre-industrial from 1601 and future from 2022, spin-ups), which VIC requires for the start year | 05_simulation | | user | open |
 
 ## Context
 
@@ -145,6 +148,58 @@ variables can only come from separate runs with `POTENTIAL_IRRIGATION TRUE`.
 Raised 2026-10-05 during the smoke campaign; left open by the user: the
 potential variables are listed as not provided until it is decided, and extra
 runs are added then.
+
+**D18 — Snow build-up on glacier cells (parked).** The compute-storage
+analysis (`analysis/compute-storage-plan/`, `snow_compare.py`, report
+section on spin-up, 2026-10-06) found that in the 2011–2020 smoke run snow
+rose every year on 1 928 cells (0.08 % of the area, 111 988 km², mostly
+Patagonia, Karakoram, Alaska, Himalaya) by 94 km³/yr in total, against
+4.4 km³/yr on the same cells in the sibling project's WFDE5-driven natural
+run 1979–2019. The figures relate the temperature difference between the
+two forcings to the height of the 5′ cell above its 0.5° parent, which
+points at the lapse-rate correction of `tair` (and possibly `prec`) on
+cells far above the ERA5 reference height, or at missing glacier
+processes in VIC-WUR. No production stage waits for this: the affected
+area is 0.08 %, the spin-up convergence test leaves these cells out, and
+the ISIMIP products are reported as VIC computes them. The user parks the
+question (2026-10-07) for a later look; a possible outcome is a capped or
+elevation-dependent lapse rate in `04_forcing/climate` (a new method
+version) or a note in the model description.
+
+**D19 — Dams and initial states per experiment.** Raised 2026-10-07 by the
+cross-module review. VIC-WUR (`39e21ff5`) switches a dam on when the
+simulation year reaches the dam's construction year
+(`plugins/dams/src/dam_register.c`) and never switches it off; the active
+flag and the storage are restored from an initial state
+(`dam_state.c`). The renderer passes one dam file to every segment, so
+(a) dams follow the simulation year, not the DHF scenario: a `1850soc`
+future segment gets every dam built 1850–2021, a `2021soc` historical
+segment or spin-up lacks the dams of 2021 until their construction years,
+and the 1 806 dams with construction year 0 are active in every
+pre-industrial and spin-up year; (b) a warm start from a state dated after
+the run start keeps later dams active: the `smoke-nonrenewable` run
+(2011–2020, started 2026-10-07 from the 2021-01-01 state of the smoke run
+2011–2020) ran with the 269 dams built 2012–2020 (284 292 hm³ capacity,
+172 491 hm³ stored) active from January 2011, so its reservoir operation,
+downstream discharge and dam water supply in 2011–2019 are affected. The
+user (2026-10-08): dam parameters may need different files for different
+experiments, and the spin-up of the model has to be reconsidered. Until
+decided, no production segment is rendered, and a warm start whose state
+date differs from the run start is not used for results.
+
+**D20 — First year of runs on constant DHF units.** Raised 2026-10-07 by the
+cross-module review. VIC checks the first time of each plugin file of the
+start year against the climate (`plugins/general/src/plugin_get_forcing_file.c`),
+so `render_run.py` requires the start year to be a file of that year in
+every family; later years may be linked to another year (the `constant`
+rule of `forcing_years.py`). The land-use and water-use producers write only
+the years of their scenario (`1850soc` and `histsoc` 1850–2021, `2021soc`
+and SSP units 2022–2100) and stop otherwise, so the `2021soc` historical
+segments (start 1850), the `1850soc` pre-industrial segment (start 1601),
+the `1850soc` future segments (start 2022) and spin-ups before 1601 cannot
+be rendered. Options include letting the producers of constant units write
+the start year with the unit's constant field, or another way to satisfy
+VIC's start-year check. Related to D19 (spin-up).
 
 **D16 — `lwdown` elevation correction.** The climate forcing corrects `tair`,
 `psurf`, and `vp` from the ERA5 0.5° orography to the 5′ VIC cell
