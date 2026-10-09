@@ -56,6 +56,13 @@ is not `qr`. A campaign (`configs/campaigns/<id>.yaml`, `configs/README.md`) sel
 declares plugin switches, initialisation, DHF forcing units, spin-up and output; resources come from
 `configs/resources/<workload>.yaml`.
 
+`plugins.irrigation.paddy_bare_class` (`PBARE`) 16 is the number of vegetation classes, VIC's default: with it the
+land-use plugin does not move water-balance terms of paddy fields to a separate bare class
+(`plugins/landuse/src/lu_apply.c`; `irr_start.c` accepts only the bare classes, here only 16). `OUT_CV` is not
+reliable with this parameter set: in cells without a tile of class 16 the land-use plugin overwrites the class-1
+value of the output field with 0 (`lu_apply.c`, the unused tile slot has class 0); the Cv used by the model is
+correct, and land cover is taken from the land-use forcing, not from `OUT_CV`.
+
 ## Render (`render/`)
 
 | File | Role |
@@ -138,7 +145,9 @@ run must already have completed with its end state, whose run, attempt and sha25
 
 **Checks before rendering.** Model commit of the campaign = `model/vic.lock.yaml` = build manifest; build
 status `built` or `tested`; resources modules = `runtime_modules` of the build; every parameter file in the
-parameter manifest; every forcing unit accepted (`code_dirty: false`, `qc.status: passed`); the campaign's
+parameter manifest; every forcing unit accepted (`code_dirty: false`, `qc.status: passed`) and made on the
+campaign's domain file and, for climate, with its elevation (the sha256 recorded in the unit's `provenance.yaml`
+equal to that of the domain file and of the natural bundle the parameter file was assembled from); the campaign's
 output selection covers every protocol variable of the sector (mapped or listed as not provided); the output
 streams are `daily` (`NDAYS 1`) and `monthly` (`NMONTHS 1`) with `history_frequency: NYEARS 1`, the only
 files the expected outputs and `check_run.py` know (other stream configurations stop the render); with
@@ -155,8 +164,8 @@ threads).
 
 | File | Role |
 |---|---|
-| `submit_run.py` | renders the runs of a campaign (label) and submits each job on hold, records the attempt, releases it (the run directory is locked meanwhile, so a second submission of the same run stops, and a manifest write never drops a recorded attempt); a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files` |
-| `run_manifest.py` | `verify-inputs` (job step before VIC: checksums of parameters, forcing files, executable and parent state file; every forcing-view link points to its recorded source) and `complete` (job step after VIC, also on failure; exit status 1 when the attempt failed) |
+| `submit_run.py` | renders the runs of a campaign (label) and submits each job on hold, records the attempt, releases it (the run directory is locked meanwhile, so a second submission of the same run stops, and a manifest write never drops a recorded attempt); a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files`; the new job file is checked like a render (resources modules = build `runtime_modules`, MPI tasks ≤ the decomposition groups recorded in `resolved.yaml`) |
+| `run_manifest.py` | `verify-inputs` (job step before VIC: checksums of parameters, forcing files, executable and parent state file; every forcing unit still accepted; every forcing-view link points to its recorded source) and `complete` (job step after VIC, also on failure; every OUTVAR of `vic_global.txt` must be in the output files of its stream, since VIC drops an unknown OUTVAR with only a warning; exit status 1 when the attempt failed) |
 
 ```bash
 conda activate isimip4b
@@ -179,16 +188,16 @@ VIC starts.
 
 | File | Role |
 |---|---|
-| `check_run.py` | checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR`), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), the non-renewable deficit at the end of each month when `OUT_NONREN_DEFICIT` is written, end state; GRDC comparison for the whole run |
+| `check_run.py` | checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR` as a monthly mean), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), the non-renewable deficit at the end of each month when `OUT_NONREN_DEFICIT` is written, end state; GRDC comparison for the whole run |
 | `run_figures.py` | the derived file `reports/water_use_by_sector_<year>.nc` (monthly withdrawal per sector municipal, manufacturing, irrigation and its sources groundwater, surface, dam, remote, nonrenewable; VIC demand and estimated consumption for municipal and manufacturing; VIC-WUR writes the sources per sector but no sector total) and the figures of water use by sector and source, source shares, sector maps, distributions of withdrawal/demand and of remote and groundwater shares, and the water balance |
 | `grdc.py` | GRDC daily export (`raw/external/grdc/export-2024-11`, `manifests/inputs/grdc.yaml`): station files, upstream area along the routing network, station-to-cell mapping (closest upstream area within 3 cells, area error ≤ 30 %), monthly means (≥ 20 valid days) and climatology (≥ 5 years per month) |
-| `check_run.sbatch`, `submit_check.py` | Slurm job of the check (one core, about 7 min and 13 GB for one year), job record under `logs/05_simulation/<job-name>_<slurm-job-id>/`; `submit_run.py` submits it after every run job, to start when the run has succeeded |
+| `check_run.sbatch`, `submit_check.py` | Slurm job of the check (one core, about 7 min and 13 GB for one year), job record under `logs/05_simulation/<job-name>_<slurm-job-id>/`; `submit_run.py` submits it after every run job, to start when the run has succeeded; job name `run-check-<campaign>-<label>`, or the run ID with hyphens for a production run; the job ends FAILED when the check fails (exit status 1) |
 
 Output in `qc/runs/<campaign>/<run-id>/`: `summary.json`, `reports/check.json`, `reports/grdc_stations.csv`,
 `reports/water_use_by_sector_<year>.nc`, `figures/`. GRDC comparison: the runs are driven by GCM climate, so
 days and months do not correspond to observed weather. The main comparison is climatological: the simulated
-monthly-mean seasonal cycle of the run years (without the first year when the run has 3 or more years,
-because of the cold start) against the GRDC climatology of the run years ± 10 years, at stations with a
+monthly-mean seasonal cycle of the run years (without the first year when a cold-started run has 3 or more
+years) against the GRDC climatology of the run years ± 10 years, at stations with a
 catchment of at least 10 000 km2; daily series of the same dates are drawn for visual reference only.
 
 ## Run manifest (`run_manifest.json`, schema `isimip4b-run-manifest-1`)
@@ -197,7 +206,7 @@ catchment of at least 10 000 km2; daily series of the same dates are drawn for v
 |---|---|
 | `campaign_id`, `run_id`, `segment_id`, `label`, `production`, `run_dir`, `period` | identity |
 | `status` | `rendered`, `submitted`, `running`, `completed` or `failed` (of the last attempt) |
-| `parent` | parent segment, `init_state` (workdir path) or `cold_start`; with a state: parent `run_id`, its completed `attempt` and the state's `state_sha256` (null when the parent was rendered in the same call; the attempt's `input_verification.parent_state` then records them) |
+| `parent` | parent segment, `init_state` (workdir path) or `cold_start`; a warm start (`state_of_run`) has `segment_id` null, `protocol_parent_segment` and the earlier run's `run_dir`; with a state: parent `run_id`, its completed `attempt` and the state's `state_sha256` (null when the parent was rendered in the same call; the attempt's `input_verification.parent_state` then records them) |
 | `workflow` | rendering commit, `code_dirty`, script, time |
 | `campaign_config` | campaign file and its sha256 |
 | `model` | commit, freeze status, build directory and status, executable and its sha256, runtime modules |
@@ -208,7 +217,7 @@ catchment of at least 10 000 km2; daily series of the same dates are drawn for v
 | `inputs_fingerprint` | sha256 over executable, inputs, forcing view, rendered model files (not the Slurm job file) and, for a run with an initial state, `parent` |
 | `job_files` | earlier Slurm job files of the run kept by `--rerender-job`, with sha256, time, commit and resources |
 | `expected_outputs` | output files per year and the end state |
-| `attempts[]` | `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches, `parent_state`), `started_at`, `ended_at`, `vic_exit_code`, `scheduler` (sacct rows: state, exit code, elapsed, MaxRSS, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `status`, `failure_reason` |
+| `attempts[]` | `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches, `parent_state`), `output_variables` (per stream: requested OUTVARs and the missing ones), `started_at`, `ended_at`, `vic_exit_code`, `scheduler` (sacct rows: state, exit code, elapsed, MaxRSS, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `status`, `failure_reason` |
 
 Tests: `tests/unit/test_simulation_resolve.py`, `tests/unit/test_simulation_render.py`,
 `tests/unit/test_simulation_submit.py`, `tests/unit/test_run_check_water_use.py`.

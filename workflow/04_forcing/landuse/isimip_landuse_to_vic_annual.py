@@ -37,8 +37,9 @@ Outputs:
       time: one step 0, units days since <year>-01-01 00:00:00, calendar proleptic_gregorian (the VIC clock
       calendar of the project; VIC aborts when a plugin forcing file has another calendar)
   qc/forcing/landuse/<soc>/reports/{ledger,qa}_<year>.{csv,json}
-  scratch/landuse-converter/vic-coverage-mean-2003-2022-weights.npz (weights cache; becomes an
-      intermediate cache once workflow/common/cache.py exists)
+  scratch/landuse-converter/vic-coverage-mean-2003-2022-weights_<key>.npz (weights cache, keyed by the sha256 of
+      the domain file and the VIC coverage files, validated on reading and recorded in provenance.yaml `caches`;
+      becomes an intermediate cache once workflow/common/cache.py exists)
 Rule 14 of the contract: accepted forcing is produced only from a clean repository. If the repository is
 not clean, everything is written under scratch/landuse-converter/<soc>/ instead and provenance records
 code_dirty: true. A forcing unit is generated as a whole: the producer refuses to write into an existing
@@ -54,7 +55,7 @@ Usage: isimip_landuse_to_vic_annual.py --scenario histsoc --years 1850-2021 [--p
 D04 (docs/decisions/D04-landuse-harmonization.md): every fallback parent uses a single child (--small inf,
 the default); rice_rainfed and the *_bf bioenergy variables are part of the rainfed/irrigated sums.
 """
-import argparse, json, os, re, sys, time
+import argparse, hashlib, json, os, re, sys, time, uuid, zipfile
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 
@@ -70,7 +71,7 @@ CREATED_BY = 'workflow/04_forcing/landuse/isimip_landuse_to_vic_annual.py'
 RAW = f'{WORKDIR}/raw/ISIMIP4b/InputData/socioeconomic/landuse'
 COVERAGE = f'{WORKDIR}/raw/external/vic-coverage-version-a/5/coverage_VersionA_v5_{{y}}.nc'
 WEIGHT_YEARS = list(range(2003, 2023))
-CACHE = f'{WORKDIR}/scratch/landuse-converter/vic-coverage-mean-2003-2022-weights.npz'
+CACHE_DIR = f'{WORKDIR}/scratch/landuse-converter'   # weights cache: vic-coverage-mean-2003-2022-weights_<key>.npz
 # soc scenario (ISIMIP specifier) -> (15crops file, urbanareas file, first year)
 SCEN = {
     'histsoc': ('histsoc/landuse-15crops_histsoc_15arcmin_annual_1850_2021.nc', 'histsoc/landuse-urbanareas_histsoc_15arcmin_annual_1850_2021.nc', 1850),
@@ -104,8 +105,38 @@ def blk(x, NB):
     return x.reshape(NB[0], 3, NB[1], 3)
 
 
-def build_weights_cache(path, vlat, vlon, mask):
-    """VIC 2003-2022 mean class fractions on the 5' grid (all 16 classes)."""
+def weights_key(f_dom):
+    """sha256 over the inputs of the weights cache: the domain file and the VIC coverage files of WEIGHT_YEARS."""
+    h = hashlib.sha256()
+    for p in [f_dom] + [COVERAGE.format(y=y) for y in WEIGHT_YEARS]:
+        h.update(f'{os.path.basename(p)} {hashing.sha256(p)}\n'.encode())
+    return h.hexdigest()
+
+
+def load_weights(path, key, shape):
+    """P of a cache file that is readable and was built from the inputs of `key` on the grid `shape`, else None."""
+    try:
+        with np.load(path) as z:
+            if str(z['key']) != key or z['P'].shape[1:] != tuple(shape):
+                return None
+            return z['P'].astype('f8')
+    except (OSError, KeyError, ValueError, EOFError, zipfile.BadZipFile):
+        return None
+
+
+def weights(f_dom, vlat, vlon, mask):
+    """(P, cache path, key): the weights from the cache of these inputs, built when it is missing or invalid."""
+    key = weights_key(f_dom)
+    path = f'{CACHE_DIR}/vic-coverage-mean-2003-2022-weights_{key[:16]}.npz'
+    P = load_weights(path, key, mask.shape)
+    if P is None:
+        P = build_weights_cache(path, vlat, vlon, mask, key)
+    return P, path, key
+
+
+def build_weights_cache(path, vlat, vlon, mask, key):
+    """VIC 2003-2022 mean class fractions on the 5' grid (all 16 classes); written under a temporary name of this
+    process and published by rename, so that jobs building the same cache at the same time do not interfere."""
     n = len(WEIGHT_YEARS); NY, NX = mask.shape; P = np.zeros((16, NY, NX), 'f8')
     for y in WEIGHT_YEARS:
         d = nc.Dataset(COVERAGE.format(y=y)); assert np.allclose(d['lat'][:], vlat) and np.allclose(d['lon'][:], vlon)
@@ -114,7 +145,9 @@ def build_weights_cache(path, vlat, vlon, mask):
         d.close(); print(f'  weights: {y}', flush=True)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     P = P.astype('f4')  # stored and used at float32 so that results do not depend on whether the cache existed
-    np.savez_compressed(path, P=P, years=np.array(WEIGHT_YEARS), source=COVERAGE)
+    tmp = f'{path[:-4]}.{uuid.uuid4().hex}.part.npz'
+    np.savez_compressed(tmp, P=P, years=np.array(WEIGHT_YEARS), source=COVERAGE, key=key)
+    os.replace(tmp, path)
     return P.astype('f8')
 
 
@@ -329,7 +362,7 @@ def main():
     for p in (f15, furb, f_dom):
         if not os.path.isfile(p): raise SystemExit(f'missing input {p}')
     dom = nc.Dataset(f_dom); vlat = dom['lat'][:].filled(np.nan); vlon = dom['lon'][:].filled(np.nan); mask = dom['mask'][:].filled(0).astype(bool); dom.close()
-    P = np.load(CACHE)['P'].astype('f8') if os.path.exists(CACHE) else build_weights_cache(CACHE, vlat, vlon, mask)
+    P, cache, _ = weights(f_dom, vlat, vlon, mask)
     created_at = provenance.utcnow()
     attrs = {'code_commit': commit, 'code_dirty': str(dirty).lower(), 'created_by': CREATED_BY, 'created_at': created_at,
              'forcing_unit': unit, 'method_version': METHOD_VERSION,
@@ -359,6 +392,7 @@ def main():
                    'parameter_set': f'{a.parameter_status}/{a.parameter_set}'},
         'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario} --years {years[0]}-{years[-1]} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status} --small {a.small}'
                            + (' --scratch' if a.scratch else '') + (f' --scratch-label {a.scratch_label}' if a.scratch_label else ''),
+        'caches': [os.path.relpath(cache, WORKDIR)],      # for information only; key: sha256 of the domain and VIC coverage
         'files': [{'path': f, 'size_bytes': os.path.getsize(f'{out}/{f}'), 'sha256': hashing.sha256(f'{out}/{f}')}
                   for f in files],
         'qc': {'status': 'not_checked', 'evidence': f'qc/forcing/{unit}'}}

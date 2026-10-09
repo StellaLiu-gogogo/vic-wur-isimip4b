@@ -162,7 +162,6 @@ class TransferTest(unittest.TestCase):
     # Review of 2026-10-07, finding P3 (not fixed in task J): MD5SUMS is opened for appending, so running a batch
     # again (e.g. to re-verify it) appends a second line for every file accepted again. Remove the decorator when
     # transfer_batch.sh writes each accepted file once.
-    @unittest.expectedFailure
     def test_md5sums_once_per_file_after_rerun(self):
         lst = self.batch(['a/clean.nc', 'a/big.nc'])
         for _ in range(2):

@@ -176,7 +176,10 @@ class CheckRunMainTest(unittest.TestCase):
                 mock.patch.object(run_figures, 'water_balance', return_value=({}, 'wb.png')), \
                 mock.patch.object(check_run.os, 'popen', return_value=io.StringIO('c' * 40)), \
                 contextlib.redirect_stdout(io.StringIO()):
-            check_run.main()
+            try:
+                check_run.main(); self.exit_status = 0
+            except SystemExit as e:
+                self.exit_status = e.code
         qc = f'{self.W}/qc/runs/c/r'
         with open(f'{qc}/summary.json') as fh, open(f'{qc}/reports/check.json') as gh:
             return json.load(fh), json.load(gh)
@@ -189,6 +192,9 @@ class CheckRunMainTest(unittest.TestCase):
         self.assertEqual((y['coverage']['status'], y['budget']['status']), ('passed', 'passed'))
         self.assertEqual(report['state_files'], [{'path': f'states/state.{YEAR + 1}0101_00000.nc', 'size_bytes': 5}])
         self.assertTrue(os.path.isfile(f'{self.W}/qc/runs/c/r/reports/water_use_by_sector_{YEAR}.nc'))
+        self.assertEqual(self.exit_status, 0)
+        # OUT_WATER_ERROR is a monthly mean (VIC default aggregation), reported as such (review P3 D3)
+        self.assertIn('max_abs_monthly_mean_water_error_mm', y['water_balance'])
 
     def test_missing_state_fails(self):
         os.remove(self.state)
@@ -196,6 +202,7 @@ class CheckRunMainTest(unittest.TestCase):
         self.assertEqual((summary['status'], report['status']), ('failed', 'failed'))
         self.assertEqual(report['state_files'], [])
         self.assertEqual(report['years'][str(YEAR)]['budget']['status'], 'passed')
+        self.assertEqual(self.exit_status, 1)                          # the check job ends FAILED (review P3 A2)
 
     def test_coverage_gap_fails(self):
         self.daily(gap=True)
@@ -212,6 +219,18 @@ class CheckRunMainTest(unittest.TestCase):
         self.assertEqual(b['violations']['withdrawn_gt_demand'], 12 * RUN_MASK.sum())
         self.assertEqual(report['years'][str(YEAR)]['coverage']['status'], 'passed')
         self.assertEqual(summary['status'], 'failed')
+        self.assertEqual(self.exit_status, 1)
+
+
+class ClimatologyYearsTest(unittest.TestCase):
+    """Review P3 D5: only a cold-started run leaves out its first year from the GRDC climatology."""
+
+    def test_cold_and_warm_start(self):
+        years = list(range(2011, 2021))
+        self.assertEqual(check_run.climatology_years(years, cold_start=True), years[1:])
+        self.assertEqual(check_run.climatology_years(years, cold_start=False), years)
+        self.assertEqual(check_run.climatology_years([2015, 2016], cold_start=True), [2015, 2016])   # too short
+
 
 if __name__ == '__main__':
     unittest.main()

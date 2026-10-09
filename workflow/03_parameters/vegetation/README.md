@@ -80,6 +80,7 @@ of every coverage file; it moves to `intermediate/` once
 ## Running
 
 ```bash
+conda activate isimip4b          # the system python3 lacks netCDF4 and the other packages
 export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
 export PYTHONPATH=$PWD/workflow
 python3 workflow/03_parameters/vegetation/submit_vegetation_component.py --scratch   # test, scratch/vegetation-component/vegetation/

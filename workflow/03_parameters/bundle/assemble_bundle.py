@@ -106,6 +106,28 @@ def copy_variable(src, out, name):
         v[i] = s[i]
 
 
+RESTRICTIONS = ('not_authorized_for_global_production', 'product_stage')   # of the natural bundle, carried over
+
+
+def vegetation_not_accepted(pset):
+    """None when the vegetation component of the parameter set is accepted (provenance.yaml: code_dirty false,
+    qc.status passed), else the reason."""
+    p = f'{pset}/{os.path.dirname(VEGETATION)}/provenance.yaml'
+    if not os.path.exists(p):
+        return f'{p}: no provenance record'
+    with open(p) as fh:
+        prov = yaml.safe_load(fh) or {}
+    status = (prov.get('qc') or {}).get('status')
+    if prov.get('code_dirty') is not False or status != 'passed':
+        return f'vegetation component not accepted (code_dirty {prov.get("code_dirty")}, qc.status {status})'
+    return None
+
+
+def source_restrictions(nat):
+    """Restriction attributes of the natural bundle, carried into the assembled file and its provenance."""
+    return {k: nat.getncattr(k) for k in RESTRICTIONS if k in nat.ncattrs()}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
@@ -127,6 +149,11 @@ def main():
         sys.exit(f'{out} exists; an assembled file is never overwritten')
     if dirty and not a.scratch:
         print('repository is not clean: writing to scratch (docs/directory-contracts.md, rule 14)')
+    problem = vegetation_not_accepted(pset)
+    if problem and not to_scratch:
+        sys.exit(f'{problem}; an accepted bundle is assembled only from an accepted vegetation component')
+    if problem:
+        print(f'warning: {problem}')
     os.makedirs(out_dir, exist_ok=True)
     nat = nc.Dataset(f'{pset}/{NATURAL}'); veg = nc.Dataset(f'{pset}/{VEGETATION}')
     with nc.Dataset(f'{pset}/{DOMAIN}') as d:
@@ -134,6 +161,7 @@ def main():
             if not np.array_equal(np.asarray(d[c][:]), np.asarray(nat[c][:])):
                 sys.exit(f'{c} of the natural bundle differs from the domain file')
     split, dims = plan(nat, veg)
+    restrictions = source_restrictions(nat)
     print(f'{len(split["natural"])} natural variables, {len(split["vegetation"])} vegetation variables, '
           f'{len(split["replaced"])} natural vegetation variables replaced')
     t0 = utcnow(); part = out + '.part'
@@ -152,7 +180,7 @@ def main():
         'sources': f'non-vegetation variables: {pset_rel}/{NATURAL}; vegetation variables: {pset_rel}/{VEGETATION}',
         'created_by': CREATED_BY, 'code_commit': commit, 'code_dirty': str(dirty).lower(),
         'created_at': t0, 'method_version': METHOD_VERSION,
-        'object': os.path.relpath(out, W)})
+        'object': os.path.relpath(out, W), **restrictions})
     o.close(); nat.close(); veg.close()
     os.replace(part, out)
     info = {'path': OUT_NAME, 'size_bytes': os.path.getsize(out), 'sha256': file_hash(out), 'md5': file_hash(out, 'md5')}
@@ -169,6 +197,7 @@ def main():
                    'dimensions': dims, 'copy': 'stored values, dtype, fill value, chunking and compression unchanged'},
         'rebuild_command': f'python3 {CREATED_BY} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status}',
         'files': [info],
+        'restrictions': {**restrictions, 'source': f'{pset_rel}/{NATURAL}'} if restrictions else {},
         'note': 'This record covers the assembled file only; the adopted files of the bundle component are '
                 f'recorded in manifests/parameters/{a.parameter_set}.yaml.',
         'qc': {'status': 'not_checked'}}

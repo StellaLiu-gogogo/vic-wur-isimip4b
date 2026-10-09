@@ -103,7 +103,7 @@ The grid relation and dz are kept in
 when absent or when the grids, static inputs, or method version change
 (about one minute). Jobs that build it at the same time write separate
 temporary files and publish by rename; a file that cannot be read or does
-not match is rebuilt. They move to `intermediate/` once
+not match is rebuilt; the file used is listed under `caches` in `provenance.yaml`. They move to `intermediate/` once
 `workflow/common/cache.py` exists.
 
 ## Running

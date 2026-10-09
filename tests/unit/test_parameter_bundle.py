@@ -90,5 +90,36 @@ class PlanTest(unittest.TestCase):
                     ab.plan(n, v)
 
 
+
+class SourcesTest(unittest.TestCase):
+    """Review P3 B2: the bundle is assembled only from an accepted vegetation component, and the restrictions of the
+    natural bundle (not authorized for global production, product stage) are carried into the assembled file."""
+
+    def component(self, d, status='passed', dirty=False):
+        os.makedirs(f'{d}/vegetation', exist_ok=True)
+        with open(f'{d}/vegetation/provenance.yaml', 'w') as fh:
+            fh.write(f'code_dirty: {str(dirty).lower()}\nqc:\n  status: {status}\n')
+
+    def test_vegetation_accepted(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.component(d)
+            self.assertIsNone(ab.vegetation_not_accepted(d))
+            for status, dirty in (('failed', False), ('not_checked', False), ('passed', True)):
+                self.component(d, status, dirty)
+                self.assertIn('not accepted', ab.vegetation_not_accepted(d))
+            os.remove(f'{d}/vegetation/provenance.yaml')
+            self.assertIn('no provenance', ab.vegetation_not_accepted(d))
+
+    def test_restrictions_carried(self):
+        with tempfile.TemporaryDirectory() as d:
+            make(f'{d}/nat.nc', 14)
+            with nc.Dataset(f'{d}/nat.nc', 'a') as n:
+                n.not_authorized_for_global_production = 'true'; n.product_stage = 'image_driver_smoke_candidate'
+                n.title = 'not a restriction'
+            with nc.Dataset(f'{d}/nat.nc') as n:
+                self.assertEqual(ab.source_restrictions(n), {'not_authorized_for_global_production': 'true',
+                                                             'product_stage': 'image_driver_smoke_candidate'})
+
+
 if __name__ == '__main__':
     unittest.main()

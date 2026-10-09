@@ -104,6 +104,7 @@ One Slurm job per soc scenario; years run in parallel, one process per year (abo
 the verifier about 6 s and 1.6 GB per year):
 
 ```bash
+conda activate isimip4b          # the system python3 lacks netCDF4 and the other packages
 export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
 export PYTHONPATH=$PWD/workflow
 python3 workflow/04_forcing/water_use/submit_water_use_forcing.py --scenario histsoc --years 1850-2021

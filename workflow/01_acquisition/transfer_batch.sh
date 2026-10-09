@@ -101,9 +101,13 @@ for p in (l.strip() for l in open(LIST) if l.strip()):
 with open(MAN, 'w') as fh:
     fh.write('#status\tsource\ttarget\tsize_bytes\tmd5_local\tmd5_remote\ttransfer_date\tremote_size\tremote_mtime\tdkrz_link_target\treason\n')
     fh.write('\n'.join(lines) + '\n')
+listed = set()                                     # a batch run again lists each file once (files already in raw are
+if os.path.exists(f'{MANDIR}/MD5SUMS'):            # verified again and accepted again)
+    listed = {l.rstrip('\n').split('  ', 1)[1] for l in open(f'{MANDIR}/MD5SUMS') if '  ' in l}
 with open(f'{MANDIR}/MD5SUMS', 'a') as fh:
     for p, m in sorted(accepted):
-        fh.write(f'{m}  {p}\n')
+        if p not in listed:
+            fh.write(f'{m}  {p}\n')
 tot = sum(int(l.split('\t')[3]) for l in lines if l.startswith('OK'))
 print(f'batch {B}: OK={ok} MISMATCH={bad} MISSING={missing} bytes_ok={tot}')
 sys.exit(0 if bad == 0 and missing == 0 else 1)

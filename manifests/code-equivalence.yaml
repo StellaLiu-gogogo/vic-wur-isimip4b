@@ -122,3 +122,39 @@ equivalences:
       lost_demand_ledger.csv and lost_parents_2015.csv byte-identical; qa_2015.json equal except runtime_s;
       provenance.yaml differs only in code_dirty, created_at and files[].sha256.
     approved: user, 2026-10-09
+  - id: review-p3-task-k-climate
+    producer: workflow/04_forcing/climate/downscale_climate.py
+    method_version: '1.1'
+    from:
+      workflow/04_forcing/climate: 29d9f28bd90f1a8042845dd94e663fa269028ab5
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    to:
+      workflow/04_forcing/climate: 093f8a75c25cc5506dbb0c41ec37c37ec4db504c
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    change: >-
+      task K (cross-module review of 2026-10-07, P3): the job template activates the isimip4b environment without
+      set -u (a job submitted from a shell without the environment no longer fails at activation); the grid-relation
+      and dz cache used is listed under caches in provenance.yaml; README. Method unchanged.
+    evidence: >-
+      Scratch test on 2026-10-09, ec-earth3-esm-1-1 esm-hist lwdown 2015, same inputs and commit base ef5c02b: before =
+      worktree of ef5c02b, after = the change (Slurm array job 43268247, comparison job 43268251). The data file is
+      identical in every variable and attribute except code_dirty and created_at; provenance.yaml differs only in
+      caches (the cache now listed), code_dirty, created_at, files[].created_at and files[].sha256.
+    approved: user, 2026-10-09
+  - id: review-p3-task-k-water-use
+    producer: workflow/04_forcing/water_use/downscale_water_use.py
+    method_version: '1.0'
+    from:
+      workflow/04_forcing/water_use: a2b412de9c79ef29a1c2e51fab656a96e4c35887
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    to:
+      workflow/04_forcing/water_use: 84758de3487d0e7eb96dc3a83b3fa811b5e2a2a4
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    change: >-
+      task K (cross-module review of 2026-10-07, P3): the job template activates the isimip4b environment without
+      set -u; README. Producer and method unchanged.
+    evidence: >-
+      Scratch test on 2026-10-09, histsoc 2015, same inputs and commit base ef5c02b (array job 43268247, comparison job
+      43268251): all six files identical in every variable and attribute except code_dirty; lost_demand_ledger.csv,
+      lost_parents_2015.csv and qa_2015.json identical; provenance.yaml differs only in code_dirty and files[].sha256.
+    approved: user, 2026-10-09

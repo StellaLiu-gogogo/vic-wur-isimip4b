@@ -46,6 +46,7 @@ variables bitwise equal to the natural bundle; `Nveg <= tiles <= Nveg + 1` on ev
 ## Running
 
 ```bash
+conda activate isimip4b          # the system python3 lacks netCDF4 and the other packages
 export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
 export PYTHONPATH=$PWD/workflow
 python3 workflow/03_parameters/bundle/submit_bundle.py --scratch   # test, scratch/parameter-bundle/bundle/
@@ -54,7 +55,10 @@ python3 workflow/03_parameters/bundle/submit_bundle.py             # candidate f
 
 One core and about 10 GB; the copy writes about 4 GB. From a repository that is not clean, or with
 `--scratch`, everything goes to `scratch/parameter-bundle/bundle/` (QC under its `qc/`). The producer never
-overwrites an existing assembled file. The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or `--expect-commit <commit>`); a producer submitted for the parameter set stops when the repository is no longer clean at that commit when the job starts, so the producer and the verifier never look at different places. `--verify-only` submits a job that runs only the verifier on the existing assembled file (it updates `qc.status`; a repository that is not clean does not redirect it, but its results then go to `scratch/<stage scratch>/verify-uncommitted/qc/...` and the status is not changed; results of uncommitted verifier code are never moved from there: commit, then verify again).
+overwrites an existing assembled file. Outside scratch it assembles only from an accepted vegetation component
+(`code_dirty: false`, `qc.status: passed`), and it carries the restriction attributes of the natural bundle
+(`not_authorized_for_global_production`, `product_stage`) into the assembled file and its `provenance.yaml`
+(`restrictions`). The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or `--expect-commit <commit>`); a producer submitted for the parameter set stops when the repository is no longer clean at that commit when the job starts, so the producer and the verifier never look at different places. `--verify-only` submits a job that runs only the verifier on the existing assembled file (it updates `qc.status`; a repository that is not clean does not redirect it, but its results then go to `scratch/<stage scratch>/verify-uncommitted/qc/...` and the status is not changed; results of uncommitted verifier code are never moved from there: commit, then verify again).
 
 ## Decisions
 

@@ -12,7 +12,7 @@ stand-ins. The resources file and the job template are read from the repository.
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
-import contextlib, copy, datetime, hashlib, io, json, os, sys, tempfile, types, unittest
+import contextlib, copy, datetime, hashlib, io, json, os, shutil, sys, tempfile, types, unittest
 from unittest import mock
 
 import yaml
@@ -31,8 +31,9 @@ def text_sha(text):
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def make_run(W, attempts):
-    """runs/c/r rendered with an old job file and the given attempts."""
+def make_run(W, attempts, groups=128, modules=('2025', 'netCDF/4.9.3-gompi-2025a')):
+    """runs/c/r rendered with an old job file and the given attempts (decomposition groups and runtime modules of the
+    build as recorded in resolved.yaml)."""
     rd = os.path.join(W, 'runs', 'c', 'r')
     for sub in ('config', 'logs', 'states', 'output', 'forcing'):
         os.makedirs(os.path.join(rd, sub))
@@ -42,10 +43,12 @@ def make_run(W, attempts):
         with open(os.path.join(rd, rel), 'w') as fh:
             fh.write(text)
     model = {'commit': 'm' * 40, 'executable': 'builds/vic/m/bin/vic_image.exe', 'executable_sha256': 'e' * 64,
-             'runtime_modules': ['2025', 'netCDF/4.9.3-gompi-2025a']}
+             'runtime_modules': list(modules)}
     with open(os.path.join(rd, 'config', 'resolved.yaml'), 'w') as fh:
         yaml.safe_dump({'campaign_id': 'c', 'run_id': 'r', 'start_year': 2015, 'end_year': 2016,
-                        'resources_file': RESOURCES, 'model': model}, fh)
+                        'resources_file': RESOURCES, 'model': model,
+                        'decomposition': {'groups': groups, 'largest_group_cells': 10, 'smallest_group_cells': 1,
+                                          'active_cells': 100}}, fh)
     m = {'run_id': 'r', 'status': attempts[-1]['status'] if attempts else 'rendered', 'run_dir': 'runs/c/r',
          'parent': {'segment_id': None, 'init_state': None, 'initialisation': 'cold_start'},
          'model': {'executable': model['executable'], 'executable_sha256': model['executable_sha256']},
@@ -141,6 +144,29 @@ class RerenderJobTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.rd, 'config', 'job.attempt-1.sbatch')))
         self.assertEqual(rm.load(self.rd), before)
         self.assertNotIn('sbatch', self.calls)
+
+    def assert_refused(self, message):
+        before = rm.load(self.rd)
+        with self.assertRaises(SystemExit) as cm:
+            self.retry()
+        self.assertIn(message, str(cm.exception))
+        self.assertEqual(self.read(rm.JOB_FILE), 'old job\n')
+        self.assertEqual(rm.load(self.rd), before)
+        self.assertNotIn('sbatch', self.calls)
+
+    def test_more_tasks_than_groups_refused(self):
+        """Review P3 A3: the job file rendered again is checked like a new render (MPI tasks <= groups)."""
+        shutil.rmtree(os.path.join(self.W, 'runs'))
+        self.rd = make_run(self.W, [{'attempt': 1, 'slurm_job_id': 101, 'submitted_at': '2026-10-07T00:00:00Z',
+                                     'status': 'failed'}], groups=4)
+        self.assert_refused('decomposition groups')
+
+    def test_other_modules_refused(self):
+        """Review P3 A3: the resources modules must equal the runtime modules of the build."""
+        shutil.rmtree(os.path.join(self.W, 'runs'))
+        self.rd = make_run(self.W, [{'attempt': 1, 'slurm_job_id': 101, 'submitted_at': '2026-10-07T00:00:00Z',
+                                     'status': 'failed'}], modules=('2024', 'netCDF/4.9.2'))
+        self.assert_refused('runtime_modules')
 
     def test_kept_name_exists_refused(self):
         with open(os.path.join(self.rd, 'config', 'job.attempt-1.sbatch'), 'w') as fh:

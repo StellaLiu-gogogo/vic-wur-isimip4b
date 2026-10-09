@@ -8,11 +8,13 @@ with its source year and rule). submit_run.py adds one attempt per submission (s
 inputs fingerprint). The job itself calls this script twice:
 
   verify-inputs  before VIC starts: every input file must still have the recorded checksum (parallel), every
+                 forcing unit must still be accepted (qc.status passed), every
                  link of the forcing view must point to its recorded source file, and the parent state file
                  (INIT_STATE) must belong to a completed parent run and have the recorded checksum; the attempt
                  records the result and the job stops on a mismatch
   complete       after VIC ends: scheduler state and exit code, elapsed time, the VIC timing table and
-                 log warnings, the expected outputs and state file present, and the run status; ends with exit
+                 log warnings, the expected outputs and state file present, every requested OUTVAR in the output
+                 files of its stream, and the run status; ends with exit
                  status 1 (common.qc.EXIT_CODES['failed']) when the attempt failed, so the Slurm job fails too
 
 A retry with identical inputs is a new attempt in the same manifest (docs/glossary.md, "Run").
@@ -23,6 +25,8 @@ Usage: run_manifest.py verify-inputs --run-dir DIR --job-id ID [--processes 8]
 """
 import argparse, contextlib, datetime, fcntl, glob, hashlib, json, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
+
+import yaml
 
 from common import qc
 
@@ -137,6 +141,22 @@ def link_mismatches(manifest, run_dir, workdir):
     return bad
 
 
+def units_not_accepted(manifest, workdir):
+    """provenance.yaml of every forcing unit of the run that is no longer accepted (code_dirty false and qc.status
+    passed, as at rendering), e.g. after a verifier judged it failed."""
+    bad = []
+    for unit in manifest['inputs']['forcing_units']:
+        rel = f'forcing/{unit}/provenance.yaml'
+        p = os.path.join(workdir, rel)
+        prov = {}
+        if os.path.exists(p):
+            with open(p) as fh:
+                prov = yaml.safe_load(fh) or {}
+        if prov.get('code_dirty') is not False or (prov.get('qc') or {}).get('status') != 'passed':
+            bad.append(rel)
+    return bad
+
+
 def parent_state(manifest, workdir):
     """Parent state of a run whose parent was rendered in the same call: the parent run's last attempt must have
     completed and its state file exist; returns (record, problem). Earlier attempts of this run that recorded a
@@ -171,7 +191,7 @@ def verify_inputs(run_dir, job_id, workdir, processes):
     t0 = datetime.datetime.now()
     with ThreadPoolExecutor(processes) as ex:
         res = list(ex.map(one, todo))
-    bad = [rel for rel, ok in res if not ok] + link_mismatches(m, run_dir, workdir)
+    bad = [rel for rel, ok in res if not ok] + link_mismatches(m, run_dir, workdir) + units_not_accepted(m, workdir)
     pstate, problem = parent_state(m, workdir)
     bad += [problem] if problem else []
     a['input_verification'] = {'files': len(res), 'mismatches': bad, 'passed': not bad, 'checked_at': utcnow(),
@@ -258,6 +278,37 @@ def sacct(job_id):
     return rows
 
 
+def requested_outputs(vic_global):
+    """{stream: [OUTVAR names]} of a VIC global-parameter file (OUTFILE blocks)."""
+    out, stream = {}, None
+    for line in vic_global.splitlines():
+        f = line.split()
+        if len(f) >= 2 and f[0] == 'OUTFILE':
+            stream = f[1]; out[stream] = []
+        elif len(f) >= 2 and f[0] == 'OUTVAR' and stream:
+            out[stream].append(f[1])
+    return out
+
+
+def output_variables(run_dir, present):
+    """{stream: {requested, missing}}: VIC drops an OUTVAR it does not know with only a warning
+    (drivers/shared_image/src/vic_history.c), so the variables of the first output file of every stream are compared
+    with the OUTVARs of config/vic_global.txt."""
+    import netCDF4 as nc
+    with open(os.path.join(run_dir, 'config', 'vic_global.txt')) as fh:
+        requested = requested_outputs(fh.read())
+    files = sorted(f['path'] for v in present.values() for f in v)
+    out = {}
+    for stream, names in requested.items():
+        first = next((p for p in files if os.path.basename(p).startswith(f'{stream}.')), None)
+        if first is None:
+            continue                                       # missing files are counted by outputs_complete
+        with nc.Dataset(os.path.join(run_dir, first)) as d:
+            have = set(d.variables)
+        out[stream] = {'file': first, 'requested': len(names), 'missing': [n for n in names if n not in have]}
+    return out
+
+
 def complete(run_dir, job_id, exit_code, workdir, reason=None):
     m = load(run_dir); a = attempt(m, job_id)
     if reason:
@@ -277,10 +328,15 @@ def complete(run_dir, job_id, exit_code, workdir, reason=None):
         present[rel] = [{'path': os.path.relpath(h, run_dir), 'size_bytes': os.path.getsize(h)} for h in hits]
     a['outputs_present'] = present
     a['outputs_complete'] = all(present.values())
+    a['output_variables'] = output_variables(run_dir, present)
+    dropped = {s: v['missing'] for s, v in a['output_variables'].items() if v['missing']}
     a['output_bytes'] = sum(f['size_bytes'] for v in present.values() for f in v)
     a['completed_by_commit'] = subprocess.run(['git', '-C', os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__))))), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
-    ok = int(exit_code) == 0 and a['outputs_complete'] and a.get('input_verification', {}).get('passed', False)
+    ok = int(exit_code) == 0 and a['outputs_complete'] and not dropped and \
+        a.get('input_verification', {}).get('passed', False)
+    if dropped and 'failure_reason' not in a:
+        a['failure_reason'] = f'requested output variables missing in the output files: {dropped}'
     a['status'] = 'completed' if ok else 'failed'
     if not ok and 'failure_reason' not in a:
         a['failure_reason'] = 'VIC exit code {}; outputs complete: {}'.format(exit_code, a['outputs_complete'])

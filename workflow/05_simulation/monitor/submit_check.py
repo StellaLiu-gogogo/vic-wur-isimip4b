@@ -25,21 +25,27 @@ def main():
     submit(a.run_dir, a.time, a.mem, a.partition, a.dependency)
 
 
+def job_name(rd):
+    """run-check-<campaign>-<label> for a labelled run, run-check-<campaign>-<run-id with hyphens> for a production
+    run, so that the checks of the runs of one campaign never share a job name."""
+    run_id = os.path.basename(rd)
+    label = run_id.split('__')[1] if '__' in run_id else run_id.replace('_', '-')
+    return f'run-check-{os.path.basename(os.path.dirname(rd))}-{label}'
+
+
 def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=None):
     """Render, submit on hold, write the job record, release; returns the job id."""
     W = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
     rd = os.path.abspath(run_dir if os.path.isabs(run_dir) else os.path.join(W, run_dir))
     rel = os.path.relpath(rd, W)
-    run_id = os.path.basename(rd)
-    label = run_id.split('__')[1] if '__' in run_id else run_id.split('_')[-1]
-    job_name = f'run-check-{os.path.basename(os.path.dirname(rd))}-{label}'
+    name = job_name(rd)
     commit = subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
     dirty = bool(subprocess.run(['git', '-C', REPO, 'status', '--porcelain'], capture_output=True, text=True).stdout.strip())
     conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
         os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
     stage_logs = f'{W}/logs/05_simulation'
     text = open(TEMPLATE).read()
-    for k, v in {'JOB_NAME': job_name, 'PARTITION': partition, 'TIME': time, 'MEM': mem, 'STAGE_LOGS': stage_logs,
+    for k, v in {'JOB_NAME': name, 'PARTITION': partition, 'TIME': time, 'MEM': mem, 'STAGE_LOGS': stage_logs,
                  'CONDA_BASE': conda_base, 'WORKDIR': W, 'REPO': REPO, 'RUN_DIR': rd}.items():
         text = text.replace('{{' + k + '}}', v)
     if '{{' in text:
@@ -50,11 +56,11 @@ def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=Non
     if r.returncode != 0:
         raise SystemExit(f'sbatch failed: {r.stderr}')
     job_id = r.stdout.strip().split(';')[0]
-    job_dir = f'{stage_logs}/{job_name}_{job_id}'
+    job_dir = f'{stage_logs}/{name}_{job_id}'
     os.makedirs(job_dir, exist_ok=True)
     with open(f'{job_dir}/job.sbatch', 'w') as fh:
         fh.write(text)
-    record = {'slurm_job_id': int(job_id), 'job_name': job_name,
+    record = {'slurm_job_id': int(job_id), 'job_name': name,
               'rendered_by': 'workflow/05_simulation/monitor/submit_check.py',
               'template': 'workflow/05_simulation/monitor/check_run.sbatch', 'code_commit': commit, 'code_dirty': dirty,
               'submitted_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),

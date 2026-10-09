@@ -3,9 +3,10 @@
 
 For each run (resolve_campaign.py) the renderer
   1. checks the model build (builds/vic/<commit>/build_manifest.json: commit of the campaign and of
-     model/vic.lock.yaml, executable sha256, runtime modules equal to the resources), the parameter files
-     (present, md5 recorded in manifests/parameters/<set>.yaml) and every forcing unit it reads (accepted:
-     code_dirty false and qc.status passed);
+     model/vic.lock.yaml, build status, runtime modules equal to the resources; the executable sha256 is recorded
+     here and checked by the job), the parameter files (present, md5 recorded in manifests/parameters/<set>.yaml;
+     the md5 is checked by the job) and every forcing unit it reads (accepted: code_dirty false and qc.status
+     passed; made on the campaign's domain and, for climate, elevation);
   2. builds the forcing view <run>/forcing/<family>/ of links named by simulation year (forcing_years.py);
   3. renders the VIC global-parameter file from templates/vic/global_param.txt and the Slurm job from
      templates/slurm/vic_run.sbatch;
@@ -240,6 +241,41 @@ def check_nonrenewable_output(campaign):
                           'reaches the river would not be recorded')
 
 
+def check_unit_parameters(W, params, units):
+    """Every forcing unit of the run was made on the campaign's domain file (sha256 recorded in its provenance.yaml,
+    input_sha256: key `domain` or a parameters/.../domain/ path), and a climate unit with the elevation of the
+    campaign's parameter file (a parameters/.../bundle/ path: the natural bundle the assembled bundle was built from,
+    or the parameter file itself). VIC compares only the grid, not the mask, and nothing would notice forcing corrected
+    to another elevation."""
+    cache = {}
+
+    def sha(key, rel):
+        if key not in cache:
+            cache[key] = file_hash(f'{W}/{rel}')
+        return cache[key]
+
+    def elevation_sources():
+        if 'elev' not in cache:
+            rel = params['parameters']['path']
+            p = f'{W}/{os.path.dirname(rel)}/provenance.yaml'
+            bprov = read_yaml(p) if os.path.exists(p) else {}
+            nat = (bprov.get('input_sha256') or {}).get('natural_bundle') if bprov.get('object') == rel else None
+            cache['elev'] = {nat} if nat else {sha('parameters', rel)}
+        return cache['elev']
+
+    for rel_unit in units:
+        recorded = read_yaml(f'{W}/forcing/{rel_unit}/provenance.yaml').get('input_sha256') or {}
+        domain = [v for k, v in recorded.items() if k == 'domain' or (k.startswith('parameters/') and '/domain/' in k)]
+        bundle = [v for k, v in recorded.items() if k.startswith('parameters/') and '/bundle/' in k]
+        if not domain:
+            raise RenderError(f'forcing unit {rel_unit} records no domain file; it cannot be matched to the campaign')
+        if any(v != sha('domain', params['domain']['path']) for v in domain):
+            raise RenderError(f'forcing unit {rel_unit} was made on another domain file than {params["domain"]["path"]}')
+        if bundle and not set(bundle) <= elevation_sources():
+            raise RenderError(f'forcing unit {rel_unit} was made with the elevation of another parameter file than '
+                              f'{params["parameters"]["path"]}')
+
+
 def check_landuse_tiles(W, params, units, usoc):
     """VIC stops in the first year in which a land-use class has coverage > 0 in a cell without a tile of that class
     (plugins/landuse/src/lu_force.c). The vegetation component behind the run's parameter file (bundle provenance,
@@ -431,10 +467,11 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         alias = rc.input_alias(aliases, seg['climate'], campaign['gcms'][seg['gcm']]['climate_input'])
         links, units, mapping = forcing_plan(W, campaign, run, alias)
         check_start_year(run, mapping)
+        check_unit_parameters(W, params, units)
         if campaign['plugins']['landuse']['enabled']:
             check_landuse_tiles(W, params, units, campaign['dhf_forcing']['units'][seg['soc']])
         parent = seg['parent']
-        init_state = None; parent_state = {}; init_how = 'cold_start'
+        init_state = None; parent_state = {}; init_how = 'cold_start'; warm = False
         init = campaign['initialisation']
         if parent and parent in in_campaign and not campaign.get('restriction'):
             init_state = f'{base}/{parent}/states/state.{run["start_year"]:04d}0101_00000.nc'
@@ -451,6 +488,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             parent_state = parent_run_state(f'{W}/{src["run_dir"]}', init_state, run['run_id'])
             check_same_identity(f'{W}/{src["run_dir"]}', model, params, run['run_id'])
             parent_state['reason'] = ' '.join(str(src['reason']).split())
+            parent_state['run_dir'] = src['run_dir']; warm = True
         elif init['without_parent'] != 'cold_start':
             raise RenderError(f'{run["run_id"]}: parent {parent} is not simulated and initialisation.without_parent is '
                               f'{init["without_parent"]!r} (cold_start or state_of_run)')
@@ -517,7 +555,9 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             'label': run['label'], 'start_year': run['start_year'], 'end_year': run['end_year'],
             'segment': seg, 'climate_input_alias': alias, 'dhf_unit': usoc,
             'experiments_using_segment': seg['experiments'],
-            'parent': {'segment_id': parent, 'init_state': init_state and os.path.relpath(init_state, W),
+            # a warm start comes from an earlier run (run_id, run_dir), not from the protocol parent segment
+            'parent': {'segment_id': None if warm else parent, **({'protocol_parent_segment': parent} if warm else {}),
+                       'init_state': init_state and os.path.relpath(init_state, W),
                        'initialisation': init_how, **parent_state},
             'campaign_file': os.path.relpath(campaign_path, REPO) if os.path.isabs(campaign_path) else campaign_path,
             'campaign_sha256': file_hash(campaign_path), 'campaign': campaign,

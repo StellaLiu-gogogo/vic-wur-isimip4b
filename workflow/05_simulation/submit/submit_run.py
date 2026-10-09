@@ -83,6 +83,14 @@ def rerender_job(run_dir, W):
     with open(os.path.join(run_dir, 'config', 'resolved.yaml')) as fh:
         res = yaml.safe_load(fh)
     resources = rr.read_yaml(os.path.join(rr.REPO, res['resources_file']))
+    # the checks of a new render that depend on the resources (render_run.py check_build and check_tasks)
+    if [str(x) for x in resources['modules']] != list(res['model']['runtime_modules']):
+        raise SystemExit(f'resources modules {resources["modules"]} differ from the build runtime_modules '
+                         f'{res["model"]["runtime_modules"]}')
+    try:
+        rr.check_tasks(resources['ntasks'], dict(res['decomposition']))
+    except rr.RenderError as e:
+        raise SystemExit(f'{run_dir}: {e}')
     text, hours = rr.render_job(W, run_dir, res['campaign_id'], res['run_id'], res['start_year'], res['end_year'],
                                 resources, res['model'])
     old = os.path.join(run_dir, rm.JOB_FILE)

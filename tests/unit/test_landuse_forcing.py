@@ -12,6 +12,9 @@ import importlib.util, io, os, subprocess, sys, tempfile, unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
+import numpy as np
+import netCDF4 as nc
+
 from common import gitstate
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -137,6 +140,63 @@ class FormatTest(unittest.TestCase):
         other = os.path.join(self.tmp.name, 'coverage_histsoc_2017.nc'); os.rename(self.fn, other)
         with nc.Dataset(other) as d:
             self.assertFalse(self.vf.check_format(d, other, self.lat, self.lon)['ok'])
+
+
+class WeightsCacheTest(unittest.TestCase):
+    """Review P3 C1 (a): the weights cache (VIC 2003-2022 mean class pattern) is keyed by the sha256 of its inputs (the
+    domain file and the VIC coverage files) and used only when its key and grid match; it is written under a name of
+    its own and published by rename."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.W = W = self.tmp.name
+        self.lu = load_producer(W)
+        self.lat, self.lon = np.array([0.0, 1.0]), np.array([0.0, 1.0, 2.0]); self.mask = np.ones((2, 3), bool)
+        os.makedirs(f'{W}/raw'); self.cov = f'{W}/raw/coverage_{{y}}.nc'
+        for y, v in ((2003, 0.25), (2004, 0.75)):
+            with nc.Dataset(self.cov.format(y=y), 'w') as d:
+                d.createDimension('time', 1); d.createDimension('veg_class', 16)
+                d.createDimension('lat', 2); d.createDimension('lon', 3)
+                d.createVariable('lat', 'f8', ('lat',))[:] = self.lat; d.createVariable('lon', 'f8', ('lon',))[:] = self.lon
+                d.createVariable('coverage', 'f4', ('time', 'veg_class', 'lat', 'lon'), fill_value=np.nan)[:] = v
+        self.dom = f'{W}/domain.nc'
+        with open(self.dom, 'w') as fh:
+            fh.write('domain')
+        self.patches = [mock.patch.object(self.lu, 'COVERAGE', self.cov), mock.patch.object(self.lu, 'WEIGHT_YEARS', [2003, 2004]),
+                        mock.patch.object(self.lu, 'CACHE_DIR', f'{W}/scratch/landuse-converter')]
+        for x in self.patches:
+            x.start()
+
+    def tearDown(self):
+        for x in self.patches:
+            x.stop()
+        self.tmp.cleanup()
+
+    def weights(self):
+        with redirect_stdout(io.StringIO()):
+            return self.lu.weights(self.dom, self.lat, self.lon, self.mask)
+
+    def test_built_once_and_reused(self):
+        P, path, key = self.weights()
+        self.assertTrue(np.allclose(P, 0.5))
+        self.assertIn(key[:16], os.path.basename(path))
+        with mock.patch.object(self.lu, 'build_weights_cache', side_effect=AssertionError('rebuilt')):
+            P2, path2, key2 = self.weights()                           # same inputs: the cache is used
+        self.assertEqual((path2, key2), (path, key)); self.assertTrue(np.array_equal(P, P2))
+
+    def test_changed_input_is_not_reused(self):
+        _, path, key = self.weights()
+        with open(self.dom, 'w') as fh:
+            fh.write('another domain')
+        P, path2, key2 = self.weights()
+        self.assertNotEqual(key2, key); self.assertNotEqual(path2, path)
+
+    def test_cache_of_other_key_or_grid_refused(self):
+        _, path, key = self.weights()
+        self.assertIsNone(self.lu.load_weights(path, 'x' * 64, self.mask.shape))
+        self.assertIsNone(self.lu.load_weights(path, key, (3, 3)))
+        with open(path, 'w') as fh:
+            fh.write('truncated')
+        self.assertIsNone(self.lu.load_weights(path, key, self.mask.shape))
 
 
 class SubmitRenderTest(unittest.TestCase):

@@ -46,6 +46,15 @@ class SameIdentityTest(tsr.StateOfRunTest):
     def test_earlier_run_without_record_stops(self):
         self.assert_stops(lambda m: m.pop('model'))
 
+    def test_parent_record_names_the_earlier_run(self):
+        """Review P3 D4: a warm start records the earlier run, not the protocol parent, as where the state comes from."""
+        self.earlier_with(lambda m: None)
+        self.render(HIST)
+        p = self.manifest(HIST)['parent']
+        self.assertIsNone(p['segment_id'])
+        self.assertEqual(p['protocol_parent_segment'], tsr.PRE)
+        self.assertEqual((p['run_id'], p['run_dir']), ('earlier__smoke2011-2020', 'runs/smoke/earlier__smoke2011-2020'))
+
 
 class NonrenewableDeficitOutputTest(tsr.RenderHarness):
     """P2-5: with NONRENEWABLE_WITHDRAWAL the deficit removed from the baseflow must be written (monthly)."""

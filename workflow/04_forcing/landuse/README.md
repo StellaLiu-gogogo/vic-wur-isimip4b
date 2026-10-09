@@ -38,9 +38,11 @@ format VIC reads (time axis and calendar, dimensions, classes, grid, year).
 - `raw/external/vic-coverage-version-a/5/coverage_VersionA_v5_<2003..2022>.nc` (within-parent weights)
 - `parameters/<candidates|production>/<parameter-set-id>/domain/vic_global_5min_domain_nogl.nc`
 
-The weights cache `scratch/landuse-converter/vic-coverage-mean-2003-2022-weights.npz`
-is rebuilt when absent; it moves to `intermediate/` once `workflow/common/cache.py`
-exists.
+The weights cache `scratch/landuse-converter/vic-coverage-mean-2003-2022-weights_<key>.npz`
+is keyed by the sha256 of the domain file and the 20 VIC coverage files, used only when
+its key and grid match (else built again under a temporary name and renamed), and listed
+under `caches` in `provenance.yaml`; it moves to `intermediate/` once
+`workflow/common/cache.py` exists.
 
 ## Running
 
@@ -49,6 +51,7 @@ process per year (about 2 min and 6 GB per year on one core; the result does not
 processes):
 
 ```bash
+conda activate isimip4b          # the system python3 lacks netCDF4 and the other packages
 export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
 export PYTHONPATH=$PWD/workflow
 python3 workflow/04_forcing/landuse/submit_landuse_forcing.py --scenario histsoc --years 1850-2021

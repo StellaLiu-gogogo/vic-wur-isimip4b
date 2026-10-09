@@ -10,7 +10,8 @@ reports/water_use_by_sector_<year>.nc (run_figures.py) and figures/*.png.
 Checks per calendar year
   coverage        active cells (domain mask) without a finite qtot or discharge value
   qtot            annual qtot = sum of daily OUT_RUNOFF + OUT_BASEFLOW (mm/yr), map and global volume (km3/yr)
-  water_balance   OUT_WATER_ERROR (monthly sum per cell): largest absolute value; global P, ET, qtot
+  water_balance   OUT_WATER_ERROR (monthly mean per cell, VIC's default aggregation): largest absolute value; global
+                  P, ET, qtot
   outlets         mean discharge at the river outlets (routing downstream equal to the cell's own downstream_id)
   irrigation      irrigation withdrawal (sector 4), requirement, received water
   sectors         municipal (0) and manufacturing (2): forcing demand (mm/day x days), VIC demand, withdrawal
@@ -26,7 +27,7 @@ Checks per calendar year
 GRDC comparison (whole run)
   The run is driven by GCM climate, so its days and months do not correspond to observed weather: the main
   comparison is climatological, the simulated monthly-mean seasonal cycle of the run years (the first year
-  excluded when the run has at least 3 years, because of the cold start) against the GRDC monthly
+  excluded when a cold-started run has at least 3 years) against the GRDC monthly
   climatology of the years first-10 .. last+10 (months with >= 20 valid days, >= 5 years per calendar month).
   Daily series of the same dates are drawn for visual reference only.
 
@@ -46,6 +47,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import grdc          # noqa: E402
 import run_figures   # noqa: E402
+from common import qc as qc_status   # noqa: E402  (exit status of a check)
 
 SECTORS = {'municipal': 0, 'energy': 1, 'manufacturing': 2, 'livestock': 3, 'irrigation': 4}
 WI = ('OUT_WI_GW_SECT', 'OUT_WI_SURF_SECT', 'OUT_WI_DAM_SECT', 'OUT_WI_TREM_SECT', 'OUT_WI_NREN_SECT')
@@ -159,7 +161,7 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
                                   'consumption_estimate_km3': float(series[sector]['consumption_estimate'].sum()),
                                   'cells_with_demand': int(((de[i] > 0) & mask).sum())}
     wb, f = run_figures.water_balance(year, monthly, mask, area, lat, figs)
-    wb['max_abs_monthly_water_error_mm'] = wb_err
+    wb['max_abs_monthly_mean_water_error_mm'] = wb_err
     out['water_balance'] = wb; figs_made.append(f)
     out['figures'] = figs_made
     daily.close(); monthly.close()
@@ -186,7 +188,12 @@ def grdc_compare(W, rd, years, mask, area, lat, lon, routing_path, figs, qc, min
     return mapped, files, ref, upa
 
 
-def grdc_figures(W, rd, years, mapped, files, ref, st_daily, mask, figs, qc, panels):
+def climatology_years(years, cold_start):
+    """Run years of the simulated climatology: without the first year of a cold-started run of 3 or more years."""
+    return years[1:] if cold_start and len(years) >= 3 else years
+
+
+def grdc_figures(W, rd, years, mapped, files, ref, st_daily, mask, figs, qc, panels, cold_start=True):
     # simulated monthly means at the station cells
     sim = {}
     for y in years:
@@ -196,7 +203,7 @@ def grdc_figures(W, rd, years, mapped, files, ref, st_daily, mask, figs, qc, pan
                 q = read(m, 'OUT_DISCHARGE', t)
                 sim[pd.Timestamp(y, t + 1, 1)] = q[mapped['row'].values, mapped['col'].values]
     sim = pd.DataFrame(sim).T; sim.columns = mapped.index
-    use_years = years[1:] if len(years) >= 3 else years
+    use_years = climatology_years(years, cold_start)
     sim_clim = np.array([[sim.loc[[pd.Timestamp(y, k + 1, 1) for y in use_years], no].mean() for k in range(12)]
                          for no in mapped.index])
     rows = []; obs = {}
@@ -314,7 +321,9 @@ def main():
         results[y], d = check_year(y, rd, mask, area, lat, lon, own, figs, view, cells, prov, qc)
         st_daily.append(d)
     st_daily = np.concatenate(st_daily)
-    grdc_summary, grdc_figs = grdc_figures(W, rd, years, mapped, files, ref, st_daily, mask, figs, qc, a.panels)
+    cold_start = not (man.get('parent') or {}).get('init_state')
+    grdc_summary, grdc_figs = grdc_figures(W, rd, years, mapped, files, ref, st_daily, mask, figs, qc, a.panels,
+                                           cold_start)
     state = sorted(glob.glob(f'{rd}/states/state.*.nc'))
     report = {'run': man['run_dir'], 'checked_at': now, 'checked_by': 'workflow/05_simulation/monitor/check_run.py',
               'code_commit': commit, 'years': results, 'grdc': grdc_summary | {'figures': grdc_figs},
@@ -331,6 +340,7 @@ def main():
                       for y, v in results.items()}, indent=1, default=float))
     print(json.dumps({k: v for k, v in grdc_summary.items() if k != 'largest'}, indent=1, default=float))
     print('status', report['status'])
+    qc_status.exit_with(report['status'])        # the check job ends FAILED unless passed
 
 
 if __name__ == '__main__':

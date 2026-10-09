@@ -177,6 +177,8 @@ class InputCheckTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); self.W = W = self.tmp.name
         unit = os.path.join(W, 'forcing', 'landuse', 'histsoc')
         os.makedirs(unit)
+        with open(os.path.join(unit, 'provenance.yaml'), 'w') as fh:              # an accepted unit
+            fh.write('forcing_unit: landuse/histsoc\ncode_dirty: false\nqc:\n  status: passed\n')
         for y in (2015, 2016):
             with open(os.path.join(unit, f'coverage_histsoc_{y}.nc'), 'w') as fh:
                 fh.write(f'coverage {y}')

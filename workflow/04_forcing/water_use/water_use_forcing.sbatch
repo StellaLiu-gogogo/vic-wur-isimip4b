@@ -16,8 +16,12 @@ JOB_DIR={{STAGE_LOGS}}/{{JOB_NAME}}_${SLURM_JOB_ID}
 mkdir -p "$JOB_DIR"
 mv {{STAGE_LOGS}}/slurm-${SLURM_JOB_ID}.out {{STAGE_LOGS}}/slurm-${SLURM_JOB_ID}.err "$JOB_DIR"/
 
+# conda's activation scripts read variables that may be unset (magics: MAGPLUS_HOME), so they run without
+# set -u; the job then works also when it is submitted from a shell without the environment
+set +u
 source {{CONDA_BASE}}/etc/profile.d/conda.sh
 conda activate isimip4b
+set -u
 export ISIMIP4B_WORKDIR={{WORKDIR}}
 export PYTHONPATH={{REPO}}/workflow
 export OMP_NUM_THREADS=1

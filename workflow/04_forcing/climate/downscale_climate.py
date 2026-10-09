@@ -686,7 +686,7 @@ def main():
                                f'--years {yrs[0]}-{yrs[-1]} --parameter-set {a.parameter_set} '
                                f'--parameter-status {a.parameter_status}' + (' --scratch' if a.scratch else '')
                                + (f' --scratch-label {a.scratch_label}' if a.scratch_label else ''),
-            'caches': [],
+            'caches': [rp(cache)],              # for information only (grid relation and dz, keyed)
             'files': files,
             'qc': {'status': 'not_checked', 'evidence': qc_evidence}}
         if prev:
