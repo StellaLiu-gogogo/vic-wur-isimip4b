@@ -56,7 +56,7 @@ SBATCH = """#!/bin/bash
 #SBATCH --output={logs}/slurm-%j.out
 #SBATCH --error={logs}/slurm-%j.err
 set -euo pipefail
-JOB_DIR={logs}/review_${{SLURM_JOB_ID}}
+JOB_DIR={logs}/{step}_${{SLURM_JOB_ID}}
 mkdir -p "$JOB_DIR"
 mv {logs}/slurm-${{SLURM_JOB_ID}}.out {logs}/slurm-${{SLURM_JOB_ID}}.err "$JOB_DIR"/
 source {conda}/etc/profile.d/conda.sh
@@ -65,7 +65,7 @@ export ISIMIP4B_WORKDIR={workdir}
 export OMP_NUM_THREADS=1
 cd {repo}
 echo "host $(hostname), start $(date -u +%Y-%m-%dT%H:%M:%SZ), commit $(git rev-parse HEAD), dirty $(git status --porcelain | wc -l)"
-/usr/bin/time -v python3 analysis/{task}/review_dams.py
+/usr/bin/time -v python3 analysis/{task}/{script}
 echo "end $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 """
 
@@ -585,13 +585,15 @@ def run():
     print('done')
 
 
-def submit():
+def submit(script='review_dams.py', step='review'):
+    """Render the Slurm job that runs `script` of this task, keep its record in logs/<step>_<job-id>/, submit it."""
     logs = f'{products()}/logs'; os.makedirs(logs, exist_ok=True)
     conda = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip()
-    text = SBATCH.format(job=f'{TASK}', logs=logs, conda=conda, workdir=workdir(), repo=REPO, task=TASK)
+    text = SBATCH.format(job=f'{TASK}-{step}', logs=logs, conda=conda, workdir=workdir(), repo=REPO, task=TASK,
+                         script=script, step=step)
     r = subprocess.run(['sbatch', '--parsable', '--hold'], input=text, capture_output=True, text=True, check=True)
     job_id = r.stdout.strip().split(';')[0]
-    job_dir = f'{logs}/review_{job_id}'; os.makedirs(job_dir, exist_ok=True)
+    job_dir = f'{logs}/{step}_{job_id}'; os.makedirs(job_dir, exist_ok=True)
     with open(f'{job_dir}/job.sbatch', 'w') as fh:
         fh.write(text)
     subprocess.run(['scontrol', 'release', job_id], check=True)
