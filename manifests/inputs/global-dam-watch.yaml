@@ -1,0 +1,108 @@
+dataset_id: global-dam-watch
+version: '1.0'
+source: >-
+  Global Dam Watch (GDW) database v1.0, downloaded by the user from the GDW
+  distribution (globaldamwatch.org) into the legacy area
+  /lustre/nobackup/WUR/ESG/liu297/vic_global/00pre_analysis/downscaling5min/08HumanImpact/01Dam/Data/
+  (file dates 2025-10-09; the latest published version at acquisition), and
+  copied from there on 2026-10-11 (task L, decision D19). The subpaths below
+  the source root are kept; upstream names are unchanged.
+citation: >-
+  Lehner, B., Beames, P., Mulligan, M., Zarfl, C., De Felice, L., et al.
+  (2024): The Global Dam Watch database of river barrier and reservoir
+  information for large-scale applications. Scientific Data (citation as
+  given in section 4 of GDW_TechDoc_v1_0.pdf, this location; the
+  documentation leaves volume and DOI to be inserted).
+description: >-
+  ESRI shapefiles in WGS84 geographic coordinates (.prj GCS_WGS_1984), UTF-8
+  attributes (.cpg). GDW_v1_0_shp/GDW_barriers_v1_0: 41 145 records, point
+  geometry (shape type 1), every barrier including those without a mapped
+  reservoir; LAT_DAM/LONG_DAM are 0 in 35 032 records, so the dam location is
+  the point geometry; GDW_barriers_v1_0.txt is the same attribute table as
+  comma-separated text. GDW_v1_0_shp/GDW_reservoirs_v1_0: 35 295 records,
+  polygon geometry (shape type 5), with LAT_DAM/LONG_DAM. Both layers carry
+  GDW_ID, GRAND_ID, names, YEAR_DAM, CAP_MCM, DOR_PC, CATCH_SKM, the use
+  flags USE_IRRI, USE_ELEC, USE_SUPP, ... and MAIN_USE, and QUALITY; -99
+  marks a missing value (e.g. CAP_MCM, DOR_PC). .sbn/.sbx are the ArcGIS
+  spatial indexes as delivered. Used by workflow/03_parameters/dams/
+  (decision D19: dam locations and identifiers of the ISIMIP4b dams).
+location: raw/external/global-dam-watch/1.0/
+acquired: 2026-10-11
+licence: >-
+  Creative Commons Attribution 4.0 International (CC BY 4.0), section 4.1 of
+  GDW_TechDoc_v1_0.pdf; the authors ask users not to redistribute the data in
+  whole in its original format on other websites without their written
+  permission. Not part of any delivery.
+file_count: 16
+total_bytes: 250308673
+verification: >-
+  md5 of every copy equals md5 of the source before and after the copy
+  (16/16); record logs/01_acquisition/global-dam-watch_copy_2026-10-11.log.
+  Record counts and shape types read from the .dbf and .shp headers on
+  2026-10-11.
+status: accepted
+files:
+  - path: GDW_TechDoc_v1_0.pdf
+    size_bytes: 716288
+    md5: 5b2fc93c384f674414fa711b657bef5e
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_barriers_v1_0.cpg
+    size_bytes: 5
+    md5: ae3b3df9970b49b6523e608759bc957d
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_barriers_v1_0.dbf
+    size_bytes: 70771706
+    md5: 34aa52bd723d242825e5432d50739e5a
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_barriers_v1_0.prj
+    size_bytes: 145
+    md5: c742bee3d4edfc2948a2ad08de1790a5
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_barriers_v1_0.sbn
+    size_bytes: 405100
+    md5: a6eae40693cbe4462d52f674dc4f9c5d
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_barriers_v1_0.sbx
+    size_bytes: 13852
+    md5: c1ce20af7177f030852864b9d49e17fc
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_barriers_v1_0.shp
+    size_bytes: 1152160
+    md5: c9a3ca5e492942bb408f6e7bfd351523
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_barriers_v1_0.shx
+    size_bytes: 329260
+    md5: f62db3eb5394210a73d0bf8324e3fcef
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_barriers_v1_0.txt
+    size_bytes: 20867013
+    md5: 60c33601a52821e5e24cab31e5c24142
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_reservoirs_v1_0.cpg
+    size_bytes: 5
+    md5: ae3b3df9970b49b6523e608759bc957d
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_reservoirs_v1_0.dbf
+    size_bytes: 60709706
+    md5: ef48527bbf593b023354245a33592a8c
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_reservoirs_v1_0.prj
+    size_bytes: 145
+    md5: c742bee3d4edfc2948a2ad08de1790a5
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_reservoirs_v1_0.sbn
+    size_bytes: 357364
+    md5: e3bb9aa3468f465053493dbd7e0961db
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_reservoirs_v1_0.sbx
+    size_bytes: 12916
+    md5: 2083e2b09ad4567f9e80b75d5f0cb111
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_reservoirs_v1_0.shp
+    size_bytes: 94690548
+    md5: a411d3c3ff57af19d7ce86b601872ddb
+    source_mtime: 2025-10-09
+  - path: GDW_v1_0_shp/GDW_reservoirs_v1_0.shx
+    size_bytes: 282460
+    md5: b1069e0da2358d5f38964535b5f98300
+    source_mtime: 2025-10-09
