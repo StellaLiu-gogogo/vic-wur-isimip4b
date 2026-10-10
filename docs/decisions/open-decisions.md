@@ -69,7 +69,7 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | D16 | Elevation correction of downward longwave radiation (`lwdown`) in the climate forcing, consistent with the lapse-rate correction of `tair` | 04_forcing | | user | decided 2026-10-01 ([D16-lwdown-elevation-correction.md](D16-lwdown-elevation-correction.md)): option A, ratio method of Cosgrove et al. (2003) as in WATCH/WFDE5 |
 | D17 | Potential irrigation (`pirrww`, `pirrwwgw`, `pirruse`, `pirrusegw`): whether to report it and, if so, from additional runs with `POTENTIAL_IRRIGATION TRUE` | 08_delivery | | user | open |
 | D18 | Snow accumulating every year on high-mountain and glacier cells in the smoke run (about 21 times faster than in the WFDE5-driven natural run on the same cells): whether the climate forcing's elevation correction, the precipitation, or the model's snow treatment on such cells needs a change | - | none: parked; reviewed when the user has time, does not block any stage | user | open |
-| D19 | Dams and initial states per experiment: which dams the dam parameters contain (the GDW selection rule DOR ≥ 10 % leaves out large run-of-river reservoirs such as Three Gorges and Itaipu) and which of them (construction years) each DHF scenario uses (`1850soc`, `2021soc`, `histsoc`, SSP units; dams with construction year 0), and how runs are spun up and warm-started (spin-up DHF and dams, date of an initial state against the run start, reuse of another run's end state) | 05_simulation | | user | open |
+| D19 | Dams and initial states per experiment: which dams the dam parameters contain (the GDW selection rule DOR ≥ 10 % leaves out large run-of-river reservoirs such as Three Gorges and Itaipu) and which of them (construction years) each DHF scenario uses (`1850soc`, `2021soc`, `histsoc`, SSP units; dams with construction year 0), and how runs are spun up and warm-started (spin-up DHF and dams, date of an initial state against the run start, reuse of another run's end state) | 05_simulation | | user | decided 2026-10-11 ([D19-dams-and-initial-states.md](D19-dams-and-initial-states.md)): ISIMIP4b dams (plus SSP future hydropower dams) located with GDW and snapped again on the parameter-set routing; one dam list, construction years per DHF scenario; two spin-ups per GCM with a convergence test; warm starts only for spin-ups and non-production runs, on 1 January, under conditions checked by the renderer |
 | D20 | First year of runs on constant DHF units: how the land-use and water-use units of `1850soc` and `2021soc` provide a file of a run's first year that lies outside their own years (`2021soc` historical from 1850, `1850soc` pre-industrial from 1601 and future from 2022, spin-ups), which VIC requires for the start year | 05_simulation | | user | open |
 
 ## Context
@@ -167,109 +167,13 @@ elevation-dependent lapse rate in `04_forcing/climate` (a new method
 version) or a note in the model description.
 
 **D19 — Dams and initial states per experiment.** Raised 2026-10-07 by the
-cross-module review. VIC-WUR (`39e21ff5`) switches a dam on when the
-simulation year reaches the dam's construction year
-(`plugins/dams/src/dam_register.c`) and never switches it off; the active
-flag and the storage are restored from an initial state
-(`dam_state.c`). The renderer passes one dam file to every segment, so
-(a) dams follow the simulation year, not the DHF scenario: a `1850soc`
-future segment gets every dam built 1850–2021, a `2021soc` historical
-segment or spin-up lacks the dams of 2021 until their construction years,
-and the 1 806 dams with construction year 0 are active in every
-pre-industrial and spin-up year; (b) a warm start from a state dated after
-the run start keeps later dams active: the `smoke-nonrenewable` run
-(2011–2020, started 2026-10-07 from the 2021-01-01 state of the smoke run
-2011–2020) ran with the 269 dams built 2012–2020 (284 292 hm³ capacity,
-172 491 hm³ stored) active from January 2011, so its reservoir operation,
-downstream discharge and dam water supply in 2011–2019 are affected. The
-user (2026-10-08): dam parameters may need different files for different
-experiments, and the spin-up of the model has to be reconsidered. Until
-decided, no production segment is rendered, and a warm start whose state
-date differs from the run start is not used for results.
-
-Added to D19 on 2026-10-09 (user), from the analysis
-`dam-distribution-review` (`workdir/analysis/dam-distribution-review/`):
-the dam file (`vic_global_5min_dam_parameters_t3-extended-merged.nc`,
-7 925 dams, 6 641 km³) is the GDW tier T3_extended of `vic_parameter`
-(capacity ≥ 20 hm³, quality ≤ 4, degree of regulation DOR ≥ 10 %). The DOR
-rule leaves out 1 373 GDW reservoirs with 528 km³ that pass the other two
-rules, among them Three Gorges (39 km³, DOR 9 %), Itaipu (29 km³), Yacyretá
-(21 km³), Porto Primavera (20 km³), Xiluodu and Saratov (13 km³ each) and
-Grand Coulee (6 km³); Raza Dike (Razzaza, 26 km³) is left out because its
-DOR is missing (−99). The ISIMIP4b reservoirs-dams data (`histsoc`, 7 331
-dams, 7 035 km³ in 2021) contain these reservoirs. The question is whether
-the dam parameters keep the T3_extended selection, drop or change the DOR
-rule (and the treatment of a missing DOR), or are rebuilt from another
-source such as the ISIMIP4b data; the dam list has to be fixed before the
-per-scenario dam files of this decision are produced, because an initial
-state is restored by dam position.
-
-Dam list and dam parameters, decided by the user on 2026-10-09 to
-2026-10-11 from the analyses `dam-distribution-review` (commit `2817aac`,
-`compare_gdw_isimip.py`) and `dam-nservice-test`:
-
-- *Facts.* 7 324 of the 7 331 ISIMIP4b histsoc dams are found in GDW v1.0
-  (GRanD ID or location within 2 km); 39 of them (131 km³, e.g. Grand
-  Ethiopian Renaissance Dam, Farakka) only in the GDW barriers layer, which
-  the corrected 5′ table and the current dam file do not contain; of the
-  other 7 the review found Rogun and Changheba 22 and 13 km from their GDW
-  records, Huangdeng a barrier without capacity, Burdana combined with
-  Rumela, Nam Kum Gate and Fengman_2 sharing the record of another ISIMIP
-  dam, and only Wudongde (4 km³) absent. The current dam file
-  (`T3_extended_v2`, the file of the Snellius H line) was snapped and its
-  service maps traced on the old WBT routing
-  (`01oc_natural/03vic_input/vic_global_5min_routing_param_wbt.nc`), whereas
-  the parameter set uses the HydroSHEDS routing `v1.0.0_20260804`; 60.89 %
-  of the common cells have another downstream cell, and in the test runs
-  some large dams sit on small tributaries (Ust-Ilim and Brokopondo receive
-  less than 1 hm³/day). The smoke runs therefore ran with dams placed and
-  served on another river network.
-- *Dam list.* All 7 331 ISIMIP4b histsoc dams, no more and no less: GDW
-  (corrected table, barriers layer) only provides the dam location and
-  identifiers; dams found only in GDW are dropped. The ISIMIP4b SSP future
-  hydropower dams (WaterGAP2-2e, `ssp1vlsoc-noadapt` 1 758 and
-  `ssp3hsoc-noadapt` 2 855) are added to the same list now, because an
-  initial state is restored by dam position and an `extrasoc` future segment
-  starts from the `histsoc` historical state; they are forced to global dams
-  with `Nservice = 0` and operate only in the scenario they belong to.
-- *Location.* Every dam is snapped again on the routing of the parameter set
-  with the full rule of the corrected table (nearest cell, then the cell of
-  the 3×3 neighbourhood whose upstream area best matches the catchment area);
-  the service maps are traced again on that routing and the FILE
-  decomposition file is rebuilt. Where two dams fall into one 5′ cell (VIC
-  `39e21ff5` sizes the dam output for one dam per cell), the smaller one is
-  moved to a free neighbouring cell on the same river when the upstream area
-  still fits, otherwise the two are merged (capacities summed, construction
-  year of the larger dam).
-- *Fengman.* Fengman and Fengman_2 (one reservoir, dam rebuilt in 2019) are
-  one dam: capacity of the new dam (11 460 hm³), construction year of the old
-  dam (1941) (user, 2026-10-11).
-- *Capacity.* `CAP_MCM` of ISIMIP4b; pairs whose ISIMIP and GDW capacities
-  differ strongly (e.g. Daniel Johnson 141.9 against 35.2 km³, Indirasagar
-  1.2 against 9.75 km³) are reviewed by hand.
-- *Purpose.* Global dams without an irrigation or water-supply purpose get
-  `Nservice = 0` (no service map): VIC then registers no demand for them and
-  plans the release from the mean inflow (Hanasaki et al. 2006,
-  `dam_calc_opt_release`), so they still store water and change the
-  seasonal flow downstream but are not operated for a demand. Local dams
-  supply their own cell whatever `Nservice` is (`wu_run_local.c`).
-- *Test of `Nservice = 0`* (analysis `dam-nservice-test`, 2026-10-10): two
-  global runs of 2016 from the 2016-01-01 state of the smoke run 2015, the
-  candidate dam file against a copy in which 1 301 global dams (3 103 km³)
-  without a supply purpose have `Nservice = 0`. Both runs ended with exit
-  code 0, no `[ERROR]` line and no service warning; the 1 301 dams all
-  operated, registered zero demand (1 254 of them have demand in the
-  control) and close their daily storage balance within 0.015 hm³. Their
-  planned release in the first year still uses the demand history restored
-  from the state (up to 5 years of history, `DAM_HIST_YEARS`), so the full
-  effect of `Nservice = 0` appears only after that history is renewed; runs
-  that start from a spin-up with the same dam file carry no such history.
-
-Still open in D19: the construction-year rule per DHF scenario (proposal:
-the same dam list in every file and only `year` changed, 0 for dams that
-exist in the scenario's fixed year and a year after 2100 for dams that do
-not; `histsoc` with the ISIMIP4b `YEAR`, unknown years set to 1850 as in
-ISIMIP4b), the spin-up of each experiment and the rule for warm starts.
+cross-module review: VIC-WUR switches a dam on in its construction year and
+never off, restores dams from an initial state by position, and the renderer
+passed one dam file to every segment; the `smoke-nonrenewable` warm start kept
+the dams of 2012–2020 active from 2011. Extended on 2026-10-09 by the DOR
+selection rule of the dam file. Decided 2026-10-11 after the analyses
+`dam-distribution-review` and `dam-nservice-test` and a source review of the
+state restore; see the record.
 
 **D20 — First year of runs on constant DHF units.** Raised 2026-10-07 by the
 cross-module review. VIC checks the first time of each plugin file of the

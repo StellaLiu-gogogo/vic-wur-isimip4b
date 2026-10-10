@@ -129,6 +129,18 @@ dimensions (the dams plugin by dam index): the earlier run must have the same mo
 and parameter files (md5 per role) as the new run, else the renderer stops. A state dated after the run start
 keeps the dams that were active at that date active (D19).
 
+**Warm-start rule (D19, decided 2026-10-11; the checks marked "to implement" are not yet in `render_run.py`).**
+A reported segment (pre-industrial, historical, future) starts only from the end state of its parent segment,
+dated its start. A spin-up or a non-production run may start from another completed run's end state only when
+(a) **the run starts on 1 January** (to implement: the renderer stops otherwise): at the first step of a run with
+an initial state the land-use plugin applies the run's coverage and redistributes water between tiles only on
+1 January (`plugins/landuse/src/lu_force.c` of `39e21ff5`), on any other date the state's coverage stays until the
+next 1 January; (b) model commit, executable and every parameter file are identical except the dam file, whose dam
+list (`id`, `type`, `capacity`, order) must be identical (to implement: today every parameter file must be
+identical); (c) the same plugins are on (to implement); (d) every dam active in the state (`STATE_DAM_ACTIVE`)
+operates in the run's dam file at the start year (to implement), because VIC never switches a dam off. A spin-up
+started this way repeats the convergence test. The record is `docs/decisions/D19-dams-and-initial-states.md`.
+
 **Run directory.** `runs/<campaign-id>/<run-id>/` (`--scratch`: `scratch/<campaign-id>/<run-id>/`, never
 submitted): `config/` (`vic_global.txt`, `vic_constants.txt` with the dam constants, `job.sbatch`,
 `resolved.yaml` with campaign, segment, resources, build, parameter files and forcing units), `forcing/`
