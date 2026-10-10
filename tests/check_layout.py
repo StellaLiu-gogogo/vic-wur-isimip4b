@@ -115,6 +115,7 @@ CACHE_REQUIRED = ["cache_id", "cache_fingerprint", "producer_stage",
                   "created_by", "code_commit", "code_dirty", "created_at",
                   "inputs", "rebuild_command"]
 DECISION_ID = re.compile(r"^D\d{2,}$")
+OPEN_STATUS = re.compile(r"^open\b")   # "open" or "open (note)"
 JOB_RECORD = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*_(?P<jobid>\d+)$")
 PROVENANCE_REQUIRED = ["forcing_unit", "created_by", "code_commit",
                        "code_dirty", "created_at", "inputs", "method", "qc"]
@@ -293,7 +294,7 @@ def check_open_decisions(repo: Path, files: list[str],
     for line in text.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if (len(cells) == 6 and DECISION_ID.match(cells[0])
-                and cells[5] == "open" and cells[2] in STAGES):
+                and OPEN_STATUS.match(cells[5]) and cells[2] in STAGES):
             due.append((cells[0], cells[2]))
     active = {PurePosixPath(f).parts[1] for f in files
               if f.startswith("workflow/0") and PurePosixPath(f).name
