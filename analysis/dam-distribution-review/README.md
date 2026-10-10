@@ -86,4 +86,6 @@ python analysis/dam-distribution-review/compare_gdw_isimip.py --submit   # job r
 
 **Conclusion.** Pending; to be recorded in the context of D19 in `docs/decisions/open-decisions.md`. Recorded
 there on 2026-10-09: the GDW rule DOR >= 10 % leaves large run-of-river reservoirs out of the dam file
-(1 373 dams, 528 km3), added to D19 by the user.
+(1 373 dams, 528 km3), added to D19 by the user. On 2026-10-10 the comparison of the full GDW database with
+ISIMIP4b (`compare_gdw_isimip.py`) led to the D19 decisions on the dam list (all ISIMIP4b histsoc dams plus the SSP
+future hydropower dams, GDW only for locations) recorded in the same place.

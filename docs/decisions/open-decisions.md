@@ -8,7 +8,7 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-10-09.
+Last reviewed: 2026-10-11.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
@@ -203,6 +203,73 @@ rule (and the treatment of a missing DOR), or are rebuilt from another
 source such as the ISIMIP4b data; the dam list has to be fixed before the
 per-scenario dam files of this decision are produced, because an initial
 state is restored by dam position.
+
+Dam list and dam parameters, decided by the user on 2026-10-09 to
+2026-10-11 from the analyses `dam-distribution-review` (commit `2817aac`,
+`compare_gdw_isimip.py`) and `dam-nservice-test`:
+
+- *Facts.* 7 324 of the 7 331 ISIMIP4b histsoc dams are found in GDW v1.0
+  (GRanD ID or location within 2 km); 39 of them (131 km³, e.g. Grand
+  Ethiopian Renaissance Dam, Farakka) only in the GDW barriers layer, which
+  the corrected 5′ table and the current dam file do not contain; of the
+  other 7 the review found Rogun and Changheba 22 and 13 km from their GDW
+  records, Huangdeng a barrier without capacity, Burdana combined with
+  Rumela, Nam Kum Gate and Fengman_2 sharing the record of another ISIMIP
+  dam, and only Wudongde (4 km³) absent. The current dam file
+  (`T3_extended_v2`, the file of the Snellius H line) was snapped and its
+  service maps traced on the old WBT routing
+  (`01oc_natural/03vic_input/vic_global_5min_routing_param_wbt.nc`), whereas
+  the parameter set uses the HydroSHEDS routing `v1.0.0_20260804`; 60.89 %
+  of the common cells have another downstream cell, and in the test runs
+  some large dams sit on small tributaries (Ust-Ilim and Brokopondo receive
+  less than 1 hm³/day). The smoke runs therefore ran with dams placed and
+  served on another river network.
+- *Dam list.* All 7 331 ISIMIP4b histsoc dams, no more and no less: GDW
+  (corrected table, barriers layer) only provides the dam location and
+  identifiers; dams found only in GDW are dropped. The ISIMIP4b SSP future
+  hydropower dams (WaterGAP2-2e, `ssp1vlsoc-noadapt` 1 758 and
+  `ssp3hsoc-noadapt` 2 855) are added to the same list now, because an
+  initial state is restored by dam position and an `extrasoc` future segment
+  starts from the `histsoc` historical state; they are forced to global dams
+  with `Nservice = 0` and operate only in the scenario they belong to.
+- *Location.* Every dam is snapped again on the routing of the parameter set
+  with the full rule of the corrected table (nearest cell, then the cell of
+  the 3×3 neighbourhood whose upstream area best matches the catchment area);
+  the service maps are traced again on that routing and the FILE
+  decomposition file is rebuilt. Where two dams fall into one 5′ cell (VIC
+  `39e21ff5` sizes the dam output for one dam per cell), the smaller one is
+  moved to a free neighbouring cell on the same river when the upstream area
+  still fits, otherwise the two are merged (capacities summed, construction
+  year of the larger dam).
+- *Fengman.* Fengman and Fengman_2 (one reservoir, dam rebuilt in 2019) are
+  one dam: capacity of the new dam (11 460 hm³), construction year of the old
+  dam (1941) (user, 2026-10-11).
+- *Capacity.* `CAP_MCM` of ISIMIP4b; pairs whose ISIMIP and GDW capacities
+  differ strongly (e.g. Daniel Johnson 141.9 against 35.2 km³, Indirasagar
+  1.2 against 9.75 km³) are reviewed by hand.
+- *Purpose.* Global dams without an irrigation or water-supply purpose get
+  `Nservice = 0` (no service map): VIC then registers no demand for them and
+  plans the release from the mean inflow (Hanasaki et al. 2006,
+  `dam_calc_opt_release`), so they still store water and change the
+  seasonal flow downstream but are not operated for a demand. Local dams
+  supply their own cell whatever `Nservice` is (`wu_run_local.c`).
+- *Test of `Nservice = 0`* (analysis `dam-nservice-test`, 2026-10-10): two
+  global runs of 2016 from the 2016-01-01 state of the smoke run 2015, the
+  candidate dam file against a copy in which 1 301 global dams (3 103 km³)
+  without a supply purpose have `Nservice = 0`. Both runs ended with exit
+  code 0, no `[ERROR]` line and no service warning; the 1 301 dams all
+  operated, registered zero demand (1 254 of them have demand in the
+  control) and close their daily storage balance within 0.015 hm³. Their
+  planned release in the first year still uses the demand history restored
+  from the state (up to 5 years of history, `DAM_HIST_YEARS`), so the full
+  effect of `Nservice = 0` appears only after that history is renewed; runs
+  that start from a spin-up with the same dam file carry no such history.
+
+Still open in D19: the construction-year rule per DHF scenario (proposal:
+the same dam list in every file and only `year` changed, 0 for dams that
+exist in the scenario's fixed year and a year after 2100 for dams that do
+not; `histsoc` with the ISIMIP4b `YEAR`, unknown years set to 1850 as in
+ISIMIP4b), the spin-up of each experiment and the rule for warm starts.
 
 **D20 — First year of runs on constant DHF units.** Raised 2026-10-07 by the
 cross-module review. VIC checks the first time of each plugin file of the
