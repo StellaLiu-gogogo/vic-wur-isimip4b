@@ -1,13 +1,11 @@
-"""Unit tests for the extension rule of workflow/04_forcing/climate/downscale_climate.py (docs/directory-contracts.md,
+"""Unit tests for the extension branch of workflow/04_forcing/climate/downscale_climate.py (docs/directory-contracts.md,
 "Forcing unit and provenance record"): an existing climate forcing unit may get years it does not contain yet only
 when the method version, the code (equal Git tree hashes, or a chain of entries of manifests/code-equivalence.yaml),
 the key software versions, the inputs used again (SHA-256) and the existing data files (SHA-256) are unchanged; a
-year the unit already contains is refused.
-
-check_extension() is tested on synthetic provenance records. The extension branch of main() runs on a synthetic
-workdir and repository (input files, MD5SUMS, input and parameter manifests, code-equivalence record) in temporary
-directories, with Git, the grid relation and the per-variable worker replaced by stand-ins: no downscaling is done.
-The real code-equivalence record of the repository is read once (its climate entry).
+year the unit already contains is refused. The rules themselves are in common/unit_extension.py and are tested in
+test_common_unit_extension.py; here main() is run on a synthetic workdir and repository (input files, MD5SUMS, input
+and parameter manifests, code-equivalence record) in temporary directories, with Git, the grid relation and the
+per-variable worker replaced by stand-ins: no downscaling is done.
 
 Run from the repository root in the isimip4b environment (PYTHONPATH including workflow/):
     python -m unittest discover -s tests/unit -v
@@ -67,91 +65,6 @@ class EquivalenceRecord:
     def use_record(self, root, entries):
         dump_yaml(os.path.join(root, provenance.EQUIVALENCE), {'equivalences': entries})
         p = mock.patch.object(provenance, 'REPO', root); p.start(); self.addCleanup(p.stop)
-
-
-# ------------------------------------------------------------------------------------------------ check_extension
-class CheckExtensionTest(EquivalenceRecord, unittest.TestCase):
-    STATIC = ['parameters/dom.nc', 'parameters/bundle.nc', 'raw/era5.nc']
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
-        self.out = os.path.join(self.tmp.name, 'unit')
-        f = write(os.path.join(self.out, 'prec_2015.nc'), 'data 2015')
-        recorded = {p: p[0] * 64 for p in self.STATIC + ['raw/src_2011_2020.nc']}
-        self.prov = {'method': {'version': dc.METHOD_VERSION},
-                     'fingerprint': {'code_tree': dict(T0), 'method_version': dc.METHOD_VERSION, 'software': dict(SOFTWARE)},
-                     'input_sha256': recorded, 'files': [{'path': 'prec_2015.nc', 'year': 2015, 'sha256': sha256(f)}]}
-        self.current = {'code_tree': dict(T0), 'software': dict(SOFTWARE), 'static_inputs': list(self.STATIC),
-                        'input_sha256': dict(recorded, **{'raw/src_2021_2030.nc': 'n' * 64})}   # a new source file
-        self.use_record(os.path.join(self.tmp.name, 'repo'), [])
-
-    def check(self):
-        return dc.check_extension(self.prov, self.out, self.current)
-
-    def assert_refused(self, text):
-        bad = self.check()
-        self.assertEqual(len(bad), 1, bad)
-        self.assertIn(text, bad[0])
-
-    def test_unchanged_unit_can_be_extended(self):
-        self.assertEqual(self.check(), [])
-
-    def test_method_version_changed(self):
-        self.prov['method']['version'] = '1.0'
-        self.assert_refused('method version 1.0 != ')
-
-    def test_code_tree_changed_without_entry(self):
-        self.current['code_tree'] = dict(T1)
-        self.assert_refused('no entry of manifests/code-equivalence.yaml connects them')
-
-    def test_code_tree_chain_through_record(self):
-        self.use_record(os.path.join(self.tmp.name, 'repo'), [entry('e1', T0, T1), entry('e2', T1, T2)])
-        for tree in (T1, T2):
-            self.current['code_tree'] = dict(tree)
-            self.assertEqual(self.check(), [])
-
-    def test_record_entry_of_other_method_or_producer(self):
-        self.current['code_tree'] = dict(T1)
-        for e in (entry('e1', T0, T1, version='0.9'), entry('e1', T0, T1, producer='workflow/other.py')):
-            self.use_record(os.path.join(self.tmp.name, 'repo'), [e])
-            self.assert_refused('no entry of')
-
-    def test_record_is_one_way(self):
-        self.use_record(os.path.join(self.tmp.name, 'repo'), [entry('e1', T1, T0)])
-        self.current['code_tree'] = dict(T1)                              # the unit was made by T0
-        self.assert_refused('no entry of')
-
-    def test_repository_record_connects_the_climate_entry(self):
-        """The entry common-modules-climate of the repository's record leads from the tree hashes before task G to
-        those after it."""
-        with open(os.path.join(HERE, '..', '..', provenance.EQUIVALENCE)) as fh:
-            e = next(x for x in yaml.safe_load(fh)['equivalences'] if x['id'] == 'common-modules-climate')
-        self.prov['fingerprint']['code_tree'] = dict(e['from']); self.current['code_tree'] = dict(e['to'])
-        with mock.patch.object(provenance, 'REPO', os.path.abspath(os.path.join(HERE, '..', '..'))):
-            self.assertEqual(self.check(), [])
-            self.assertEqual(provenance.code_equivalence(e['from'], e['to'], dc.CREATED_BY, dc.METHOD_VERSION),
-                             ['common-modules-climate'])
-
-    def test_software_changed(self):
-        self.current['software'] = dict(SOFTWARE, numpy='0.0.1')
-        self.assert_refused('software')
-
-    def test_input_used_again_changed(self):
-        self.current['input_sha256']['raw/src_2011_2020.nc'] = 'z' * 64
-        self.assert_refused('input raw/src_2011_2020.nc changed (sha256)')
-        self.current['input_sha256']['raw/src_2011_2020.nc'] = self.prov['input_sha256']['raw/src_2011_2020.nc']
-        self.current['input_sha256']['parameters/dom.nc'] = 'z' * 64
-        self.assert_refused('input parameters/dom.nc changed')
-
-    def test_static_input_not_recorded(self):
-        del self.prov['input_sha256']['raw/era5.nc']
-        self.assert_refused('static input raw/era5.nc not recorded in the unit')
-
-    def test_existing_file_changed_or_missing(self):
-        write(os.path.join(self.out, 'prec_2015.nc'), 'other data')
-        self.assert_refused('prec_2015.nc sha256 differs from provenance')
-        os.remove(os.path.join(self.out, 'prec_2015.nc'))
-        self.assert_refused('prec_2015.nc missing')
 
 
 # ------------------------------------------------------------------------------------------------ main()

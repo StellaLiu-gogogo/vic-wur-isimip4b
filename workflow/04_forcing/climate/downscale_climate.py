@@ -37,7 +37,7 @@ Rule 14 of the contract: accepted forcing is produced only from a clean reposito
 from a repository that is not clean, everything is written under scratch/climate-forcing/ instead.
 
 An existing unit is never overwritten; it may be extended with years it does not contain yet under
-the conditions in docs/directory-contracts.md, "Forcing unit and provenance record".
+the conditions in docs/directory-contracts.md, "Forcing unit and provenance record" (common/unit_extension.py).
 
 Usage: downscale_climate.py --gcm ec-earth3-esm-1-1 --alias esm-hist --years 2011-2020
        [--variables tair,prec,...] [--parameter-set ID] [--parameter-status candidates|production]
@@ -52,7 +52,7 @@ import numpy as np
 import netCDF4 as nc
 import yaml
 
-from common import gitstate, hashing, provenance, workdir
+from common import gitstate, hashing, provenance, unit_extension, workdir
 
 CREATED_BY = 'workflow/04_forcing/climate/downscale_climate.py'
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
@@ -502,33 +502,6 @@ def method_record(var, rel_paths):
     return m
 
 
-def check_extension(prov, out_dir, current):
-    """Conditions of docs/directory-contracts.md for extending a unit; returns a list of violations."""
-    bad = []
-    fp = prov.get('fingerprint', {})
-    if prov.get('method', {}).get('version') != METHOD_VERSION:
-        bad.append(f'method version {prov.get("method", {}).get("version")} != {METHOD_VERSION}')
-    if provenance.code_equivalence(fp.get('code_tree'), current['code_tree'], CREATED_BY, METHOD_VERSION) is None:
-        bad.append(f'code tree {fp.get("code_tree")} != {current["code_tree"]} and no entry of '
-                   f'{provenance.EQUIVALENCE} connects them')
-    if fp.get('software') != current['software']:
-        bad.append(f'software {fp.get("software")} != {current["software"]}')
-    old = prov.get('input_sha256', {})
-    for p, sha in current['input_sha256'].items():
-        if p in old and old[p] != sha:
-            bad.append(f'input {p} changed (sha256)')
-    for p in current['static_inputs']:
-        if p not in old:
-            bad.append(f'static input {p} not recorded in the unit')
-    for f in prov.get('files', []):
-        fp_ = f'{out_dir}/{f["path"]}'
-        if not os.path.exists(fp_):
-            bad.append(f'{f["path"]} missing')
-        elif hashing.sha256(fp_) != f['sha256']:
-            bad.append(f'{f["path"]} sha256 differs from provenance')
-    return bad
-
-
 def select_variables(requested, to_scratch):
     """Variables to produce; variables blocked by an open decision only go to scratch."""
     variables = requested.split(',') if requested else \
@@ -605,31 +578,16 @@ def main():
     current = {'code_tree': gitstate.tree_hashes(REPO, CODE_DIRS), 'software': provenance.software_versions(),
                'static_inputs': [rp(dom), rp(bundle), rp(era5)]}
 
-    # ---------------- unit state: new, extension, or refused
+    # ---------------- unit state: new, extension, or refused (common/unit_extension.py)
+    input_sha = lambda v: {rp(p): hashes[p][1] for p in [dom, bundle, era5] + sorted({sources[yy][s] for yy in years
+                                                                                    for s in VARIABLES[v]['sources']})}
     existing = {}
     for v in variables:
-        d = out_dir[v]; prov_path = f'{d}/provenance.yaml'
-        ins = {rp(p): hashes[p][1] for p in [dom, bundle, era5] + sorted({sources[yy][s] for yy in years
-                                                                        for s in VARIABLES[v]['sources']})}
-        present = [f for f in os.listdir(d) if f.endswith('.nc')] if os.path.isdir(d) else []
-        if to_scratch:
-            existing[v] = None
-            continue
-        if os.path.exists(prov_path):
-            prov = provenance.read(prov_path)
-            have = {f['year'] for f in prov.get('files', [])}
-            clash = sorted(have & set(years))
-            if clash:
-                raise SystemExit(f'{unit[v]} already contains {clash}; an existing unit is never overwritten')
-            bad = check_extension(prov, d, dict(current, input_sha256=ins))
-            if bad:
-                raise SystemExit(f'{unit[v]} cannot be extended:\n  ' + '\n  '.join(bad))
-            existing[v] = prov
+        existing[v] = None if to_scratch else unit_extension.prepare(
+            out_dir[v], unit[v], years, CREATED_BY, METHOD_VERSION, current['code_tree'], current['software'],
+            input_sha(v), current['static_inputs'])
+        if existing[v]:
             print(f'{unit[v]}: extending with {years}', flush=True)
-        elif present or (os.path.isdir(d) and os.listdir(d)):
-            raise SystemExit(f'{d} contains files but no provenance.yaml (incomplete unit); ask the user')
-        else:
-            existing[v] = None
 
     # ---------------- static reference (grid relation, dz)
     rel, clat, clon, flat, flon, mask, area, dz, zref05, cache, static_key = static_reference(
@@ -655,21 +613,16 @@ def main():
 
     # ---------------- provenance per unit, written last
     for v in variables:
-        prev = existing[v]
-        ins = {rp(p): hashes[p][1] for p in [dom, bundle, era5] + sorted({sources[yy][s] for yy in years
-                                                                        for s in VARIABLES[v]['sources']})}
-        files = (prev['files'] if prev else []) + [{k: r[k] for k in ('path', 'year', 'size_bytes', 'sha256',
-                                                                      'created_at', 'code_commit')}
-                                                   for r in results[v]]
+        prev = existing[v]; ins = input_sha(v)
+        new = [{k: r[k] for k in unit_extension.FILE_KEYS} for r in results[v]]
         if to_scratch:      # scratch: list whatever is in the directory
-            recs = {r['path']: r for r in results[v]}
-            files = [recs.get(f) or {'path': f} for f in sorted(os.listdir(out_dir[v])) if f.endswith('.nc')]
-            files = [{k: r[k] for k in ('path', 'year', 'size_bytes', 'sha256', 'created_at', 'code_commit') if k in r}
-                     for r in files]
-        files = sorted(files, key=lambda f: f['path'])
-        yrs = sorted(f['year'] for f in files if 'year' in f)
-        input_sha = dict(prev['input_sha256']) if prev else {}
-        input_sha.update(ins)
+            recs = {r['path']: r for r in new}
+            new = [recs.get(f) or {'path': f} for f in sorted(os.listdir(out_dir[v])) if f.endswith('.nc')]
+        # an extension keeps the existing entries, adds the new files, merges the inputs and resets qc.status
+        upd = unit_extension.extend(prev, new, ins, current['code_tree'], CREATED_BY, METHOD_VERSION, commit,
+                                    created_at, years) if prev else {}
+        files = upd['files'] if prev else sorted(new, key=lambda f: f['path'])
+        yrs = unit_extension.unit_years({'files': [f for f in files if 'year' in f]})
         qc_evidence = f'qc/forcing/{unit[v]}' if not to_scratch else rp(f'{out_dir[v]}/qc')
         prov = {
             'forcing_unit': unit[v], 'created_by': CREATED_BY,
@@ -677,11 +630,11 @@ def main():
             'created_at': prev['created_at'] if prev else created_at,
             'input_manifest': ISIMIP_MANIFEST,
             'other_manifests': [ERA5_MANIFEST, PARAMETER_MANIFEST.format(pset=a.parameter_set)],
-            'inputs': sorted(input_sha),
-            'input_sha256': dict(sorted(input_sha.items())),
+            'inputs': sorted(ins),
+            'input_sha256': dict(sorted(ins.items())),
             'method': method_record(v, rel_paths),
             'fingerprint': provenance.fingerprint(current['code_tree'], METHOD_VERSION, current['software']),
-            'years': f'{yrs[0]}-{yrs[-1]}' if yrs else None,
+            'years': unit_extension.years_span(yrs),
             'rebuild_command': f'python3 {CREATED_BY} --gcm {a.gcm} --alias {a.alias} --variables {v} '
                                f'--years {yrs[0]}-{yrs[-1]} --parameter-set {a.parameter_set} '
                                f'--parameter-status {a.parameter_status}' + (' --scratch' if a.scratch else '')
@@ -689,13 +642,7 @@ def main():
             'caches': [rp(cache)],              # for information only (grid relation and dz, keyed)
             'files': files,
             'qc': {'status': 'not_checked', 'evidence': qc_evidence}}
-        if prev:
-            ext = {'at': created_at, 'code_commit': commit, 'years': years}
-            chain = provenance.code_equivalence(prev['fingerprint']['code_tree'], current['code_tree'], CREATED_BY,
-                                                METHOD_VERSION)
-            if chain:   # extended under entries of the code-equivalence record
-                ext['code_equivalence'] = chain
-            prov['extended'] = (prev.get('extended') or []) + [ext]
+        prov.update(upd)
         provenance.write(f'{out_dir[v]}/provenance.yaml', prov)
     print(f'done: {len(variables)} variable(s) x {len(years)} year(s) in {time.time() - t0:.0f} s -> {base}')
 

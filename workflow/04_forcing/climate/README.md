@@ -14,6 +14,7 @@ read by `05_simulation`.
 | `climate_forcing.sbatch` | Slurm job template (producer, then verifier) |
 | `submit_climate_forcing.py` | renders the template, submits on hold, writes the job record `logs/04_forcing/<job-name>_<slurm-job-id>/{job.sbatch,job.yaml}`, releases the job |
 | `../../../tests/unit/test_climate_downscaling.py` | unit tests (grid relation, bilinear and conservative remapping against cdo, physics including the `lwdown` ratio against an independent implementation, time axis, variable selection) |
+| `../../../tests/unit/test_climate_extension.py` | unit tests of the extension branch of the producer (synthetic unit, Git and the worker replaced by stand-ins); the extension rules themselves are `workflow/common/unit_extension.py`, tested in `test_common_unit_extension.py` |
 
 Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary and verifier exit status, job records) come from `workflow/common/` (see its README); the verifier exits with 0 only for `passed` (1 failed, 3 warning, 4 not_checked), and a per-year report counts only for the data files and verifier version recorded in it.
 
@@ -127,7 +128,8 @@ The submit script decides this once, at submission, and passes it to the produce
 
 An existing unit is never overwritten. Running the producer for years a unit
 does not contain extends it when the conditions in
-`docs/directory-contracts.md` ("Forcing unit and provenance record") hold:
+`docs/directory-contracts.md` ("Forcing unit and provenance record"), checked
+by `workflow/common/unit_extension.py`, hold:
 unchanged code fingerprint (Git tree of this directory and
 `workflow/common/`, `METHOD_VERSION`) or a change of the trees recorded as
 result-neutral in `manifests/code-equivalence.yaml`, unchanged SHA-256 of reused inputs,

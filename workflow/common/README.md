@@ -5,7 +5,9 @@ Python modules shared by two or more workflow stages (docs/directory-contracts.m
 Classification: production workflow code (user, 2026-10-05, task G). The modules were taken out of the
 producers, submit scripts, and verifiers of `03_parameters/vegetation/` and `04_forcing/{climate,landuse,water_use}/`,
 which each carried their own copy; the producers' results are unchanged (scratch tests before and after,
-recorded in `manifests/code-equivalence.yaml`).
+recorded in `manifests/code-equivalence.yaml`). `03_parameters/dams/` uses them too. `03_parameters/bundle/` and
+`05_simulation/` keep their own helpers (workdir, checksums, Git state, job records) and do not import this
+directory; the unit-extension module was added on 2026-10-12 (task O, D20).
 
 ## Admission
 
@@ -18,10 +20,11 @@ file formats, checks, which keys a record contains) stays in the stages.
 
 | Module | Provides | Used by |
 |---|---|---|
-| `workdir.py` | `root()`: the workdir from `ISIMIP4B_WORKDIR` (stops when unset); `logs(stage)`: `logs/<stage>/` | all producers, verifiers, submit scripts |
+| `workdir.py` | `root()`: the workdir from `ISIMIP4B_WORKDIR` (stops when unset); `logs(stage)`: `logs/<stage>/` | the producers, verifiers and submit scripts of `03_parameters/{vegetation,dams}` and `04_forcing` |
 | `hashing.py` | `sha256`, `md5`, `file_hashes` (both in one pass), read in 16 MiB blocks | producers, `qc.py` |
 | `gitstate.py` | `state(repo)`: full HEAD commit and whether the repository is not clean (`git status --porcelain`); `tree_hashes(repo, dirs)`: Git tree hashes at HEAD (the code fingerprint) | producers, `qc.py` |
 | `provenance.py` | `utcnow`; `read`/`write` of `provenance.yaml` (written whole, then renamed); `set_qc`; `software_versions` and `fingerprint` (the fingerprint block); `code_equivalence`: the chain of entries of `manifests/code-equivalence.yaml` that connects a recorded code fingerprint with the current one | producers, verifiers, `jobrecord.py` |
+| `unit_extension.py` | the contract's rules for extending a yearly forcing unit: `year_of` (year from `<...>_<year>.nc`), `unit_years`, `years_span`; `existing` (the unit's record; stops on files without `provenance.yaml`); `check` (violations of the conditions: method version, code tree or code-equivalence chain, software versions, inputs used again, existing files' SHA-256); `prepare` (new unit, extension, or refused, before anything is written); `file_record`; `extend` (the record keys an extension changes: files, inputs, years, `qc.status` back to `not_checked`, the `extended` entry with the code-equivalence chain and the producer's details) | `04_forcing/climate` (landuse and water_use follow in task O2) |
 | `qc.py` | status vocabulary and `combine` (failed > not_checked > warning > passed; a missing part counts as not_checked); `write_summary`, `write_json`; `exit_with` (verifier exit status); `verifier_state`, `binding`, `report_status` (per-file reports bound to their data files and verifier version) | verifiers |
 | `jobrecord.py` | `render` a Slurm template, `conda_base`, `submit`: on hold, then `job.sbatch` and `job.yaml` in `logs/<stage>/<job-name>_<slurm-job-id>/`, then release | submit scripts |
 
@@ -43,7 +46,10 @@ SHA-256 of the data files it checked and the verifier's commit, Git state, and c
 directory and `workflow/common`). When the unit summary is made, a report of the current run counts if its data
 files are unchanged; a report of an earlier run counts only if, in addition, both runs came from a clean
 repository with the same verifier code-tree hashes. Any other report, including one written before 2026-10-05
-without a `binding`, counts as `not_checked`, so that year must be verified again.
+without a `binding`, counts as `not_checked`, so that year must be verified again. A change of any module in this
+directory therefore changes the code tree of every verifier: after such a commit, a unit keeps its `qc.status`
+until a verifier runs on it, and then every year of the unit has to be verified again (`--verify-only` of the
+submit scripts) before the unit can be `passed`.
 
 ## Importing
 

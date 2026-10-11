@@ -158,3 +158,43 @@ equivalences:
       43268251): all six files identical in every variable and attribute except code_dirty; lost_demand_ledger.csv,
       lost_parents_2015.csv and qa_2015.json identical; provenance.yaml differs only in code_dirty and files[].sha256.
     approved: user, 2026-10-09
+  - id: unit-extension-common-climate
+    producer: workflow/04_forcing/climate/downscale_climate.py
+    method_version: '1.1'
+    from:
+      workflow/04_forcing/climate: 093f8a75c25cc5506dbb0c41ec37c37ec4db504c
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    to:
+      workflow/04_forcing/climate: 7b8e12ca4d11f1bf271433636131aca9d132fa23
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    change: >-
+      task O1 (D20): the unit-extension rules of the contract (year clash, method version, code tree or
+      code-equivalence chain, software versions, inputs used again, existing files' SHA-256, merge of the new files
+      into provenance.yaml) moved from the producer into workflow/common/unit_extension.py, so that the land-use and
+      water-use producers can use them (task O2); README lines. Method unchanged.
+    evidence: >-
+      Scratch test on 2026-10-11, ec-earth3-esm-1-1 esm-hist lwdown 2015, same inputs and commit base 189f475: before =
+      worktree of 189f475 (Slurm job 43312045), after = the change (job 43312047), comparison job 43312280
+      (scratch/first-year-files/compare-o1.log). The data file is identical in every variable (raw bytes, dtype,
+      dimensions, chunking, filters, attributes) and every global attribute except code_dirty; provenance.yaml differs
+      only in code_dirty, files[].created_at, files[].sha256 and the paths that carry the scratch label.
+    approved: user, 2026-10-12
+  - id: unit-extension-common-water-use
+    producer: workflow/04_forcing/water_use/downscale_water_use.py
+    method_version: '1.0'
+    from:
+      workflow/04_forcing/water_use: 84758de3487d0e7eb96dc3a83b3fa811b5e2a2a4
+      workflow/common: e49276ff32819d7b933a874b2b94fdb0018c4ade
+    to:
+      workflow/04_forcing/water_use: 84758de3487d0e7eb96dc3a83b3fa811b5e2a2a4
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    change: >-
+      task O1 (D20): workflow/common gained unit_extension.py (not imported by this producer yet) and README lines;
+      the producer's own directory is unchanged. Method unchanged. (The producer does not extend units yet; the entry
+      keeps the recorded fingerprint traceable for task O2.)
+    evidence: >-
+      Scratch test on 2026-10-11, histsoc 2015, same inputs and commit base 189f475 (before job 43312046, after job
+      43312048, comparison job 43312280): all six files identical in every variable and attribute except code_dirty;
+      lost_demand_ledger.csv and lost_parents_2015.csv byte-identical; qa_2015.json identical; provenance.yaml differs
+      only in code_dirty, files[].sha256 and the paths that carry the scratch label.
+    approved: user, 2026-10-12

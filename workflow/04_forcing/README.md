@@ -29,6 +29,28 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 
 Each family README lists its inputs, method, and commands.
 
+## Start years outside a unit's years (D20, task O)
+
+VIC-WUR `39e21ff5` checks the forcing files of a run's first year (the climate file's first time gives the record
+offset; every plugin file's first time must equal it), so the renderer requires a file of the start year in every
+forcing family. Runs on the constant DHF scenarios and the spin-ups start outside the units' own years
+(`docs/decisions/D20-first-year-files.md`, decided 2026-10-11). The producers write those start years as
+**extension years** of the accepted units: the constant land-use and water-use fields re-stamped to the year (the
+water-use demand recomputed with the year's day count), the spin-up climate copied from the cycle year with the
+time axis re-stamped. Classification: production workflow code (user, 2026-10-11); the task's steps and their state:
+
+| Step | Content | State |
+|---|---|---|
+| O1 | the unit-extension rules of the contract moved from the climate producer into `workflow/common/unit_extension.py` | done 2026-10-12 (code-equivalence entries pending the user's approval) |
+| O2 | land-use and water-use producers: extension path and the extension-year option for `1850soc` and `2021soc`; verifiers compare an extension year with the raw data of its source year; the land-use units `1850soc` and `2021soc` (made before the fingerprint block existed) are regenerated as a whole (user, 2026-10-12) | open |
+| O3 | climate producer: spin-up start years copied from the cycle year; verifier source-year rule | open |
+| O4 | code-equivalence entries; extension of the accepted units (user authorisation per unit); verification of every extended unit | open |
+| O5 | climate `esm-picontrol` 1601–1650, then the start years 1551, 1576, 1800, 1825 | open |
+| O6 | `05_simulation`: spin-up continuation blocks, run-ID rule, campaign spin-up keys, README | open, after task L |
+
+Start years needed (D20): land use and water use `1850soc` 1601, 2022, 1551, 1576; `2021soc` 1850, 1800, 1825;
+climate `esm-picontrol` 1551, 1576, 1800, 1825.
+
 ## Allowed content
 
 - Forcing conversion and validation source code.
