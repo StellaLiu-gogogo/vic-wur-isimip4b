@@ -16,6 +16,7 @@ This stage may include domain, soil, vegetation, land-use, routing, reservoir, i
 |---|---|---|
 | `vegetation/` | `parameters/<status>/<set>/vegetation/`: 16-class vegetation variables with the full land-use tile union (D04) and donor backfill of added tiles | producer, verifier, Slurm template and unit tests implemented (method 1.0) |
 | `bundle/` | `parameters/<status>/<set>/bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc`: the image-driver file VIC reads with `PARAMETERS`, assembled from the natural bundle (soil, snow bands, `elev`) and the vegetation component, every variable bitwise equal to its source | producer, verifier, Slurm template and unit tests implemented (method 1.0) |
+| `dams/` | `parameters/<status>/<set>/dams/vic_global_5min_dam_parameters_isimip4b_{histsoc,1850soc,2021soc}.nc` (D19): the ISIMIP4b dams located with GDW v1.0 plus the SSP future river-power dams, snapped on the routing of the set, one dam list, `year` per DHF scenario; dam list and source tables | producer, verifier, Slurm template and unit tests implemented (method 1.0); hand review and natural discharge run pending (task L) |
 
 Adopted components of `vic-global-5arcmin-version-a` (copies of `vic_parameter` files recorded in
 `manifests/parameters/vic-global-5arcmin-version-a.yaml` with source path, version, md5 and verification;

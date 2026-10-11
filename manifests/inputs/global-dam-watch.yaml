@@ -18,9 +18,13 @@ description: >-
   attributes (.cpg). GDW_v1_0_shp/GDW_barriers_v1_0: 41 145 records, point
   geometry (shape type 1), every barrier including those without a mapped
   reservoir; LAT_DAM/LONG_DAM are 0 in 35 032 records, so the dam location is
-  the point geometry; GDW_barriers_v1_0.txt is the same attribute table as
-  comma-separated text. GDW_v1_0_shp/GDW_reservoirs_v1_0: 35 295 records,
-  polygon geometry (shape type 5), with LAT_DAM/LONG_DAM. Both layers carry
+  the point geometry, which equals LAT_RIV/LONG_RIV (the dam location on the
+  river) in every record; GDW_barriers_v1_0.txt is the same attribute table
+  as comma-separated text, with LAT_DAM/LONG_DAM filled.
+  GDW_v1_0_shp/GDW_reservoirs_v1_0: 35 295 records, polygon geometry (shape
+  type 5); LAT_DAM/LONG_DAM are 0 in most records of its .dbf as well. Every
+  reservoirs record is also a barriers record with the same GDW_ID and name
+  (checked 2026-10-11, task L). Both layers carry
   GDW_ID, GRAND_ID, names, YEAR_DAM, CAP_MCM, DOR_PC, CATCH_SKM, the use
   flags USE_IRRI, USE_ELEC, USE_SUPP, ... and MAIN_USE, and QUALITY; -99
   marks a missing value (e.g. CAP_MCM, DOR_PC). .sbn/.sbx are the ArcGIS

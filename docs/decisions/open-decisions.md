@@ -14,7 +14,9 @@ D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first ta
 
 D01 does not block the climate forcing units of the smoke campaign: the user
 allowed producing the EC-Earth3-ESM-1-1 `esm-hist` 2011–2020 climate units
-as accepted forcing while D01 is open (user, 2026-09-30). The same holds
+as accepted forcing while D01 is open (user, 2026-09-30), and extended this
+to the years 1850–2010 of the same units (user, 2026-10-11; natural run
+1850–2021 of task L for the dam service maps, D19). The same holds
 for the land-use forcing units of all five soc scenarios (`histsoc`,
 `1850soc`, `2021soc`, `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`): they do not
 depend on the VIC commit and may be accepted while D01 is open (user,

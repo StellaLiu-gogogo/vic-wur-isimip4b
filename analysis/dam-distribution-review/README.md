@@ -9,7 +9,10 @@ future hydropower dams (`ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`) look like.
 **Classification.** Analysis; proposed by the agent and confirmed by the user on 2026-10-09. Reason: the
 products are figures and tables used to discuss D19; no workflow stage reads them.
 
-**Status.** `open`.
+**Status.** `promoted` (2026-10-11, task L): the ISIMIP4b-GDW crosswalk of `compare_gdw_isimip.py` and the shapefile
+and workbook readers were moved into `workflow/03_parameters/dams/dam_sources.py` (barriers layer as the only GDW
+table, GDW v1.0 from `raw/external/global-dam-watch/1.0/`); D19 is decided
+(`docs/decisions/D19-dams-and-initial-states.md`). The scripts here stay as the record of the analysis.
 
 **Inputs** (read-only; paths relative to `$ISIMIP4B_WORKDIR` unless absolute).
 
@@ -84,8 +87,8 @@ python analysis/dam-distribution-review/compare_gdw_isimip.py --submit   # job r
   `gdw_isimip_year_comparison.csv`, `gdw_cell_multiplicity.csv`, `gdw_cell_multiple_dams.csv`.
 - `logs/review_<slurm-job-id>/`, `logs/gdw_<slurm-job-id>/`: job records.
 
-**Conclusion.** Pending; to be recorded in the context of D19 in `docs/decisions/open-decisions.md`. Recorded
-there on 2026-10-09: the GDW rule DOR >= 10 % leaves large run-of-river reservoirs out of the dam file
+**Conclusion.** Maintained record: `docs/decisions/D19-dams-and-initial-states.md` (decided 2026-10-11). Recorded
+first in the context of D19 in `docs/decisions/open-decisions.md` on 2026-10-09: the GDW rule DOR >= 10 % leaves large run-of-river reservoirs out of the dam file
 (1 373 dams, 528 km3), added to D19 by the user. On 2026-10-10 the comparison of the full GDW database with
 ISIMIP4b (`compare_gdw_isimip.py`) led to the D19 decisions on the dam list (all ISIMIP4b histsoc dams plus the SSP
 future hydropower dams, GDW only for locations) recorded in the same place.

@@ -1,0 +1,55 @@
+# Hand decisions of the dam component (decision D19), read by build_dams.py. Every entry has a reason and the date
+# and person of the decision. ISIMIP records are named by their key: the numeric ISIMIP ID, or name:<DAM_NAME> for
+# the records whose ID is not numeric.
+
+# Location of ISIMIP4b histsoc dams that the automatic crosswalk (GRanD ID, location within 2 km with a capacity
+# ratio in [0.5, 2]) does not find in GDW v1.0 (analysis dam-distribution-review, compare_gdw_isimip.py).
+manual_locations:
+  - isimip: name:Changheba
+    gdw_id: 7388
+    reason: >-
+      GDW record Changheba (Dadu river, 1 075 hm3, 2018) lies 13 km from the ISIMIP coordinates; same name, river
+      and capacity. User, 2026-10-11.
+  - isimip: name:Huangdeng
+    gdw_id: 38640
+    reason: >-
+      GDW barrier point without capacity 0.08 km from the ISIMIP coordinates on the Lancang (Mekong). User,
+      2026-10-11.
+  - isimip: name:Burdana
+    use: isimip_coordinates
+    reason: >-
+      Upper Atbara and Setit complex; GDW combines Burdana with Rumela (GRanD 7137, 2.35 km away), which is an
+      ISIMIP dam of its own. User, 2026-10-11.
+  - isimip: '5147'
+    use: isimip_coordinates
+    reason: >-
+      Nam Kum Gate (Thailand): its GDW candidate is used by another ISIMIP dam; no GDW record of its own. User,
+      2026-10-11.
+  - isimip: name:Wudongde
+    use: isimip_coordinates
+    reason: Wudongde (Jinsha river, 4 000 hm3, 2020) is not in GDW v1.0. User, 2026-10-11.
+
+# ISIMIP records that describe one reservoir: the first record (keep) is the dam, the others (absorb) are recorded
+# as combined into it. The dam keeps the location of the kept record; capacity and year as given.
+combined:
+  - keep: '5838'
+    absorb: [name:Fengman_2]
+    capacity_mcm: 11460
+    year: 1941
+    reason: >-
+      Fengman (GRanD 5838, 1941, 9 170 hm3) and Fengman_2 (2019, 11 460 hm3, 0.24 km apart) are one reservoir whose
+      dam was rebuilt in 2019: one dam with the capacity of the new dam and the year of the old dam (D19, user
+      2026-10-11).
+  - keep: '4690'
+    absorb: [name:Rogun]
+    capacity_mcm: 13300
+    year: 1976
+    reason: >-
+      ISIMIP lists Rogun twice: GRanD 4690 (1976, 13 300 hm3) and a record of 2019 (13 300 hm3) 22 km away; both
+      are the same reservoir on the Vakhsh. One dam with the year and location (GDW 6073) of the GRanD record.
+      User, 2026-10-11.
+
+# Reviewed pairs (review_pairs.csv of the review run): GRanD-matched pairs whose capacity ratio GDW/ISIMIP is
+# outside [0.5, 2] or whose locations are more than 10 km apart. Each entry: isimip key, capacity_mcm (the value
+# used), location (gdw or isimip), reason. Filled after the user's review.
+reviews: []
