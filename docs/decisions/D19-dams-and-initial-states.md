@@ -196,8 +196,13 @@ in the same order; only `year` differs:
   above (1 January, identical inputs except the dam file, same plugins, active
   dams). The resolver and the campaign keys `spinup.length_years` and
   `spinup.climate_cycle` follow the spin-up rules; the convergence test is new.
-- D20 (first year of constant DHF units) is still needed for the spin-up year
-  labels, the pre-industrial segment and the `2021soc` historical segments.
+- D20 (first-year files outside a unit's years, decided 2026-10-11,
+  `D20-first-year-files.md`) provides the start-year files of the spin-ups, the
+  pre-industrial segment, the `1850soc` future segments and the `2021soc`
+  historical segments, and fixes the labels of the spin-up continuation
+  blocks: every 25-year block is labelled as the last 25 years before the
+  chain start (1576–1600, 1825–1849), so each block's end state is dated
+  1601-01-01 or 1850-01-01 and each chain needs two start years only.
 - The smoke runs used dams placed and served on the WBT routing; their dam
   results are not representative.
 - Implementation is a workflow task proposed to the user after this record.
