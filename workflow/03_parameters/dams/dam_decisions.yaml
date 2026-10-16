@@ -49,6 +49,14 @@ combined:
       are the same reservoir on the Vakhsh. One dam with the year and location (GDW 6073) of the GRanD record.
       User, 2026-10-11.
 
+# ISIMIP4b histsoc dams whose location has no active VIC cell in reach (the dam is not in the model). The producer
+# stops on any other dam without an active cell.
+outside_domain:
+  - isimip: '6936'
+    reason: >-
+      Qorlortorsuaq (Greenland, 108 hm3): Greenland is outside the VIC domain (D08); no active cell in reach; not
+      included in the dam files. User, 2026-10-16.
+
 # Overrides of the review rules (user, 2026-10-16). The pairs flagged by the crosswalk (GRanD-matched pairs whose
 # capacity ratio GDW/ISIMIP is outside [0.5, 2] or whose points are more than 10 km apart) are decided by the rules
 # C1-C3 (capacity) and L1-L3 (location) of dam_sources.py; review_pairs.csv lists each pair with its evidence and

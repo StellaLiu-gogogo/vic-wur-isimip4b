@@ -83,6 +83,24 @@ class TestSnap(unittest.TestCase):
         self.assertIsNone(dg.snap(g3, 1.0, 2.0, 1.0)['row'])
 
 
+class TestSnapFuture(unittest.TestCase):
+    def test_largest_upstream_in_neighbourhood(self):
+        g = chain_grid()
+        s = dg.snap_future(g, 0.1, 2.0)              # nearest (0, 2), a 10 km2 side cell; (1, 3) has 120 km2
+        self.assertEqual((s['row'], s['col'], s['type'], s['inflow_fraction']), (1, 3, dg.TYPE_GLOBAL, 1.0))
+        self.assertEqual(s['method'], 'future_largest_upstream')
+        g3 = dg.Grid(g.lat, g.lon, np.zeros((3, 5), bool), g.cell_id, g.cell_id, np.ones((3, 5)))
+        self.assertIsNone(dg.snap_future(g3, 1.0, 2.0)['row'])
+
+    def test_future_flag(self):
+        self.assertEqual(bd.future_flag({'capacity_mcm': 100.0, 'years_of_mean_flow': 1.0, 'lake_km2': 10.0,
+                                         'dam_height_m': 30.0}), '')
+        f = bd.future_flag({'capacity_mcm': 172506.0, 'years_of_mean_flow': 35.5, 'lake_km2': 3068.0,
+                            'dam_height_m': 68.0})
+        self.assertIn('35.5 years', f)
+        self.assertIn('mean depth', bd.future_flag({'capacity_mcm': 1000.0, 'lake_km2': 1.0, 'dam_height_m': 50.0}))
+
+
 class TestPlace(unittest.TestCase):
     def setUp(self):
         self.g = chain_grid()
@@ -210,12 +228,15 @@ class TestSources(unittest.TestCase):
 
     def test_ssp_sites(self):
         cols = {'year_built': [2030, 2040, 2050], 'latitude': [1.0, 2.0, 3.0], 'longitude': [1.0, 2.0, 3.0],
-                ds.SSP_SYSTEM: [2, 2, 1], ds.SSP_VOLUME: [1e9, 2e9, np.nan], ds.SSP_AREA: [100, 200, 300]}
+                ds.SSP_SYSTEM: [2, 2, 1], ds.SSP_VOLUME: [1e9, 2e9, np.nan], ds.SSP_ARC_ID: [100, 200, 300],
+                ds.SSP_LAKE: [5e7, 1e8, np.nan], ds.SSP_HEIGHT: [40, 60, np.nan]}
         a = pd.DataFrame(cols); a['row'] = range(3)
         b = pd.DataFrame({k: v[:1] for k, v in cols.items()}); b['year_built'] = [2060]; b['row'] = [0]
         sites, rows = ds.ssp_sites({'s1': a, 's3': b})
         self.assertEqual(len(sites), 2)
         self.assertEqual(sites.capacity_mcm.tolist(), [2000.0, 1000.0])
+        self.assertEqual(sites.lake_km2.tolist(), [100.0, 50.0])
+        self.assertEqual(sites.ddm30_arc_id.tolist(), [200, 100])
         self.assertEqual(sites.loc[sites.lat == 1.0, ['year_s1', 'year_s3']].values.tolist(), [[2030, 2060]])
         self.assertEqual((rows.outcome == 'site').sum(), 3)
         self.assertTrue(rows.outcome[2].startswith('excluded: diversion canal'))

@@ -173,6 +173,20 @@ def snap(grid, lat, lon, catch_km2, force_global=False):
             'ratio': ratio}
 
 
+def snap_future(grid, lat, lon):
+    """Cell of an SSP future dam, whose tables give no catchment area (user, 2026-10-16): the active cell of the
+    nearest cell and its 3x3 neighbourhood with the largest upstream area (a river-power dam sits on the main
+    river); always global, inflow_fraction 1."""
+    r, c = grid.nearest(lat, lon)
+    cands = [(rr, cc) for rr, cc in [(r, c)] + grid.neighbours(r, c) if grid.mask[rr, cc]]
+    if not cands:
+        return {'row': None, 'col': None, 'type': TYPE_GLOBAL, 'inflow_fraction': 1.0,
+                'method': 'no active cell in the 3x3 neighbourhood', 'ratio': np.nan}
+    best = max(cands, key=lambda rc: grid.upstream_m2[rc])
+    return {'row': best[0], 'col': best[1], 'type': TYPE_GLOBAL, 'inflow_fraction': 1.0,
+            'method': 'future_largest_upstream' if best != (r, c) else 'future_nearest', 'ratio': np.nan}
+
+
 def move_target(grid, row, col, dam, occupied):
     """Free active neighbour (3x3) of the taken cell (row, col) for `dam` (dict with type, lat, lon,
     catchment_km2), or None. Global: on the same river (directly downstream, or draining directly into the

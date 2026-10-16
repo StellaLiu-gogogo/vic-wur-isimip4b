@@ -37,7 +37,9 @@ MISSING_TEXT = ('', 'na', 'nan', 'none')
 SSP_RIVER_POWER = 2          # SystemID: 1 diversion canal power (no lake volume), 2 river power (with a reservoir)
 SSP_SYSTEM = 'SystemID [1 DiversionalCanalPower.2.RiverPower]'
 SSP_VOLUME = 'Lake volume [m3]'
-SSP_AREA = 'DDM30/ISIMIP routing area [km2]'
+SSP_ARC_ID = 'DDM30/ISIMIP routing area [km2]'   # despite its name the WaterGAP Arc_ID of the 0.5 degree cell
+SSP_LAKE = 'Lake surface [m2]'
+SSP_HEIGHT = 'Dam height [m]'
 
 
 # ------------------------------------------------------------------------------------------------------- readers
@@ -361,8 +363,10 @@ def keeps_service(dam_type, rule):
 # ----------------------------------------------------------------------------------------------------- SSP sites
 def ssp_sites(tables):
     """Future river-power dams of the SSP tables {scenario: DataFrame} as sites (one per exact latitude/longitude):
-    DataFrame with lat, lon, capacity_mcm (lake volume / 1e6), catchment_km2 (DDM30 routing area), year_<scenario>
+    DataFrame with lat, lon, capacity_mcm (lake volume / 1e6), lake_km2, dam_height_m, ddm30_arc_id, year_<scenario>
     (NaN where the site is not in that table), name. Also returns the per-row outcome table of every SSP record.
+    The tables give no catchment area: their column 'DDM30/ISIMIP routing area [km2]' holds the WaterGAP Arc_ID of
+    the 0.5 degree cell (all 2 855 ssp3 values match the Arc_ID table of WaterGAP, checked 2026-10-16).
     Diversion-canal plants (SystemID 1) have no lake volume and are left out (user, 2026-10-11). Stops when a site
     has different volumes in two tables."""
     rows, sites = [], {}
@@ -376,8 +380,11 @@ def ssp_sites(tables):
                 rows.append(rec); continue
             k = (float(r.latitude), float(r.longitude))
             s = sites.setdefault(k, {'lat': k[0], 'lon': k[1], 'capacity_mcm': r[SSP_VOLUME] / 1e6,
-                                     'catchment_km2': float(r[SSP_AREA]) if pd.notna(r[SSP_AREA]) and r[SSP_AREA] > 0
-                                     else np.nan})
+                                     'lake_km2': r[SSP_LAKE] / 1e6 if pd.notna(r[SSP_LAKE]) and r[SSP_LAKE] > 0
+                                     else np.nan,
+                                     'dam_height_m': r[SSP_HEIGHT] if pd.notna(r[SSP_HEIGHT]) and r[SSP_HEIGHT] > 0
+                                     else np.nan,
+                                     'ddm30_arc_id': int(r[SSP_ARC_ID]) if pd.notna(r[SSP_ARC_ID]) else None})
             if not np.isclose(s['capacity_mcm'], r[SSP_VOLUME] / 1e6, rtol=1e-9):
                 raise ValueError(f'SSP site {k}: lake volume differs between tables')
             if f'year_{scen}' in s:

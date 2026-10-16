@@ -120,7 +120,7 @@ def input_md5s(W, pset_rel):
 
 def load_decisions(path=DECISIONS):
     d = yaml.safe_load(open(path)) or {}
-    for k in ('manual_locations', 'combined', 'reviews'):
+    for k in ('manual_locations', 'combined', 'reviews', 'outside_domain'):
         d[k] = d.get(k) or []
         for e in d[k]:
             if not str(e.get('reason', '')).strip():
@@ -233,11 +233,31 @@ def future_dams(sites, scenarios):
     for _, s in sites.iterrows():
         out.append({'name': s['name'], 'key': s['name'], 'members': [s['name']], 'country': '', 'future': True,
                     'lat': float(s.lat), 'lon': float(s.lon), 'location_source': 'ssp',
-                    'catchment_km2': float(s.catchment_km2), 'catchment_source': 'ssp_ddm30',
+                    'catchment_km2': np.nan, 'catchment_source': 'none (upstream area of the cell)',
+                    'lake_km2': s.lake_km2, 'dam_height_m': s.dam_height_m, 'ddm30_arc_id': s.ddm30_arc_id,
                     'capacity_mcm': float(s.capacity_mcm), 'capacity_source': 'ssp_lake_volume',
                     'year_isimip': None, 'purpose_isimip': '', 'purpose_gdw': None, 'purpose_rule': 'ssp_future',
                     **{f'year_{sc}': (None if pd.isna(s[f'year_{sc}']) else int(s[f'year_{sc}'])) for sc in scenarios}})
     return out
+
+
+FUTURE_FLAG_YEARS = 5
+
+
+def future_flag(d):
+    """Reasons to doubt an SSP future dam (for D06; the dam stays as ISIMIP gives it, user 2026-10-16): capacity
+    more than FUTURE_FLAG_YEARS years of the mean discharge at its cell, or a mean depth (capacity / lake surface)
+    outside the depth band of the review rules relative to its dam height."""
+    out = []
+    y = d.get('years_of_mean_flow')
+    if y is not None and y > FUTURE_FLAG_YEARS:
+        out.append(f'capacity {y:.1f} years of mean flow')
+    a, h = d.get('lake_km2'), d.get('dam_height_m')
+    if a and a > 0 and h and h > 0:
+        depth = d['capacity_mcm'] / a
+        if not ds.DEPTH_BAND[0] * h <= depth <= ds.DEPTH_BAND[1] * h:
+            out.append(f'mean depth {depth:.0f} m, dam height {h:.0f} m')
+    return '; '.join(out)
 
 
 def scenario_years(dams):
@@ -401,8 +421,24 @@ def main():
     fut = future_dams(sites, list(SSP))
     dams = hist + fut
     for d in dams:
-        d.update(dg.snap(grid, d['lat'], d['lon'], d['catchment_km2'], force_global=d['future']))
+        if d['future']:
+            d.update(dg.snap_future(grid, d['lat'], d['lon']))
+            if d['row'] is not None:      # the cell's upstream area stands in for the catchment when the dam moves
+                d['catchment_km2'] = grid.upstream_m2[d['row'], d['col']] / 1e6
+        else:
+            d.update(dg.snap(grid, d['lat'], d['lon'], d['catchment_km2']))
         d['snap_row'], d['snap_col'] = d['row'], d['col']
+    outside = {e['isimip'] for e in dec['outside_domain']}
+    for d in dams:
+        if not d['future'] and d['row'] is None:
+            if d['key'] in outside:
+                d['reason'] = 'outside the domain (decisions file, outside_domain)'
+            elif not to_scratch:
+                raise SystemExit(f'{d["key"]} {d["name"]}: no active cell; add it to outside_domain in the decisions '
+                                 f'file only with the user\'s agreement')
+    stale = [d['key'] for d in dams if d['key'] in outside and d['row'] is not None]
+    if stale:
+        raise SystemExit(f'decisions file: outside_domain lists dams that have an active cell: {stale}')
     kept = dg.place(grid, dams)
     for d in dams:
         if d.get('merged'):
@@ -422,6 +458,9 @@ def main():
         q, nmonths = mean_discharge(files, grid.mask.shape)
         qinfo.update({'years': a.discharge_years, 'months': nmonths,
                       'files': [{'path': os.path.relpath(p, W), 'sha256': hashing.sha256(p)} for p in files]})
+        for d in final:
+            qd = q[d['row'], d['col']]
+            d['years_of_mean_flow'] = d['capacity_mcm'] * 1e6 / (qd * 365.25 * 86400) if qd > 0 else np.inf
         networks = [dg.trace_service(grid, d['row'], d['col'], q) if d['keeps_service']
                     else (np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros(0)) for d in final]
         print(f'service maps traced, {time.time() - t0:.0f} s', flush=True)
@@ -446,7 +485,10 @@ def main():
                     **{f'built_{s}': d.get(f'year_{s}') for s in SSP},
                     'purpose_isimip': d['purpose_isimip'], 'purpose_gdw': d['purpose_gdw'],
                     'purpose_rule': d['purpose_rule'], 'keeps_service': d['keeps_service'],
-                    'nservice': None if networks is None else len(networks[i][0])})
+                    'nservice': None if networks is None else len(networks[i][0]),
+                    'years_of_mean_flow': d.get('years_of_mean_flow'),
+                    'future_lake_km2': d.get('lake_km2'), 'future_dam_height_m': d.get('dam_height_m'),
+                    'future_flag': future_flag(d) if d['future'] else ''})
     dam_list = pd.DataFrame(lst)
     key_dam = {}
     for d in dams:

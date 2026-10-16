@@ -55,20 +55,27 @@ Tests: `tests/unit/test_dam_parameters.py`.
    one dam (same volume, years kept per scenario); diversion-canal plants (`SystemID` 1) have no lake volume and
    are left out (user, 2026-10-11), each listed in `dam_sources_isimip4b.csv`.
 2. **Point and catchment.** The GDW point, else ISIMIP `LAT_ORIG`/`LON_ORIG`. Catchment: GDW `CATCH_SKM`, else
-   ISIMIP `CATCH_SKM_GranD`, else ISIMIP `CATCH_SKM_DDM30` (flagged in the dam list). SSP: `latitude`/`longitude`
-   and the DDM30 routing area.
+   ISIMIP `CATCH_SKM_GranD`, else ISIMIP `CATCH_SKM_DDM30` (flagged in the dam list). SSP: `latitude`/`longitude`;
+   the SSP tables give no catchment area (their column `DDM30/ISIMIP routing area [km2]` holds the WaterGAP
+   `Arc_ID` of the 0.5° cell, all 2 855 ssp3 values match the WaterGAP Arc_ID table, checked 2026-10-16).
 3. **Cell and type** (legacy `01CreateDamDatabase.py`, on the routing of the parameter set). Nearest cell (nearest
    active cell of its 3×3 neighbourhood when it is outside the domain). Catchment smaller than the cell: local dam,
    `inflow_fraction` = catchment / cell area. Otherwise global (`inflow_fraction` 1) in the cell of the 3×3
    neighbourhood whose upstream area is closest to the catchment, unless the ratio exceeds 1.5 (then the nearest
-   cell). SSP future dams are global.
+   cell). SSP future dams are global and go to the active cell of the nearest cell and its 3×3 neighbourhood with
+   the largest upstream area (a river-power dam sits on the main river; user, 2026-10-16); that upstream area
+   stands in for their catchment when they have to move. A historical dam with no active cell in reach is left out
+   only when the decisions file lists it under `outside_domain` (Qorlortorsuaq, Greenland, D08; user 2026-10-16);
+   otherwise the producer stops.
 4. **One dam per cell** (VIC `39e21ff5` sizes the dam output for one dam per cell). Largest first, historical
    before future. A dam whose cell is taken moves to a free neighbouring cell on the same river (directly
    downstream or draining directly into the taken cell) whose upstream area still fits (ratio ≤ 1.5), a local dam to
    the nearest free neighbour; otherwise a historical dam is merged into the dam of the cell (capacities summed,
    year, type and inflow fraction of that larger dam) and a future dam is not placed (user, 2026-10-11).
 5. **Capacity** ISIMIP `CAP_MCM` (hm³), GDW `CAP_MCM` where a review rule chooses it, or the decisions file;
-   SSP: lake volume / 10⁶.
+   SSP: lake volume / 10⁶, kept as ISIMIP gives it (user, 2026-10-16). The dam list flags SSP future dams whose
+   capacity exceeds 5 years of the mean discharge at their cell or whose mean depth (capacity / lake surface) lies
+   outside 5–100 % of their dam height (`future_flag`, for D06); `years_of_mean_flow` is given for every dam.
 6. **Purpose.** A global dam keeps its service map when ISIMIP `PURPOSE` or GDW (`USE_IRRI`, `USE_SUPP`,
    `MAIN_USE` Irrigation or Water supply) names irrigation or water supply, or when neither source names a purpose;
    a global dam with a known purpose without irrigation or water supply, and every SSP future dam, gets

@@ -1,6 +1,7 @@
 # D19 — Dams and initial states per experiment
 
-Status: **decided 2026-10-11** by the user (decisions taken 2026-10-09 to 2026-10-11).
+Status: **decided 2026-10-11** by the user (decisions taken 2026-10-09 to 2026-10-11); amended 2026-10-16
+(dam-list comparison, implementation choices of task L; see "Amendment 2026-10-16").
 Due stage: `05_simulation`.
 
 ## Context
@@ -174,7 +175,9 @@ in the same order; only `year` differs:
    - the run starts on 1 January (otherwise the land-use plugin keeps the
      state's coverage until the next 1 January);
    - model commit, executable and every parameter file are identical, except
-     the dam file, whose dam list (`id`, `type`, `capacity`, order) is identical;
+     the dam file, whose dam list is identical: `id`, `type` and order of every
+     dam, and `capacity` of every dam that can operate in the run that wrote
+     the state (amended 2026-10-16);
    - the same plugins are switched on;
    - every dam active in the state (`STATE_DAM_ACTIVE`) operates in the run's dam
      file at the start year.
@@ -192,7 +195,9 @@ in the same order; only `year` differs:
   campaigns only.
 - `05_simulation`: the campaign names one dam file per DHF scenario; the
   renderer picks it by the segment's scenario, checks that parent and child have
-  the same dam list instead of the same dam file, and checks the warm-start rule
+  the same dam list instead of the same dam file (as in the warm-start rule:
+  `id`, `type`, order, and the capacity of the dams that can operate in the
+  parent), and checks the warm-start rule
   above (1 January, identical inputs except the dam file, same plugins, active
   dams). The resolver and the campaign keys `spinup.length_years` and
   `spinup.climate_cycle` follow the spin-up rules; the convergence test is new.
@@ -206,3 +211,34 @@ in the same order; only `year` differs:
 - The smoke runs used dams placed and served on the WBT routing; their dam
   results are not representative.
 - Implementation is a workflow task proposed to the user after this record.
+
+## Amendment 2026-10-16
+
+Decided by the user during task L (implementation of this record):
+
+- **Dam-list comparison.** Parent and child (and a warm start and the run that
+  wrote its state) must have the same `id`, `type` and order of every dam; the
+  `capacity` must be equal only for the dams that can operate in the parent
+  run, i.e. whose `year` in the parent's dam file is not after the parent's
+  last year. A dam that never operated is an empty, inactive entry of the state,
+  so its capacity has no effect on it. This keeps the capacities of the SSP
+  future dams (year 9999 in every file of today) open for D06: the largest of
+  them (289 km³ in Tibet, 275 km³ on the Niger in Mali, 173 km³ in Patagonia,
+  130 km³ in the Lake Eyre basin) are kept as ISIMIP4b gives them and flagged
+  in the dam list (`future_flag`: capacity more than 5 years of the mean
+  discharge, or a mean depth outside 5–100 % of the dam height).
+- **Review of the ISIMIP4b-GDW pairs.** The 84 flagged pairs are decided by
+  rules (capacity C1 regulated lake -> GDW, C2 mean depth within 5–100 % of the
+  dam height for one source only, C3 otherwise ISIMIP; location L1 GDW point
+  fits its catchment, L2 only the ISIMIP point fits, L3 neither -> GDW), with
+  single overrides in `workflow/03_parameters/dams/dam_decisions.yaml`.
+- **SSP future dams** go to the active cell of their nearest cell's 3×3
+  neighbourhood with the largest upstream area: the SSP tables give no
+  catchment area (their column `DDM30/ISIMIP routing area [km2]` is the
+  WaterGAP `Arc_ID` of the 0.5° cell).
+- **Qorlortorsuaq** (Greenland, 108 hm³) has no active cell (D08) and is left
+  out; this is the only ISIMIP4b `histsoc` dam not in the dam files.
+- **Merged dams** take the purpose rule of their records combined (supply if
+  any record supplies, else no supply if any record has a known purpose, else
+  unknown), as the records combined by hand.
+

@@ -18,7 +18,8 @@ Checks (each with its own status; the component passes only when all pass):
                  evidence recorded in review_pairs.csv (pairs overridden by the decisions file excepted)
   table          the dam list has one row per dam_class with the id, type, capacity and inflow fraction of the files
   accounting     every ISIMIP histsoc record and every SSP record has an outcome; every historical record is a dam,
-                 merged into one, or combined into one (none is lost); the historical capacity of the files equals
+                 merged into one, combined into one, or listed under outside_domain in the decisions file (none is
+                 lost); the historical capacity of the files equals
                  the ISIMIP input total after the merges, the combinations of the decisions file and the capacities
                  chosen for the flagged pairs (review_pairs.csv)
 Writes <qc>/summary.json and <qc>/reports/verify.json, where <qc> is qc/parameters/<status>/<set>/dams/ (or
@@ -237,17 +238,21 @@ def main():
     # ---- accounting
     hs = src[src.source == 'histsoc']
     no_outcome = int(src.outcome.isna().sum())
-    lost = hs[~hs.outcome.str.match(r'^(as_snapped|moved|merged into|combined into)', na=False)]
+    outside = {e['isimip'] for e in dec['outside_domain']}
+    ok_outcome = hs.outcome.str.match(r'^(as_snapped|moved|merged into|combined into)', na=False) | \
+        (hs.key.astype(str).isin(outside) & hs.outcome.str.startswith('not placed: outside the domain', na=False))
+    lost = hs[~ok_outcome]
     ssp_counts = src[src.source != 'histsoc'].groupby('source').size().to_dict()
     isi = bd.ds.read_isimip_histsoc(f'{W}/raw/ISIMIP4b/{bd.HISTSOC}')
     ssp_expected = {s: len(bd.ds.read_ssp(f'{W}/raw/ISIMIP4b/{p}')) for s, p in bd.SSP.items()}
     caps = dict(zip(isi.key, isi.CAP_MCM.astype(float)))
-    exp_cap = expected_historical_capacity(dec, caps, review)
+    exp_cap = expected_historical_capacity(dec, caps, review) - sum(caps[k] for k in outside)
     got_cap = float(cap[~fut].sum())
     acc_ok = no_outcome == 0 and len(lost) == 0 and len(hs) == len(isi) == bd.N_HISTSOC and \
         ssp_counts == ssp_expected and abs(got_cap - exp_cap) <= 1e-6 * exp_cap
     checks['accounting'] = {'histsoc_records': len(hs), 'histsoc_lost': lost[['key', 'name', 'outcome']].values.tolist(),
-                            'records_without_outcome': no_outcome, 'ssp_records': ssp_counts,
+                            'records_without_outcome': no_outcome, 'outside_domain': sorted(outside),
+                            'ssp_records': ssp_counts,
                             'ssp_records_expected': ssp_expected,
                             'ssp_outcomes': src[src.source != 'histsoc'].outcome.str.split(':').str[0].value_counts().to_dict(),
                             'historical_capacity_hm3': got_cap, 'expected_historical_capacity_hm3': exp_cap,
