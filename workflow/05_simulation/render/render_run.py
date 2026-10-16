@@ -20,6 +20,13 @@ campaign starts as the campaign's initialisation.without_parent says: `cold_star
 `state_of_run` (the end state of an earlier, completed run named by initialisation.state_of_run: run_dir, state and
 reason; checked and recorded like a parent state, VIC does not check the date of a state file).
 
+Dam files (D19): parameter_set.files.dams maps soc scenario -> dam file; a run gets the file of its segment's
+scenario. A run that starts from a state is checked by the D19 warm-start rule: start on 1 January; for a warm
+start, the same model, executable, parameter files except the dam file, and plugins as the earlier run; and, with
+the dams plugin on, for warm starts and parents alike, the same dam list (id, type, order; capacity of the dams that
+can operate in the earlier run) and no dam active in the state or able to operate by its end that does not operate
+in the run at its start year (check_dams_from).
+
 Run directory: runs/<campaign-id>/<run-id>/ with config/, logs/, states/, output/, forcing/ and
 run_manifest.json; with --scratch: scratch/<campaign-id>/<run-id>/ (test renders; never submitted as a
 campaign run). An existing run directory is never rendered again: a retry of the same run reuses its files
@@ -113,15 +120,17 @@ def check_build(W, campaign, resources):
 
 
 def parameter_files(W, campaign):
-    """{role: {path, md5, component, qc_status}} from the campaign and the parameter manifest."""
+    """{role: {path, md5, component, qc_status}} from the campaign and the parameter manifest. The role `dams` is a
+    map soc scenario -> record (D19: one dam file per DHF scenario, the same dam list in every file); run_parameters
+    picks the file of a run."""
     ps = campaign['parameter_set']
     manifest = read_yaml(os.path.join(REPO, 'manifests', 'parameters', f'{ps["id"]}.yaml'))
     by_path = {}
     for key, comp in manifest['components'].items():
         for f in comp.get('files', []):
             by_path[f['path']] = {'md5': f.get('md5'), 'manifest_entry': key, 'qc_status': comp.get('qc_status')}
-    out = {}
-    for role, rel in ps['files'].items():
+
+    def record(role, rel):
         if rel not in by_path:
             raise RenderError(f'parameter file {rel} ({role}) is not recorded in manifests/parameters/{ps["id"]}.yaml')
         if not by_path[rel]['md5']:
@@ -129,8 +138,104 @@ def parameter_files(W, campaign):
         full = f'{W}/parameters/{ps["status"]}/{ps["id"]}/{rel}'
         if not os.path.isfile(full):
             raise RenderError(f'parameter file missing: {full}')
-        out[role] = {'path': os.path.relpath(full, W), **by_path[rel]}
+        return {'path': os.path.relpath(full, W), **by_path[rel]}
+
+    out = {}
+    for role, rel in ps['files'].items():
+        if role == 'dams':
+            if not isinstance(rel, dict) or not rel:
+                raise RenderError('parameter_set.files.dams must map every soc scenario of the campaign to a dam file '
+                                  '(D19: one dam file per DHF scenario)')
+            out[role] = {soc: record(f'dams {soc}', f) for soc, f in rel.items()}
+        else:
+            out[role] = record(role, rel)
     return out
+
+
+def run_parameters(params, soc):
+    """Parameter files of one run: every role, with the dam file of the segment's soc scenario."""
+    if soc not in params['dams']:
+        raise RenderError(f'parameter_set.files.dams has no dam file for soc scenario {soc}')
+    return {**params, 'dams': params['dams'][soc]}
+
+
+# ------------------------------------------------------------------------------------------------ dams and states
+def read_dam_list(path):
+    """{id, type, capacity, year} of a dam file (numpy arrays in dam_class order)."""
+    import numpy as np
+    import netCDF4 as nc
+    with nc.Dataset(path) as d:
+        d.set_auto_mask(False)
+        return {v: np.asarray(d[v][:]) for v in ('id', 'type', 'capacity', 'year')}
+
+
+def dam_list_problems(parent, child, parent_last_year):
+    """D19 (amended 2026-10-16): a state is restored by dam position, so parent and child (or the run that wrote a
+    warm-start state and the new run) need the same `id`, `type` and order of every dam, and the same `capacity` for
+    every dam that can operate in the parent (its year in the parent's file is not after the parent's last year).
+    Returns a list of problems (empty when the lists agree)."""
+    import numpy as np
+    if len(parent['id']) != len(child['id']):
+        return [f'{len(parent["id"])} dams in the parent dam file, {len(child["id"])} in the run\'s dam file']
+    out = []
+    for v in ('id', 'type'):
+        bad = np.flatnonzero(parent[v] != child[v])
+        if len(bad):
+            out.append(f'{v} differs for {len(bad)} dams (dam_class {bad[:5].tolist()})')
+    can = parent['year'] <= parent_last_year
+    bad = np.flatnonzero(can & (parent['capacity'] != child['capacity']))
+    if len(bad):
+        out.append(f'capacity differs for {len(bad)} dams that can operate in the parent (dam_class {bad[:5].tolist()})')
+    return out
+
+
+def dams_switched_off(active, child, start_year):
+    """dam_class indices that are active (in a state, or able to operate by the parent's end) but do not operate in
+    the run's dam file at its start year: VIC never switches a dam off (D19), so such a dam would keep operating."""
+    import numpy as np
+    return np.flatnonzero(np.asarray(active, bool) & (child['year'] > start_year))
+
+
+def state_dams_active(path):
+    """STATE_DAM_ACTIVE of a VIC state file (dam_class) as booleans."""
+    import numpy as np
+    import netCDF4 as nc
+    with nc.Dataset(path) as d:
+        if 'STATE_DAM_ACTIVE' not in d.variables:
+            raise RenderError(f'{path} has no STATE_DAM_ACTIVE; the dam states cannot be checked')
+        v = d['STATE_DAM_ACTIVE']; v.set_auto_mask(False)
+        a = np.asarray(v[:], float)
+    return (a == 1)
+
+
+def check_dams_from(parent_dam_file, parent_last_year, child_dam_file, start_year, state, run_id, what):
+    """Dam checks of a run that starts from the end state of `what` (parent or earlier run): the dam lists agree
+    (dam_list_problems), every dam that can operate by the end of `what` operates in the run at its start year, and,
+    when the state exists, every dam active in it (STATE_DAM_ACTIVE) too."""
+    import numpy as np
+    parent, child = read_dam_list(parent_dam_file), read_dam_list(child_dam_file)
+    probs = dam_list_problems(parent, child, parent_last_year)
+    if probs:
+        raise RenderError(f'{run_id}: the dam list of {what} ({parent_dam_file}) and of this run ({child_dam_file}) '
+                          f'differ: {"; ".join(probs)}; VIC restores the dam states by position')
+    off = dams_switched_off(parent['year'] <= parent_last_year, child, start_year)
+    if state and os.path.isfile(state):
+        active = state_dams_active(state)
+        if len(active) != len(child['id']):
+            raise RenderError(f'{run_id}: the state {state} has {len(active)} dams, the dam file {len(child["id"])}')
+        off = np.union1d(off, dams_switched_off(active, child, start_year))
+    if len(off):
+        raise RenderError(f'{run_id}: {len(off)} dams that operate at the end of {what} do not operate in this run\'s '
+                          f'dam file in {start_year} (dam_class {off[:5].tolist()}); VIC never switches a dam off (D19)')
+
+
+def check_start_january(vic_text, run_id):
+    """D19 warm-start rule (a): at the first step of a run with an initial state the land-use plugin applies the
+    run's coverage only on 1 January (plugins/landuse/src/lu_force.c); on another date the state's coverage stays."""
+    m = {k: int(re.search(rf'^{k}\s+(\d+)', vic_text, re.M).group(1)) for k in ('STARTMONTH', 'STARTDAY')}
+    if (m['STARTMONTH'], m['STARTDAY']) != (1, 1):
+        raise RenderError(f'{run_id}: a run that starts from a state must start on 1 January, not '
+                          f'{m["STARTMONTH"]}/{m["STARTDAY"]} (D19)')
 
 
 def unit_record(W, rel_unit, require_accepted=True):
@@ -206,21 +311,39 @@ def forcing_plan(W, campaign, run, alias):
 
 
 def check_same_identity(run_dir, model, params, run_id):
-    """VIC restores a state by array position and checks only its dimensions (drivers/shared_image/src/vic_restore.c,
-    check_init_state_file); the dams plugin restores its states by dam index (plugins/dams/src/dam_state.c). A state
-    of another run is therefore restored only into a run with the same model executable and the same parameter files
-    (md5 per role); otherwise the renderer stops."""
+    """D19 warm-start rule (b): VIC restores a state by array position and checks only its dimensions
+    (drivers/shared_image/src/vic_restore.c, check_init_state_file); the dams plugin restores its states by dam index
+    (plugins/dams/src/dam_state.c). A state of another run is therefore restored only into a run with the same model
+    executable and the same parameter files (md5 per role) except the dam file, whose dam list is compared by
+    check_dams_from; otherwise the renderer stops. Returns the earlier run's manifest."""
     with open(os.path.join(run_dir, 'run_manifest.json')) as fh:
         pm = json.load(fh)
     def identity(m, p):
         return {'model commit': m.get('commit'), 'executable sha256': m.get('executable_sha256'),
-                **{f'parameter file {r} (md5)': v.get('md5') for r, v in p.items()}}
+                **{f'parameter file {r} (md5)': v.get('md5') for r, v in p.items() if r != 'dams'}}
     have = identity(pm.get('model') or {}, (pm.get('inputs') or {}).get('parameters') or {})
     want = identity(model, params)
     diff = sorted(k for k in set(have) | set(want) if have.get(k) != want.get(k))
     if diff:
         raise RenderError(f'{run_id}: the earlier run {run_dir} differs from this run in {diff}; its end state would '
                           'be restored into other model parameters (VIC checks only the dimensions)')
+    return pm
+
+
+def enabled_plugins(plugins):
+    return sorted(k for k, v in plugins.items() if (v or {}).get('enabled'))
+
+
+def check_same_plugins(run_dir, campaign, run_id):
+    """D19 warm-start rule (c): the earlier run had the same plugins switched on (its config/resolved.yaml)."""
+    p = os.path.join(run_dir, 'config', 'resolved.yaml')
+    if not os.path.isfile(p):
+        raise RenderError(f'{run_id}: the earlier run {run_dir} has no config/resolved.yaml; its plugins are unknown')
+    have = enabled_plugins((read_yaml(p).get('campaign') or {}).get('plugins') or {})
+    want = enabled_plugins(campaign['plugins'])
+    if have != want:
+        raise RenderError(f'{run_id}: the earlier run {run_dir} ran with the plugins {have}, this run with {want} '
+                          '(D19: a warm start needs the same plugins)')
 
 
 OUT_NONREN_DEFICIT = 'OUT_NONREN_DEFICIT'
@@ -449,6 +572,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
     if run_id:
         runs = [r for r in runs if r['run_id'] == run_id] or sys.exit(f'no run {run_id} in the campaign')
     in_campaign = {r['segment_id'] for r in all_runs}; in_call = {r['segment_id'] for r in runs}
+    by_segment = {r['segment_id']: r for r in all_runs}
     nvars = check_outputs_cover_protocol(campaign, protocol_dir)
     check_output_files(campaign)
     check_nonrenewable_output(campaign)
@@ -465,11 +589,13 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         if os.path.exists(rdir):
             raise RenderError(f'{rdir} exists; a run directory is never rendered again (retry: submit_run.py --retry)')
         alias = rc.input_alias(aliases, seg['climate'], campaign['gcms'][seg['gcm']]['climate_input'])
+        rparams = run_parameters(params, seg['soc'])
         links, units, mapping = forcing_plan(W, campaign, run, alias)
         check_start_year(run, mapping)
-        check_unit_parameters(W, params, units)
+        check_unit_parameters(W, rparams, units)
         if campaign['plugins']['landuse']['enabled']:
-            check_landuse_tiles(W, params, units, campaign['dhf_forcing']['units'][seg['soc']])
+            check_landuse_tiles(W, rparams, units, campaign['dhf_forcing']['units'][seg['soc']])
+        dams_on = campaign['plugins']['dams']['enabled']
         parent = seg['parent']
         init_state = None; parent_state = {}; init_how = 'cold_start'; warm = False
         init = campaign['initialisation']
@@ -479,6 +605,11 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             # a parent rendered in this call has no state yet: the job binds it (run_manifest.py verify-inputs)
             parent_state = {'run_id': parent, 'attempt': None, 'state_sha256': None} if parent in in_call else \
                 parent_run_state(f'{base}/{parent}', init_state, run['run_id'])
+            if dams_on:
+                prun = by_segment[parent]
+                pfile = f'{W}/{run_parameters(params, prun["segment"]["soc"])["dams"]["path"]}'
+                check_dams_from(pfile, prun['end_year'], f'{W}/{rparams["dams"]["path"]}', run['start_year'],
+                                None if parent in in_call else init_state, run['run_id'], f'the parent run {parent}')
         elif init['without_parent'] == 'state_of_run':
             src = init.get('state_of_run') or {}
             if not (src.get('run_dir', '').startswith('runs/') and src.get('state') and str(src.get('reason', '')).strip()):
@@ -486,7 +617,15 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             init_state = f'{W}/{src["run_dir"]}/{src["state"]}'
             init_how = f'end state of the earlier run {src["run_dir"]} (campaign initialisation.state_of_run)'
             parent_state = parent_run_state(f'{W}/{src["run_dir"]}', init_state, run['run_id'])
-            check_same_identity(f'{W}/{src["run_dir"]}', model, params, run['run_id'])
+            pm = check_same_identity(f'{W}/{src["run_dir"]}', model, rparams, run['run_id'])
+            check_same_plugins(f'{W}/{src["run_dir"]}', campaign, run['run_id'])
+            if dams_on:
+                pdams = ((pm.get('inputs') or {}).get('parameters') or {}).get('dams') or {}
+                plast = int(str((pm.get('period') or {}).get('end', '0'))[:4])
+                if not pdams.get('path') or not plast:
+                    raise RenderError(f'{run["run_id"]}: the earlier run {src["run_dir"]} records no dam file or period')
+                check_dams_from(f'{W}/{pdams["path"]}', plast, f'{W}/{rparams["dams"]["path"]}', run['start_year'],
+                                init_state, run['run_id'], f'the earlier run {src["run_dir"]}')
             parent_state['reason'] = ' '.join(str(src['reason']).split())
             parent_state['run_dir'] = src['run_dir']; warm = True
         elif init['without_parent'] != 'cold_start':
@@ -516,33 +655,35 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         values = {
             'RUN_ID': run['run_id'], 'CAMPAIGN_ID': campaign['campaign_id'], 'CODE_COMMIT': commit,
             'MODEL_COMMIT': model['commit'], 'START_YEAR': run['start_year'], 'END_YEAR': run['end_year'],
-            'DOMAIN': f'{W}/{params["domain"]["path"]}', 'PARAMETERS': f'{W}/{params["parameters"]["path"]}',
+            'DOMAIN': f'{W}/{rparams["domain"]["path"]}', 'PARAMETERS': f'{W}/{rparams["parameters"]["path"]}',
             'CONSTANTS': f'{rdir}/config/vic_constants.txt', 'FORCE_TYPES': force_types,
             'INIT_STATE_LINES': f'# {init_how}\nINIT_STATE              {init_state}' if init_state else
                                 '# cold start: no INIT_STATE (campaign initialisation.without_parent)',
             'STATE_LINES': state_lines,
             'ROUTING': tf(pl['routing']['enabled']), 'ROUT_STEPS_PER_DAY': pl['routing']['steps_per_day'],
             'DECOMPOSITION': pl['routing']['decomposition'],
-            'ROUTING_PARAMETERS': f'{W}/{params["routing"]["path"]}',
-            'DECOMPOSITION_PARAMETERS': f'{W}/{params["decomposition"]["path"]}',
-            'WATERUSE': tf(pl['water_use']['enabled']), 'WATERUSE_PARAMETERS': f'{W}/{params["water_use"]["path"]}',
+            'ROUTING_PARAMETERS': f'{W}/{rparams["routing"]["path"]}',
+            'DECOMPOSITION_PARAMETERS': f'{W}/{rparams["decomposition"]["path"]}',
+            'WATERUSE': tf(pl['water_use']['enabled']), 'WATERUSE_PARAMETERS': f'{W}/{rparams["water_use"]["path"]}',
             'LOCAL_WITHDRAWAL': tf(pl['water_use']['local_withdrawal']),
             'REMOTE_WITHDRAWAL': tf(pl['water_use']['remote_withdrawal']),
             'COMPENSATION_WITHDRAWAL': tf(pl['water_use']['compensation_withdrawal']),
             'NONRENEWABLE_WITHDRAWAL': tf(pl['water_use']['nonrenewable_withdrawal']),
             'NONRENEWABLE_RUNOFF': tf(pl['water_use']['nonrenewable_runoff']),
             'WATER_USE_FORCE_TYPES': '\n'.join(wu_lines),
-            'IRRIGATION': tf(pl['irrigation']['enabled']), 'IRRIGATION_PARAMETERS': f'{W}/{params["irrigation"]["path"]}',
+            'IRRIGATION': tf(pl['irrigation']['enabled']), 'IRRIGATION_PARAMETERS': f'{W}/{rparams["irrigation"]["path"]}',
             'POTENTIAL_IRRIGATION': tf(pl['irrigation']['potential_irrigation']),
             'EFFICIENT_IRRIGATION': tf(pl['irrigation']['efficient_irrigation']),
             'OFFSET_IRRIGATION': tf(pl['irrigation']['offset_irrigation']),
             'PBARE': pl['irrigation']['paddy_bare_class'],
-            'DAMS': tf(pl['dams']['enabled']), 'DAMS_PARAMETERS': f'{W}/{params["dams"]["path"]}',
+            'DAMS': tf(pl['dams']['enabled']), 'DAMS_PARAMETERS': f'{W}/{rparams["dams"]["path"]}',
             'LANDUSE': tf(pl['landuse']['enabled']),
             'LANDUSE_FORCE_TYPE': f'PLUGIN_FORCE_TYPE  CV  coverage  YEAR  {view}/landuse/coverage_{usoc}_',
             'EFR': tf(pl['efr']['enabled']), 'WOFOST': tf(pl['wofost']['enabled']),
             'RESULT_DIR': f'{rdir}/output/', 'LOG_DIR': f'{rdir}/logs/', 'OUTPUT_STREAMS': streams_text}
         vic_text = fill(open(os.path.join(REPO, VIC_TEMPLATE)).read(), values)
+        if init_state:
+            check_start_january(vic_text, run['run_id'])
         constants = (f'# VIC constants of run {run["run_id"]} (campaign plugins.dams, plugins.water_use)\n'
                      f'DAM_ALPHA {pl["dams"]["alpha"]}\nDAM_BETA {pl["dams"]["beta"]}\nDAM_GAMMA {pl["dams"]["gamma"]}\n')
         if pl['water_use'].get('nonrenewable_limit_mm') is not None:   # absent or null: no limit (compiled default)
@@ -562,7 +703,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             'campaign_file': os.path.relpath(campaign_path, REPO) if os.path.isabs(campaign_path) else campaign_path,
             'campaign_sha256': file_hash(campaign_path), 'campaign': campaign,
             'resources_file': campaign['resources'], 'resources': resources,
-            'model': model, 'parameters': params, 'decomposition': dec,
+            'model': model, 'parameters': rparams, 'decomposition': dec,
             'protocol_water_global_variables': nvars,
             'forcing_units': {k: {kk: vv for kk, vv in v.items() if kk != 'files'} for k, v in units.items()},
             'output_streams': streams, 'wall_time_hours': hours,
@@ -586,7 +727,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             'campaign_config': {'path': resolved['campaign_file'], 'sha256': resolved['campaign_sha256']},
             'model': {k: model[k] for k in ('commit', 'freeze_status', 'build', 'build_status', 'executable',
                                             'executable_sha256', 'runtime_modules')},
-            'inputs': {'parameter_set': campaign['parameter_set']['id'], 'parameters': params,
+            'inputs': {'parameter_set': campaign['parameter_set']['id'], 'parameters': rparams,
                        'forcing_units': units},
             'forcing_view': {k: {str(y): v for y, v in m.items()} for k, m in mapping.items()},
             'forcing_links': link_record(W, links),

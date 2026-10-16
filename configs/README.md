@@ -24,7 +24,7 @@ Keys of a campaign file (checked by `workflow/05_simulation/render/resolve_campa
 | `campaign_id` | equals the file name |
 | `production` | `true` for production campaigns; only non-production campaigns may carry a `restriction` |
 | `model` | `lock` file and `commit` (must equal `model/vic.lock.yaml`), driver, coupling |
-| `parameter_set` | `id`, `status`, and `files`: role (`domain`, `parameters`, `routing`, `decomposition`, `irrigation`, `dams`, `water_use`) → file inside the set |
+| `parameter_set` | `id`, `status`, and `files`: role (`domain`, `parameters`, `routing`, `decomposition`, `irrigation`, `water_use`) → file inside the set; `dams`: soc scenario of a segment → dam file inside the set, one entry for every soc scenario the campaign simulates (D19; the files share one dam list) |
 | `protocol` | `path` (under the workdir), `commit`, `simulation_round`, `sector` |
 | `gcms` | per GCM `climate_input`: `concentration-driven` or `emission-driven` (selects the input alias) |
 | `experiments` | `ids: [...]`, `priority: [...]` or `all: true` |

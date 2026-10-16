@@ -206,6 +206,32 @@ def segment(climate, soc, period, years, parent):
 
 
 HIST = f'{G}_historical_histsoc_default_historical'
+SOCS = ('histsoc', '1850soc', '2021soc', '2021soc-from-histsoc', 'ssp1vlsoc-noadapt', 'ssp3hsoc-noadapt')
+DAM_YEARS = (0, 1800, 2030, 9999)   # dams 0 and 1 operate from 1850 on, dam 2 from 2030, dam 3 never
+
+
+def write_dam_file(path, years=DAM_YEARS, ids=None, types=None, capacity=None):
+    """A small dam parameter file with the variables render_run.read_dam_list reads."""
+    import numpy as np
+    import netCDF4 as nc
+    n = len(years)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with nc.Dataset(path, 'w') as d:
+        d.createDimension('dam_class', n)
+        for v, val, dt in (('id', ids or list(range(1, n + 1)), 'i4'), ('type', types or [1] * n, 'i4'),
+                           ('capacity', capacity or [10.0] * n, 'f8'), ('year', list(years), 'i4')):
+            d.createVariable(v, dt, ('dam_class',))[:] = np.asarray(val)
+
+
+def write_state(path, active):
+    """A small VIC state file with STATE_DAM_ACTIVE (1 active, 0 inactive)."""
+    import numpy as np
+    import netCDF4 as nc
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with nc.Dataset(path, 'w') as d:
+        d.createDimension('dam_class', len(active))
+        v = d.createVariable('STATE_DAM_ACTIVE', 'f8', ('dam_class',), fill_value=9.96920996838687e+36)
+        v[:] = np.asarray(active, float)
 FUT = f'{G}_ssp370_ssp3hsoc-noadapt_default_future'
 PRE = f'{G}_picontrol_1850soc_default_pre-industrial'
 
@@ -220,7 +246,9 @@ class RenderHarness(unittest.TestCase):
         self.segments = {HIST: segment('historical', 'histsoc', 'historical', (1850, 2021), PRE),
                          FUT: segment('ssp370', 'ssp3hsoc-noadapt', 'future', (2022, 2100), HIST)}
         params = {k: {'path': f'parameters/{k}.nc'} for k in ('domain', 'parameters', 'routing', 'decomposition',
-                                                              'irrigation', 'dams', 'water_use')}
+                                                              'irrigation', 'water_use')}
+        params['dams'] = {soc: {'path': 'parameters/dams.nc', 'md5': 'd' * 32} for soc in SOCS}
+        write_dam_file(os.path.join(self.W, 'parameters', 'dams.nc'))
         model = {'commit': 'm' * 40, 'freeze_status': 'provisional', 'build': 'builds/vic/m', 'build_status': 'built',
                  'executable': 'builds/vic/m/vic.exe', 'executable_sha256': 'e' * 64, 'runtime_modules': []}
         aliases = {'historical': ['historical', 'esm-hist'], 'ssp370': ['ssp370', 'esm-ssp370']}
@@ -262,8 +290,7 @@ class RenderHarness(unittest.TestCase):
             json.dump({'run_id': HIST, 'status': status, 'attempts': [{'attempt': 1, 'status': status}]}, fh)
         path = os.path.join(prd, 'states', 'state.20220101_00000.nc')
         if state:
-            with open(path, 'w') as fh:
-                fh.write('end state of the parent')
+            write_state(path, [1, 1, 0, 0])
         return path
 
 
@@ -318,15 +345,18 @@ class StateOfRunTest(RenderHarness):
             'state_of_run': {'run_dir': 'runs/smoke/earlier__smoke2011-2020',
                              'state': 'states/state.20210101_00000.nc', 'reason': 'warm start for a test'}}
 
-    def earlier(self, status='completed', state=True):
-        os.makedirs(os.path.join(self.src, 'states'))
+    def earlier(self, status='completed', state=True, active=(1, 1, 0, 0), plugins=None):
+        """A completed earlier run (same model, parameters and plugins) ending 2020 with its state."""
+        os.makedirs(os.path.join(self.src, 'states')); os.makedirs(os.path.join(self.src, 'config'))
         with open(os.path.join(self.src, 'run_manifest.json'), 'w') as fh:
             json.dump({'run_id': 'earlier__smoke2011-2020', 'attempts': [{'attempt': 2, 'status': status}],
-                       'model': self.model, 'inputs': {'parameters': self.params}}, fh)   # same model and parameters
+                       'period': {'start': '2011-01-01', 'end': '2020-12-31'}, 'model': self.model,
+                       'inputs': {'parameters': {**self.params, 'dams': self.params['dams']['histsoc']}}}, fh)
+        with open(os.path.join(self.src, 'config', 'resolved.yaml'), 'w') as fh:
+            yaml.safe_dump({'campaign': {'plugins': plugins or self.campaign['plugins']}}, fh)
         path = os.path.join(self.src, 'states', 'state.20210101_00000.nc')
         if state:
-            with open(path, 'w') as fh:
-                fh.write('end state of the earlier run')
+            write_state(path, active)
         return path
 
     def test_uses_completed_earlier_run(self):

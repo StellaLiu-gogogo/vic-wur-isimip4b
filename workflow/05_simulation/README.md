@@ -126,20 +126,32 @@ renderer requires that run's last attempt to be completed and its state file to 
 attempt and the state's sha256 under `parent` in the run manifest; the job checks the sha256 before VIC starts.
 VIC does not check the date of a state file, and it restores a state by array position, checking only its
 dimensions (the dams plugin by dam index): the earlier run must have the same model commit, executable sha256
-and parameter files (md5 per role) as the new run, else the renderer stops. A state dated after the run start
-keeps the dams that were active at that date active (D19).
+and parameter files (md5 per role) as the new run except the dam file, whose dam list is compared (below), else
+the renderer stops. A state dated after the run start keeps the dams that were active at that date active (D19).
 
-**Warm-start rule (D19, decided 2026-10-11; the checks marked "to implement" are not yet in `render_run.py`).**
-A reported segment (pre-industrial, historical, future) starts only from the end state of its parent segment,
-dated its start. A spin-up or a non-production run may start from another completed run's end state only when
-(a) **the run starts on 1 January** (to implement: the renderer stops otherwise): at the first step of a run with
-an initial state the land-use plugin applies the run's coverage and redistributes water between tiles only on
-1 January (`plugins/landuse/src/lu_force.c` of `39e21ff5`), on any other date the state's coverage stays until the
-next 1 January; (b) model commit, executable and every parameter file are identical except the dam file, whose dam
-list (`id`, `type`, `capacity`, order) must be identical (to implement: today every parameter file must be
-identical); (c) the same plugins are on (to implement); (d) every dam active in the state (`STATE_DAM_ACTIVE`)
-operates in the run's dam file at the start year (to implement), because VIC never switches a dam off. A spin-up
-started this way repeats the convergence test. The record is `docs/decisions/D19-dams-and-initial-states.md`.
+**Dam files per DHF scenario (D19).** `parameter_set.files.dams` maps every soc scenario of the campaign's
+segments to a dam file (the renderer stops when one is missing); a run gets the file of its segment's soc
+scenario, recorded as role `dams` in `resolved.yaml` and the run manifest. The files of one parameter set share one
+dam list; only `year` differs.
+
+**Warm-start rule (D19, decided 2026-10-11, amended 2026-10-16; checked by `render_run.py`).** A reported
+segment (pre-industrial, historical, future) starts only from the end state of its parent segment, dated its
+start. A spin-up or a non-production run may start from another completed run's end state only when
+(a) **the run starts on 1 January**: at the first step of a run with an initial state the land-use plugin applies
+the run's coverage and redistributes water between tiles only on 1 January (`plugins/landuse/src/lu_force.c` of
+`39e21ff5`), on any other date the state's coverage stays until the next 1 January (`check_start_january`, also
+for runs that start from a parent); (b) model commit, executable and every parameter file are identical except the
+dam file (`check_same_identity`), whose dam list must agree: `id`, `type` and order of every dam, and `capacity` of
+every dam that can operate in the earlier run (`year` not after its last year; a dam that never operated is an
+empty entry of the state, D19 amendment 2026-10-16); (c) the same plugins are on (`check_same_plugins`, from the
+earlier run's `config/resolved.yaml`); (d) every dam active in the state (`STATE_DAM_ACTIVE`) and every dam that
+can operate by the end of the earlier run operates in the run's dam file at the start year, because VIC never
+switches a dam off. The dam checks (`check_dams_from`) apply also to a run that starts from its parent in the
+campaign (parent and child may use the dam files of different DHF scenarios), with the state when the parent has
+completed. With the dams plugin off the dam checks are skipped. A spin-up started this way repeats the convergence
+test. The record is `docs/decisions/D19-dams-and-initial-states.md`. Example: the warm start of
+`smoke-nonrenewable` (2011 from the 2021-01-01 state of the smoke run) is now refused: 269 dams active in the state
+do not operate in 2011.
 
 **Run directory.** `runs/<campaign-id>/<run-id>/` (`--scratch`: `scratch/<campaign-id>/<run-id>/`, never
 submitted): `config/` (`vic_global.txt`, `vic_constants.txt` with the dam constants, `job.sbatch`,

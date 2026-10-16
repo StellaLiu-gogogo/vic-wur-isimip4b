@@ -25,7 +25,15 @@ parameter_set:
     routing: routing/vic_global_5min_routing.nc
     decomposition: routing/vic_global_5min_file_decomposition_wateruse_dams.nc
     irrigation: irrigation/vic_global_5min_irrigation_parameters.nc
-    dams: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+    # soc scenario of a segment -> dam file (D19). The smoke campaigns keep the adopted T3_extended file (placed and
+    # served on the old WBT routing; dam results not representative, D19) for every scenario.
+    dams:
+      histsoc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      1850soc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      2021soc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      2021soc-from-histsoc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      ssp1vlsoc-noadapt: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      ssp3hsoc-noadapt: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
     water_use: water_use/vic_global_5min_wateruse_parameters_receiving-network.nc
 
 protocol:
@@ -58,6 +66,9 @@ restriction:
 initialisation:
   # a run whose parent segment is not simulated in this campaign starts from the end state of the completed
   # smoke run 2011-2020 (campaign smoke, attempt 1, job 43023368); VIC does not check the date of a state file
+  # Since the D19 warm-start checks of render_run.py (task L4a, 2026-10-16) this warm start is refused: 269 dams
+  # active in the 2021-01-01 state are built 2012-2020 and do not operate in 2011. The run rendered on 2026-10-07
+  # stays as it is and is not used for results (D19).
   without_parent: state_of_run
   state_of_run:
     run_dir: runs/smoke/ec-earth3-esm-1-1_historical_histsoc_default_historical__smoke2011-2020

@@ -24,7 +24,15 @@ parameter_set:
     routing: routing/vic_global_5min_routing.nc
     decomposition: routing/vic_global_5min_file_decomposition_wateruse_dams.nc
     irrigation: irrigation/vic_global_5min_irrigation_parameters.nc
-    dams: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+    # soc scenario of a segment -> dam file (D19). The smoke campaigns keep the adopted T3_extended file (placed and
+    # served on the old WBT routing; dam results not representative, D19) for every scenario.
+    dams:
+      histsoc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      1850soc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      2021soc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      2021soc-from-histsoc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      ssp1vlsoc-noadapt: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      ssp3hsoc-noadapt: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
     water_use: water_use/vic_global_5min_wateruse_parameters_receiving-network.nc
 
 protocol:
