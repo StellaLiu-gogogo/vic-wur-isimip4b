@@ -131,6 +131,15 @@ def area_ratio(catch_km2, area_m2):
     return max(catch_km2 / a, a / catch_km2)
 
 
+def location_fit(grid, lat, lon, catch_km2):
+    """Best max(ratio, 1/ratio) between catch_km2 and the upstream area of the active cells of the 3x3
+    neighbourhood of the nearest cell (inf when none is active or the catchment is unknown)."""
+    r, c = grid.nearest(lat, lon)
+    fits = [area_ratio(catch_km2, grid.upstream_m2[rr, cc]) for rr, cc in [(r, c)] + grid.neighbours(r, c)
+            if grid.mask[rr, cc]]
+    return min(fits) if fits else np.inf
+
+
 def snap(grid, lat, lon, catch_km2, force_global=False):
     """Cell, type and inflow fraction of one dam: dict(row, col, type, inflow_fraction, method, ratio); row is
     None when no active cell is in reach."""

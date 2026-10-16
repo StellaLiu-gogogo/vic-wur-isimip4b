@@ -7,8 +7,8 @@ Builds parameters/<status>/<set>/dams/ from
   * GDW v1.0 barriers layer (raw/external/global-dam-watch/1.0/) for dam locations, catchment areas and purposes;
   * the domain and routing files of the parameter set;
   * the mean discharge of a natural run (all water-management plugins off) for the service maps;
-  * the hand decisions of dam_decisions.yaml (manual locations, combined records, reviewed capacities and
-    locations; every entry with its reason).
+  * the hand decisions of dam_decisions.yaml (manual locations, combined records, overrides of the review rules;
+    every entry with its reason).
 
 Method (see the README of this directory for the rules and their sources)
   dam list     every ISIMIP4b histsoc dam, located with GDW (dam_sources.match_isimip_gdw), plus every SSP site;
@@ -18,7 +18,11 @@ Method (see the README of this directory for the rules and their sources)
                routing area
   cell, type   dam_grid.snap on the routing of the set; SSP future dams are global
   one per cell dam_grid.place, largest first, historical before future
-  capacity     ISIMIP CAP_MCM (hm3) unless the decisions file says otherwise; SSP: lake volume / 1e6
+  review       pairs flagged by the crosswalk (capacity ratio outside [0.5, 2], points > 10 km apart) are decided by
+               the review rules (dam_sources.capacity_rule C1-C3, location_rule L1-L3; user, 2026-10-16) unless
+               the decisions file overrides a pair
+  capacity     ISIMIP CAP_MCM (hm3), or GDW CAP_MCM where a review rule chooses it, or the decisions file; SSP:
+               lake volume / 1e6
   purpose      a global dam whose ISIMIP PURPOSE and GDW uses name a purpose without irrigation or water supply
                gets Nservice = 0 and an empty service map; every SSP future dam too; others are traced
   service      dam_grid.trace_service on the mean discharge of the natural run over --discharge-years
@@ -27,9 +31,9 @@ Method (see the README of this directory for the rules and their sources)
 
 Outputs in <out>: vic_global_5min_dam_parameters_isimip4b_<scenario>.nc for histsoc, 1850soc, 2021soc (same
 dam list and order, only `year` differs), dam_list_isimip4b.csv (one row per dam_class), dam_sources_isimip4b.csv
-(one row per source record and what became of it), review_pairs.csv (pairs for the hand review),
+(one row per source record and what became of it), review_pairs.csv (flagged pairs, evidence and rule choices),
 mean_discharge_natural.nc (the field used for the service maps), provenance.yaml; build report
-<qc>/reports/build_report.json. <out> is parameters/<status>/<set>/dams/ (whose adopted files stay), <qc> is
+<qc>/reports/build_report.json and <qc>/figures/review_pairs.png. <out> is parameters/<status>/<set>/dams/ (whose adopted files stay), <qc> is
 qc/parameters/<status>/<set>/dams/. From a repository that is not clean, or with --scratch, everything goes to
 scratch/dam-parameters/dams/ (qc under its qc/). --review stops before the service maps and writes the tables to
 scratch/dam-parameters/review/ (no discharge needed).
@@ -163,10 +167,11 @@ def mean_discharge(files, shape):
 
 
 # --------------------------------------------------------------------------------------------------- dam records
-def historical_dams(isi, gdw, match, dec):
-    """List of dam dicts (one per historical dam after combining) and per-record source rows."""
+def historical_dams(isi, gdw, match, dec, review):
+    """List of dam dicts (one per historical dam after combining) and per-record source rows. `review` (from
+    review_pairs) gives the capacity and location choice of every flagged pair."""
     by_key = {k: i for i, k in zip(isi.index, isi.key)}
-    reviews = {e['isimip']: e for e in dec['reviews']}
+    reviews = {r.isimip: r for r in review.itertuples()} if len(review) else {}
     absorbed, combined = {}, {}
     for e in dec['combined']:
         for k in [e['keep']] + list(e['absorb']):
@@ -188,7 +193,7 @@ def historical_dams(isi, gdw, match, dec):
         if r.key in absorbed:
             row['outcome'] = f'combined into {absorbed[r.key]}'; continue
         rv = reviews.get(r.key)
-        use_isimip = g is None or (rv is not None and rv.get('location') == 'isimip')
+        use_isimip = g is None or (rv is not None and rv.location_choice == 'isimip')
         lat, lon = (r.LAT_ORIG, r.LON_ORIG) if use_isimip else (g.lat, g.lon)
         loc_src = 'isimip' if use_isimip else f'gdw:{int(g.GDW_ID)}'
         for val, how in ((None if use_isimip else g.CATCH_SKM, 'gdw'), (r.CATCH_SKM_GranD, 'isimip_grand'),
@@ -207,8 +212,10 @@ def historical_dams(isi, gdw, match, dec):
                 j = by_key[k]; mj = match.loc[j]
                 rules.append(ds.purpose_rule(isi.at[j, 'PURPOSE'], gdw.loc[mj.gdw_row] if mj.gdw_row >= 0 else None))
                 members.append(k)
-        if rv is not None and 'capacity_mcm' in rv:
-            cap, cap_src = float(rv['capacity_mcm']), 'decisions:review'
+        elif rv is not None and rv.capacity_choice == 'gdw':
+            cap, cap_src = float(rv.capacity_used_mcm), f'gdw:{rv.capacity_rule}'
+        elif rv is not None and rv.capacity_rule.startswith('decisions'):
+            cap, cap_src = float(rv.capacity_used_mcm), rv.capacity_rule
         rule = ds.combine_rules(rules)
         dams.append({'name': r.DAM_NAME, 'key': r.key, 'members': members, 'country': r.COUNTRY, 'future': False,
                      'lat': float(lat), 'lon': float(lon), 'location_source': loc_src, 'catchment_km2': catch,
@@ -241,27 +248,102 @@ def scenario_years(dams):
             '2021soc': np.where(fut, YEAR_NEVER, 0).astype(np.int32)}
 
 
-def review_rows(isi, gdw, match):
+def _pos(v):
+    return float(v) if pd.notna(v) and v > 0 else np.nan
+
+
+def review_pairs(isi, gdw, match, grid, dec):
+    """One row per pair flagged by the crosswalk with the evidence and the choice of the review rules
+    (dam_sources.capacity_rule, dam_sources.location_rule; user, 2026-10-16); an entry under `reviews` in the
+    decisions file overrides the rules for its pair (capacity_mcm and/or location). Records combined by the
+    decisions file take the combined capacity instead (build_dams.historical_dams)."""
+    over = {e['isimip']: e for e in dec['reviews']}
     m = match[match.review != '']
+    unknown = [k for k in over if k not in set(isi.key[m.index])]
+    if unknown:
+        raise SystemExit(f'decisions file: reviews for pairs that are not flagged: {unknown}')
     rows = []
     for i in m.index:
         r, g = isi.loc[i], gdw.loc[m.at[i, 'gdw_row']]
-        rows.append({'isimip': r.key, 'name': r.DAM_NAME, 'country': r.COUNTRY, 'reason': m.at[i, 'review'],
-                     'isimip_cap_mcm': r.CAP_MCM, 'gdw_cap_mcm': g.CAP_MCM, 'ratio_gdw_to_isimip': m.at[i, 'capacity_ratio'],
-                     'isimip_year': r.YEAR, 'gdw_year': g.YEAR_DAM, 'isimip_lat': r.LAT_ORIG, 'isimip_lon': r.LON_ORIG,
-                     'gdw_id': int(g.GDW_ID), 'gdw_name': g.DAM_NAME, 'gdw_lat': g.lat, 'gdw_lon': g.lon,
-                     'distance_km': m.at[i, 'distance_km'], 'isimip_catch_km2': r.CATCH_SKM_GranD,
-                     'gdw_catch_km2': g.CATCH_SKM})
+        reason = m.at[i, 'review']
+        area = _pos(g.AREA_SKM) if pd.notna(_pos(g.AREA_SKM)) else _pos(r.R_Area_km2)
+        height = _pos(g.DAM_HGT_M) if pd.notna(_pos(g.DAM_HGT_M)) else _pos(r.D_Hght_m)
+        row = {'isimip': r.key, 'name': r.DAM_NAME, 'country': r.COUNTRY, 'reason': reason,
+               'isimip_cap_mcm': r.CAP_MCM, 'gdw_cap_mcm': g.CAP_MCM, 'ratio_gdw_to_isimip': m.at[i, 'capacity_ratio'],
+               'gdw_cap_rep_mcm': _pos(pd.to_numeric(g.get('CAP_REP'), errors='coerce')),
+               'gdw_cap_max_mcm': _pos(pd.to_numeric(g.get('CAP_MAX'), errors='coerce')),
+               'gdw_lake_ctrl': g.LAKE_CTRL, 'area_km2': area, 'dam_height_m': height,
+               'isimip_year': r.YEAR, 'gdw_year': g.YEAR_DAM, 'isimip_lat': r.LAT_ORIG, 'isimip_lon': r.LON_ORIG,
+               'gdw_id': int(g.GDW_ID), 'gdw_name': g.DAM_NAME, 'gdw_lat': g.lat, 'gdw_lon': g.lon,
+               'distance_km': m.at[i, 'distance_km'], 'isimip_catch_km2': r.CATCH_SKM_GranD, 'gdw_catch_km2': g.CATCH_SKM}
+        if 'capacity' in reason:
+            ch, rule, d_i, d_g = ds.capacity_rule(r.CAP_MCM, g.CAP_MCM, g.LAKE_CTRL, area, height)
+        else:
+            ch, rule, d_i, d_g = 'isimip', 'not flagged', np.nan, np.nan
+        row.update({'depth_isimip_m': d_i, 'depth_gdw_m': d_g, 'capacity_rule': rule, 'capacity_choice': ch,
+                    'capacity_used_mcm': g.CAP_MCM if ch == 'gdw' else r.CAP_MCM})
+        fit_i = dg.location_fit(grid, r.LAT_ORIG, r.LON_ORIG,
+                                r.CATCH_SKM_GranD if pd.notna(_pos(r.CATCH_SKM_GranD)) else g.CATCH_SKM)
+        fit_g = dg.location_fit(grid, g.lat, g.lon, g.CATCH_SKM if pd.notna(_pos(g.CATCH_SKM)) else r.CATCH_SKM_GranD)
+        lch, lrule = ds.location_rule(fit_i, fit_g) if 'distance' in reason else ('gdw', 'not flagged')
+        row.update({'fit_isimip_point': fit_i, 'fit_gdw_point': fit_g, 'location_rule': lrule, 'location_choice': lch})
+        e = over.get(r.key)
+        if e is not None:
+            if 'capacity_mcm' in e:
+                row.update({'capacity_used_mcm': float(e['capacity_mcm']), 'capacity_choice': 'decisions',
+                            'capacity_rule': 'decisions:review'})
+            if 'location' in e:
+                if e['location'] not in ('gdw', 'isimip'):
+                    raise SystemExit(f'decisions file: location of {r.key} must be gdw or isimip')
+                row.update({'location_choice': e['location'], 'location_rule': 'decisions:review'})
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
-def check_reviews(review, dec):
-    """Every pair flagged for review must have a decision with capacity_mcm and location ('gdw' or 'isimip')."""
-    have = {e['isimip']: e for e in dec['reviews']}
-    missing = [k for k in review.isimip if k not in have or 'capacity_mcm' not in have[k] or
-               have[k].get('location') not in ('gdw', 'isimip')]
-    extra = [k for k in have if k not in set(review.isimip)]
-    return missing, extra
+def plot_review(review, path):
+    """Figure of the review rules: capacity pairs (ISIMIP against GDW, colour = rule and choice) and location pairs
+    (distance against the fit of both points, colour = rule)."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(15, 6.5))
+    c = review[review.capacity_rule != 'not flagged']
+    colours = {'C1 gdw': '#1b9e77', 'C2 gdw': '#d95f02', 'C2 isimip': '#7570b3', 'C3 isimip': '#999999'}
+    for k, col in colours.items():
+        x = c[c.capacity_rule.str.cat(c.capacity_choice, sep=' ') == k]
+        a1.scatter(x.isimip_cap_mcm, x.gdw_cap_mcm, s=30, c=col, label=f'{k} ({len(x)})', zorder=3)
+    other = c[~c.capacity_rule.str.cat(c.capacity_choice, sep=' ').isin(colours)]
+    if len(other):
+        a1.scatter(other.isimip_cap_mcm, other.gdw_cap_mcm, s=40, c='k', marker='x', label=f'decisions ({len(other)})')
+    lim = [max(0.05, float(np.nanmin(c[['isimip_cap_mcm', 'gdw_cap_mcm']].values)) / 2),
+           float(np.nanmax(c[['isimip_cap_mcm', 'gdw_cap_mcm']].values)) * 2] if len(c) else [0.1, 1e6]
+    a1.plot(lim, lim, 'k-', lw=0.7); a1.plot(lim, [v * 2 for v in lim], 'k:', lw=0.7)
+    a1.plot(lim, [v / 2 for v in lim], 'k:', lw=0.7)
+    a1.set(xscale='log', yscale='log', xlim=lim, ylim=lim, xlabel='ISIMIP4b CAP_MCM (hm3)', ylabel='GDW CAP_MCM (hm3)',
+           title='Capacity pairs: C1 regulated lake, C2 mean depth vs dam height, C3 default ISIMIP')
+    for r in c[(c.isimip_cap_mcm - c.gdw_cap_mcm).abs() >= 500].itertuples():
+        a1.annotate(r.name, (r.isimip_cap_mcm, r.gdw_cap_mcm), fontsize=7, xytext=(3, 3), textcoords='offset points')
+    a1.legend(fontsize=8, loc='upper left')
+    d = review[review.location_rule != 'not flagged']
+    lcol = {'L1': '#1b9e77', 'L2': '#7570b3', 'L3': '#999999', 'decisions:review': 'k'}
+    for k, col in lcol.items():
+        x = d[d.location_rule == k]
+        if not len(x):
+            continue
+        for r in x.itertuples():
+            a2.plot([r.distance_km] * 2, [r.fit_isimip_point, r.fit_gdw_point], '-', c=col, lw=0.6, alpha=0.6)
+        a2.scatter(x.distance_km, x.fit_gdw_point, c=col, marker='o', s=28, label=f'{k} ({len(x)}), GDW point')
+        a2.scatter(x.distance_km, x.fit_isimip_point, c=col, marker='^', s=28, facecolors='none',
+                   label=f'{k}, ISIMIP point')
+    a2.axhline(ds.FIT_MAX, c='k', ls=':', lw=0.8)
+    for r in d[(d.distance_km > 300) | (d.capacity_used_mcm >= 500)].itertuples():
+        a2.annotate(r.name, (r.distance_km, min(r.fit_gdw_point, 100)), fontsize=7, xytext=(3, 3),
+                    textcoords='offset points')
+    a2.set(xscale='log', yscale='log', xlabel='distance between the ISIMIP and the GDW point (km)',
+           ylabel='fit: upstream area vs catchment, max(ratio, 1/ratio)',
+           title='Location pairs: L1 GDW point fits, L2 only ISIMIP fits, L3 neither (GDW)')
+    a2.legend(fontsize=7, loc='upper left', ncol=2)
+    fig.tight_layout(); fig.savefig(path, dpi=130); plt.close(fig)
 
 
 # --------------------------------------------------------------------------------------------------------- main
@@ -302,21 +384,19 @@ def main():
     if len(isi) != N_HISTSOC:
         raise SystemExit(f'ISIMIP histsoc: {len(isi)} dams, expected {N_HISTSOC}')
     match = ds.match_isimip_gdw(isi, gdw, dec['manual_locations'], skip=[k for e in dec['combined'] for k in e['absorb']])
-    review = review_rows(isi, gdw, match)
-    missing, extra = check_reviews(review, dec)
     unmatched = isi.key[match.method == ''].tolist()
-    if not to_scratch and (missing or extra or unmatched):
-        raise SystemExit(f'decisions incomplete: reviews missing {missing}, reviews not flagged {extra}, '
-                         f'unmatched dams without a manual location {unmatched}')
+    if not to_scratch and unmatched:
+        raise SystemExit(f'decisions incomplete: unmatched dams without a manual location {unmatched}')
+    grid = dg.load_grid(f'{pset}/{DOMAIN}', f'{pset}/{ROUTING}')
+    print(f'grid {grid.ny}x{grid.nx}, {int(grid.mask.sum())} active cells, {time.time() - t0:.0f} s', flush=True)
+    review = review_pairs(isi, gdw, match, grid, dec)
     ssp_tab = {s: ds.read_ssp(f'{W}/raw/ISIMIP4b/{p}') for s, p in SSP.items()}
     sites, ssp_rows = ds.ssp_sites(ssp_tab)
     print(f'GDW barriers {len(gdw)}; ISIMIP histsoc {len(isi)}: ' +
           ', '.join(f'{k} {v}' for k, v in match.method.replace('', 'unmatched').value_counts().items()) +
           f'; review pairs {len(review)}; SSP sites {len(sites)}', flush=True)
 
-    grid = dg.load_grid(f'{pset}/{DOMAIN}', f'{pset}/{ROUTING}')
-    print(f'grid {grid.ny}x{grid.nx}, {int(grid.mask.sum())} active cells, {time.time() - t0:.0f} s', flush=True)
-    hist, src_rows = historical_dams(isi, gdw, match, dec)
+    hist, src_rows = historical_dams(isi, gdw, match, dec, review)
     hist.sort(key=lambda d: (-d['capacity_mcm'], d['key']))
     fut = future_dams(sites, list(SSP))
     dams = hist + fut
@@ -403,13 +483,19 @@ def main():
     def write_csv(df, name):
         df.to_csv(f'{out}/{name}.part', index=False); os.replace(f'{out}/{name}.part', f'{out}/{name}')
     write_csv(dam_list, DAM_LIST); write_csv(sources, DAM_SOURCES); write_csv(review, REVIEW)
+    os.makedirs(f'{qc}/figures', exist_ok=True)
+    plot_review(review, f'{qc}/figures/review_pairs.png')
 
     created_at = provenance.utcnow()
     report = {
         'method_version': METHOD_VERSION, 'created_at': created_at, 'code_commit': commit, 'code_dirty': dirty,
         'gdw_barriers': len(gdw), 'isimip_histsoc': len(isi),
         'match_methods': match.method.replace('', 'unmatched').value_counts().to_dict(),
-        'review_pairs': len(review), 'reviews_missing': missing, 'reviews_not_flagged': extra, 'unmatched': unmatched,
+        'review_pairs': len(review), 'unmatched': unmatched,
+        'review_rules': {'capacity': review.capacity_rule[review.capacity_rule != 'not flagged']
+                         .str.cat(review.capacity_choice, sep=' ').value_counts().to_dict(),
+                         'location': review.location_rule[review.location_rule != 'not flagged']
+                         .str.cat(review.location_choice, sep=' ').value_counts().to_dict()},
         'ssp_records': {s: len(t) for s, t in ssp_tab.items()},
         'ssp_records_excluded_no_reservoir': int(ssp_rows.outcome.str.startswith('excluded').sum()),
         'ssp_sites': len(sites),
@@ -472,6 +558,8 @@ def main():
             'decisions': {'file': os.path.relpath(DECISIONS, REPO), 'sha256': hashing.sha256(DECISIONS)},
             'discharge_run': qinfo,
             'method': {'match_km': ds.MATCH_KM, 'review_km': ds.REVIEW_KM, 'capacity_ratio': list(ds.RATIO),
+                       'review_depth_band': list(ds.DEPTH_BAND), 'review_lake_control': list(ds.LAKE_CONTROL),
+                       'review_fit_max': ds.FIT_MAX,
                        'max_area_ratio': dg.MAX_RATIO, 'service_min_frac': dg.MIN_FRAC,
                        'service_max_cells': dg.MAX_SERVICE, 'year_never': YEAR_NEVER},
             'scenarios': {s: OUT_NC.format(scenario=s) for s in SCENARIOS},

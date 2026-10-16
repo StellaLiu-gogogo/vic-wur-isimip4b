@@ -49,7 +49,9 @@ combined:
       are the same reservoir on the Vakhsh. One dam with the year and location (GDW 6073) of the GRanD record.
       User, 2026-10-11.
 
-# Reviewed pairs (review_pairs.csv of the review run): GRanD-matched pairs whose capacity ratio GDW/ISIMIP is
-# outside [0.5, 2] or whose locations are more than 10 km apart. Each entry: isimip key, capacity_mcm (the value
-# used), location (gdw or isimip), reason. Filled after the user's review.
+# Overrides of the review rules (user, 2026-10-16). The pairs flagged by the crosswalk (GRanD-matched pairs whose
+# capacity ratio GDW/ISIMIP is outside [0.5, 2] or whose points are more than 10 km apart) are decided by the rules
+# C1-C3 (capacity) and L1-L3 (location) of dam_sources.py; review_pairs.csv lists each pair with its evidence and
+# choice. An entry here replaces the rule for one pair: isimip key, capacity_mcm and/or location (gdw or isimip),
+# reason.
 reviews: []

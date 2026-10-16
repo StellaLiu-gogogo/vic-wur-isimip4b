@@ -13,7 +13,7 @@ from `compare_gdw_isimip.py` of the analysis task `dam-distribution-review`.
 | `build_dams.py` | producer: dam list, cells, service maps, the three dam files, tables, `provenance.yaml`; `--review` writes only the hand-review tables |
 | `dam_sources.py` | readers (GDW barriers shapefile, ISIMIP4b workbook, SSP csv), ISIMIP4b-GDW crosswalk, purpose rule, SSP sites |
 | `dam_grid.py` | routing topology, upstream area, snapping, one dam per cell, service maps, dam-file writer |
-| `dam_decisions.yaml` | hand decisions with reasons: manual locations, records combined into one dam, reviewed capacities and locations |
+| `dam_decisions.yaml` | hand decisions with reasons: manual locations, records combined into one dam, overrides of the review rules |
 | `verify_dams.py` | independent verification; `summary.json` and `reports/verify.json` under `qc/parameters/<status>/<set>/dams/`, sets `qc.status` |
 | `dams.sbatch` | Slurm template: producer, then verifier |
 | `submit_dams.py` | renders and submits the job, job record under `logs/03_parameters/<job-name>_<slurm-job-id>/` |
@@ -39,9 +39,18 @@ Tests: `tests/unit/test_dam_parameters.py`.
 1. **Dam list.** Every ISIMIP4b `histsoc` dam (D19). Crosswalk to GDW, one to one: manual entries of the
    decisions file; GRanD ID for GRanD-sourced records (empty `SOURCE`); then the nearest GDW record within 2 km
    whose capacity is within a factor 2. GRanD pairs more than 10 km apart or with a capacity ratio outside
-   [0.5, 2] are listed in `review_pairs.csv`; the user decides capacity and location of each, recorded under
-   `reviews` in `dam_decisions.yaml`, and the producer refuses to write the component while a pair or an
-   unmatched dam has no decision. Records the decisions file combines (Fengman/Fengman_2, the two Rogun records)
+   [0.5, 2] are decided by review rules (user, 2026-10-16) and listed with their evidence in `review_pairs.csv`;
+   an entry under `reviews` in `dam_decisions.yaml` overrides the rules for one pair. The producer refuses to write
+   the component while an ISIMIP dam is unmatched and has no manual location.
+   - Capacity: **C1** a regulated natural lake (GDW `LAKE_CTRL` Yes or Enlarged) takes the GDW capacity, the volume
+     the dam regulates (ISIMIP gives the whole lake); **C2** when the mean depth (capacity / surface area, GDW
+     `AREA_SKM` else ISIMIP `R_Area_km2`) lies within 5–100 % of the dam height (GDW `DAM_HGT_M` else ISIMIP
+     `D_Hght_m`) for one source only, that source; **C3** otherwise ISIMIP. In most flagged pairs GDW keeps the
+     ISIMIP value as its reported capacity (`CAP_REP`) and chose another value (often the HydroLAKES maximum,
+     `CAP_MAX`) as its best estimate.
+   - Location: the fit of a point is the best max(ratio, 1/ratio) between the upstream area of the 3×3 cells
+     around it and the catchment area of the same source. **L1** the GDW point fits within 1.5: GDW (newer; its
+     point lies on the HydroSHEDS river); **L2** only the ISIMIP point fits: ISIMIP; **L3** neither fits: GDW. Records the decisions file combines (Fengman/Fengman_2, the two Rogun records)
    are one dam. SSP future dams: river-power dams (`SystemID` 2) with a lake volume; a site in both SSP tables is
    one dam (same volume, years kept per scenario); diversion-canal plants (`SystemID` 1) have no lake volume and
    are left out (user, 2026-10-11), each listed in `dam_sources_isimip4b.csv`.
@@ -58,7 +67,8 @@ Tests: `tests/unit/test_dam_parameters.py`.
    downstream or draining directly into the taken cell) whose upstream area still fits (ratio ≤ 1.5), a local dam to
    the nearest free neighbour; otherwise a historical dam is merged into the dam of the cell (capacities summed,
    year, type and inflow fraction of that larger dam) and a future dam is not placed (user, 2026-10-11).
-5. **Capacity** ISIMIP `CAP_MCM` (hm³) unless the decisions file says otherwise; SSP: lake volume / 10⁶.
+5. **Capacity** ISIMIP `CAP_MCM` (hm³), GDW `CAP_MCM` where a review rule chooses it, or the decisions file;
+   SSP: lake volume / 10⁶.
 6. **Purpose.** A global dam keeps its service map when ISIMIP `PURPOSE` or GDW (`USE_IRRI`, `USE_SUPP`,
    `MAIN_USE` Irrigation or Water supply) names irrigation or water supply, or when neither source names a purpose;
    a global dam with a known purpose without irrigation or water supply, and every SSP future dam, gets
@@ -90,14 +100,14 @@ In `parameters/<status>/<set>/dams/` (the adopted T3_extended file stays for the
 conda activate isimip4b
 export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
 export PYTHONPATH=$PWD/workflow
-python3 workflow/03_parameters/dams/submit_dams.py --review                              # tables for the hand review
+python3 workflow/03_parameters/dams/submit_dams.py --review                              # tables and review choices
 python3 workflow/03_parameters/dams/submit_dams.py --discharge-run runs/<campaign>/<run-id> --scratch   # test
 python3 workflow/03_parameters/dams/submit_dams.py --discharge-run runs/<campaign>/<run-id>             # component
 ```
 
 `--review` and test runs write to `scratch/dam-parameters/`. Outside scratch the producer requires a clean
-repository at the submitted commit, a natural discharge run, and a decision for every review pair and unmatched
-dam; it never overwrites its own files.
+repository at the submitted commit, a natural discharge run, and a manual location for every unmatched dam; it
+never overwrites its own files.
 
 ## Decisions
 

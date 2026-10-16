@@ -102,7 +102,7 @@ def read_gdw_barriers(shp_dir):
     t = t[~t.deleted].drop(columns='deleted').reset_index(drop=True)
     for c in ('GDW_ID', 'GRAND_ID', 'YEAR_DAM'):
         t[c] = _num(t[c])
-    for c in ('CAP_MCM', 'CATCH_SKM'):
+    for c in ('CAP_MCM', 'CATCH_SKM', 'AREA_SKM', 'DAM_HGT_M'):
         v = _num(t[c]); t[c] = v.where(v > 0)
     t['GRAND_ID'] = t.GRAND_ID.where(t.GRAND_ID > 0)
     if t.GDW_ID.isna().any() or not t.GDW_ID.is_unique:
@@ -149,7 +149,8 @@ def read_isimip_histsoc(path):
     numeric columns coerced, `key` (isimip_key), `grand_sourced` (SOURCE empty: a GRanD record)."""
     t = read_xlsx_table(path)
     t['ID_text'] = t['ID'].astype(str)
-    for c in ('ID', 'YEAR', 'FLAG_ART', 'CAP_MCM', 'LAT_ORIG', 'LON_ORIG', 'CATCH_SKM_GranD', 'CATCH_SKM_DDM30'):
+    for c in ('ID', 'YEAR', 'FLAG_ART', 'CAP_MCM', 'LAT_ORIG', 'LON_ORIG', 'CATCH_SKM_GranD', 'CATCH_SKM_DDM30',
+              'R_Area_km2', 'D_Hght_m'):
         t[c] = pd.to_numeric(t[c], errors='coerce')
     t = t.dropna(subset=['CAP_MCM']).reset_index(drop=True)
     t['row'] = np.arange(len(t))
@@ -158,7 +159,7 @@ def read_isimip_histsoc(path):
     if not t.key.is_unique:
         raise ValueError(f'ISIMIP histsoc: keys not unique: {t.key[t.key.duplicated()].tolist()}')
     t['grand_sourced'] = t.SOURCE.astype(str).str.strip().str.lower().isin(MISSING_TEXT) & t.ID.notna()
-    for c in ('CATCH_SKM_GranD', 'CATCH_SKM_DDM30'):
+    for c in ('CATCH_SKM_GranD', 'CATCH_SKM_DDM30', 'R_Area_km2', 'D_Hght_m'):
         t[c] = t[c].where(t[c] > 0)
     return t
 
@@ -263,6 +264,47 @@ def match_isimip_gdw(isi, gdw, manual=(), skip=(), match_km=MATCH_KM, review_km=
             done.add(i)
     out['gdw_row'] = out.gdw_row.astype(int)
     return out
+
+
+# ------------------------------------------------------------------------------------------------- review rules
+# Rules for the pairs flagged by the crosswalk (user, 2026-10-16); the decisions file may override single pairs.
+DEPTH_BAND = (0.05, 1.0)        # plausible mean depth (capacity / surface area) as a fraction of the dam height
+LAKE_CONTROL = ('yes', 'enlarged')
+FIT_MAX = 1.5                   # upstream area within this factor of the catchment area
+
+
+def capacity_rule(cap_isimip, cap_gdw, lake_ctrl, area_km2, height_m, band=DEPTH_BAND):
+    """(choice 'isimip' or 'gdw', rule id, depth_isimip_m, depth_gdw_m) for a pair whose capacities differ.
+    C1 a regulated natural lake (GDW LAKE_CTRL Yes or Enlarged): GDW, the volume the dam regulates (ISIMIP gives the
+       volume of the whole lake);
+    C2 the mean depth (capacity / surface area) is within [band[0], band[1]] x dam height for one source only: that
+       source;
+    C3 otherwise ISIMIP (D19)."""
+    a = area_km2 if area_km2 and area_km2 > 0 else np.nan
+    d_i, d_g = cap_isimip / a, cap_gdw / a          # hm3 / km2 = m
+    if _filled(lake_ctrl) and lake_ctrl.strip().lower() in LAKE_CONTROL:
+        return 'gdw', 'C1', d_i, d_g
+    if height_m and height_m > 0 and np.isfinite(a):
+        ok_i = band[0] * height_m <= d_i <= band[1] * height_m
+        ok_g = band[0] * height_m <= d_g <= band[1] * height_m
+        if ok_g and not ok_i:
+            return 'gdw', 'C2', d_i, d_g
+        if ok_i and not ok_g:
+            return 'isimip', 'C2', d_i, d_g
+    return 'isimip', 'C3', d_i, d_g
+
+
+def location_rule(fit_isimip, fit_gdw, fit_max=FIT_MAX):
+    """(choice, rule id) for a pair whose points are far apart; a fit is the best max(ratio, 1/ratio) between the
+    upstream area of the 3x3 cells around a point and the catchment area of the same source.
+    L1 the GDW point fits: GDW (the newer database; its point lies on the HydroSHEDS river);
+    L2 only the ISIMIP point fits: ISIMIP;
+    L3 neither fits: GDW."""
+    if fit_gdw <= fit_max:
+        return 'gdw', 'L1'
+    if fit_isimip <= fit_max:
+        return 'isimip', 'L2'
+    return 'gdw', 'L3'
 
 
 # ------------------------------------------------------------------------------------------------------ purposes

@@ -272,11 +272,35 @@ class TestYears(unittest.TestCase):
         self.assertEqual(y['1850soc'].tolist(), [0, 9999, 9999])
         self.assertEqual(y['2021soc'].tolist(), [0, 0, 9999])
 
-    def test_review_completeness(self):
-        review = pd.DataFrame({'isimip': ['1', '2']})
-        dec = {'reviews': [{'isimip': '1', 'capacity_mcm': 5, 'location': 'gdw', 'reason': 'r'},
-                           {'isimip': '3', 'capacity_mcm': 5, 'location': 'isimip', 'reason': 'r'}]}
-        self.assertEqual(bd.check_reviews(review, dec), (['2'], ['3']))
+
+
+class TestReviewRules(unittest.TestCase):
+    def test_capacity_rules(self):
+        # C1: a regulated natural lake takes GDW whatever the depths
+        self.assertEqual(ds.capacity_rule(141850, 35200, 'Yes', 1800, 214)[:2], ('gdw', 'C1'))
+        self.assertEqual(ds.capacity_rule(28360, 1500, 'Enlarged', 1250, None)[:2], ('gdw', 'C1'))
+        # C2: ISIMIP depth 479 m behind a 138 m dam; GDW 55 m plausible
+        ch, rule, d_i, d_g = ds.capacity_rule(8820, 1008, '', 18.4, 138)
+        self.assertEqual((ch, rule), ('gdw', 'C2')); self.assertAlmostEqual(d_i, 8820 / 18.4)
+        # C2: ISIMIP depth 1.5 m behind a 92 m dam (below 5 %), GDW 12 m
+        self.assertEqual(ds.capacity_rule(1222, 9750, '', 811, 92)[:2], ('gdw', 'C2'))
+        # C2: GDW depth 31 m behind a 21 m dam, ISIMIP 11 m
+        self.assertEqual(ds.capacity_rule(400, 1100, '', 35, 21)[:2], ('isimip', 'C2'))
+        # C3: both plausible, or no height, or no area
+        self.assertEqual(ds.capacity_rule(1570, 5100, '', 118, 47)[:2], ('isimip', 'C3'))
+        self.assertEqual(ds.capacity_rule(1518, 640, '', 58, np.nan)[:2], ('isimip', 'C3'))
+        self.assertEqual(ds.capacity_rule(100, 300, '', np.nan, 50)[:2], ('isimip', 'C3'))
+
+    def test_location_rules(self):
+        self.assertEqual(ds.location_rule(6.4, 1.0), ('gdw', 'L1'))
+        self.assertEqual(ds.location_rule(1.0, 1.4), ('gdw', 'L1'))
+        self.assertEqual(ds.location_rule(1.2, 2.3), ('isimip', 'L2'))
+        self.assertEqual(ds.location_rule(3.0, 7.0), ('gdw', 'L3'))
+
+    def test_location_fit(self):
+        g = chain_grid()
+        self.assertAlmostEqual(dg.location_fit(g, 1.0, 2.0, 120.0), 1.0)      # (1, 3) has 120 km2
+        self.assertEqual(dg.location_fit(g, 1.0, 2.0, np.nan), np.inf)
 
 
 if __name__ == '__main__':

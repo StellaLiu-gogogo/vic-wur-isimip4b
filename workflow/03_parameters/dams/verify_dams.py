@@ -14,10 +14,13 @@ Checks (each with its own status; the component passes only when all pass):
   types          SSP future dams are global; global dams have inflow_fraction 1, local dams in (0, 1)
   years          per scenario the D19 rule against the dam list: histsoc = ISIMIP year (future 9999), 1850soc = 0 for
                  year <= 1850 else 9999, 2021soc = 0 for historical and 9999 for future dams
+  review         the capacity and location choices of the flagged pairs follow the review rules applied to the
+                 evidence recorded in review_pairs.csv (pairs overridden by the decisions file excepted)
   table          the dam list has one row per dam_class with the id, type, capacity and inflow fraction of the files
   accounting     every ISIMIP histsoc record and every SSP record has an outcome; every historical record is a dam,
                  merged into one, or combined into one (none is lost); the historical capacity of the files equals
-                 the ISIMIP input total after the merges, combinations and reviewed capacities of the decisions
+                 the ISIMIP input total after the merges, the combinations of the decisions file and the capacities
+                 chosen for the flagged pairs (review_pairs.csv)
 Writes <qc>/summary.json and <qc>/reports/verify.json, where <qc> is qc/parameters/<status>/<set>/dams/ (or
 <component-dir>/qc/), and sets qc.status in the component's provenance.yaml (not with --component-dir).
 
@@ -87,13 +90,18 @@ def check_slices(args):
     return problems
 
 
-def expected_historical_capacity(dec, isi_caps):
+def expected_historical_capacity(dec, isi_caps, review):
+    """ISIMIP input total with the combinations of the decisions file and the capacities chosen for the flagged
+    pairs (review_pairs.csv: capacity_used_mcm; a combined record takes the combined capacity)."""
     total = float(sum(isi_caps.values()))
+    combined = set()
     for e in dec['combined']:
-        total += float(e['capacity_mcm']) - sum(isi_caps[k] for k in [e['keep']] + list(e['absorb']))
-    for e in dec['reviews']:
-        if 'capacity_mcm' in e:
-            total += float(e['capacity_mcm']) - isi_caps[e['isimip']]
+        keys = [e['keep']] + list(e['absorb'])
+        combined |= set(keys)
+        total += float(e['capacity_mcm']) - sum(isi_caps[k] for k in keys)
+    for k, used in zip(review.isimip.astype(str), review.capacity_used_mcm):
+        if k not in combined:
+            total += float(used) - isi_caps[k]
     return total
 
 
@@ -204,6 +212,28 @@ def main():
                          'problems': len(problems), 'first_problems': problems[:50],
                          'status': 'passed' if not problems and not any(rule_bad.values()) else 'failed'}
 
+    # ---- review rules: recomputed from the evidence columns of review_pairs.csv
+    review = pd.read_csv(f'{cdir}/{bd.REVIEW}', dtype={'isimip': str}, keep_default_na=False, na_values=[''])
+    over = {e['isimip'] for e in dec['reviews']}
+    bad_rule = []
+    for r in review.itertuples():
+        if r.isimip in over:
+            continue
+        if 'capacity' in r.reason:
+            ch, rule, _, _ = bd.ds.capacity_rule(r.isimip_cap_mcm, r.gdw_cap_mcm,
+                                                 r.gdw_lake_ctrl if isinstance(r.gdw_lake_ctrl, str) else '',
+                                                 r.area_km2, r.dam_height_m)
+            used = r.gdw_cap_mcm if ch == 'gdw' else r.isimip_cap_mcm
+            if (ch, rule) != (r.capacity_choice, r.capacity_rule) or not np.isclose(used, r.capacity_used_mcm):
+                bad_rule.append((r.isimip, 'capacity'))
+        if 'distance' in r.reason and bd.ds.location_rule(r.fit_isimip_point, r.fit_gdw_point) != \
+                (r.location_choice, r.location_rule):
+            bad_rule.append((r.isimip, 'location'))
+    checks['review'] = {'pairs': len(review), 'overridden_by_decisions': sorted(over),
+                        'capacity_rules': review.capacity_rule.value_counts().to_dict(),
+                        'location_rules': review.location_rule.value_counts().to_dict(),
+                        'rule_mismatches': bad_rule, 'status': 'passed' if not bad_rule else 'failed'}
+
     # ---- accounting
     hs = src[src.source == 'histsoc']
     no_outcome = int(src.outcome.isna().sum())
@@ -212,7 +242,7 @@ def main():
     isi = bd.ds.read_isimip_histsoc(f'{W}/raw/ISIMIP4b/{bd.HISTSOC}')
     ssp_expected = {s: len(bd.ds.read_ssp(f'{W}/raw/ISIMIP4b/{p}')) for s, p in bd.SSP.items()}
     caps = dict(zip(isi.key, isi.CAP_MCM.astype(float)))
-    exp_cap = expected_historical_capacity(dec, caps)
+    exp_cap = expected_historical_capacity(dec, caps, review)
     got_cap = float(cap[~fut].sum())
     acc_ok = no_outcome == 0 and len(lost) == 0 and len(hs) == len(isi) == bd.N_HISTSOC and \
         ssp_counts == ssp_expected and abs(got_cap - exp_cap) <= 1e-6 * exp_cap
