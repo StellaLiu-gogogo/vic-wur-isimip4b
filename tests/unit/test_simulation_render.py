@@ -115,6 +115,8 @@ def fake_unit(W, rel, names, status='passed', dirty=False):
 
 
 class ForcingPlanTest(unittest.TestCase):
+    chunk_years = None
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.W = self.tmp.name
         for var in rr.CLIMATE_VARIABLES:
@@ -240,6 +242,8 @@ class RenderHarness(unittest.TestCase):
     """render() on a temporary workdir with the build, parameter, protocol and forcing steps replaced by fixed
     results: the parts under test are the parent and output decisions and the run manifest."""
 
+    chunk_years = None
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.W = self.tmp.name
         self.campaign = smoke(); self.campaign.pop('restriction')         # an unrestricted campaign
@@ -266,7 +270,10 @@ class RenderHarness(unittest.TestCase):
                                                                         'smallest_group_cells': 1, 'active_cells': 100}),
             mock.patch.object(rr, 'forcing_plan', return_value=([], {}, {})),
             mock.patch.object(rr, 'check_landuse_tiles'),              # needs the forcing_plan record (own tests)
-            mock.patch.object(rr, 'render_job', return_value=('job\n', 5))]
+            mock.patch.object(rr, 'render_job', return_value=('job\n', 5)),
+            # resources of the campaign with chunk_years from the test (None: runs are not chunked)
+            mock.patch.object(rr, 'read_yaml', side_effect=lambda p, _r=rr.read_yaml: {**_r(p), 'chunk_years': self.chunk_years}
+                              if p.endswith(os.path.join('configs', 'resources', 'vic-global-5arcmin.yaml')) else _r(p))]
         for p in self.patches:
             p.start()
 

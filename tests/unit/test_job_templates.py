@@ -11,6 +11,7 @@ import os, re, subprocess, tempfile, unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 WF = os.path.join(HERE, '..', '..', 'workflow')
 TEMPLATES = ['03_parameters/vegetation/vegetation_component.sbatch', '03_parameters/bundle/bundle.sbatch',
+             '03_parameters/dams/dams.sbatch',
              '04_forcing/climate/climate_forcing.sbatch', '04_forcing/landuse/landuse_forcing.sbatch',
              '04_forcing/water_use/water_use_forcing.sbatch']
 CONDA_SH = '''conda() {

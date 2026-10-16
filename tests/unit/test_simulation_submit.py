@@ -111,7 +111,7 @@ class JobExitTest(unittest.TestCase):
         start = text.index('$MANIFEST verify-inputs'); end = text.index('\nfi\n', start) + 4
         block = text[start:end]
         for key, value in (('CHECK_PROCESSES', '2'), ('MODULE_LOADS', ''), ('LAUNCHER', 'echo VIC_STARTED;'),
-                           ('EXECUTABLE', 'vic')):
+                           ('EXECUTABLE', 'vic'), ('CHUNK_OPTION', '')):
             block = block.replace('{{' + key + '}}', value)
         self.assertNotIn('{{', block)
         script = f'set -uo pipefail\nRUN_DIR=/x\nSLURM_JOB_ID=1\nMANIFEST=false\n{block}echo "rc=$rc"\n'

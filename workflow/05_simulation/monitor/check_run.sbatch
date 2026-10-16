@@ -21,5 +21,5 @@ export ISIMIP4B_WORKDIR={{WORKDIR}}
 export PYTHONPATH={{REPO}}/workflow
 cd {{REPO}}
 echo "host $(hostname), start $(date -u +%Y-%m-%dT%H:%M:%SZ), commit $(git rev-parse HEAD)"
-/usr/bin/time -v python3 workflow/05_simulation/monitor/check_run.py --run-dir {{RUN_DIR}}
+/usr/bin/time -v python3 workflow/05_simulation/monitor/check_run.py --run-dir {{RUN_DIR}}{{CHECK_OPTIONS}}
 echo "end $(date -u +%Y-%m-%dT%H:%M:%SZ)"

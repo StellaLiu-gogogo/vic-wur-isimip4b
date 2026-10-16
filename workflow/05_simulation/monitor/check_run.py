@@ -31,7 +31,14 @@ GRDC comparison (whole run)
   climatology of the years first-10 .. last+10 (months with >= 20 valid days, >= 5 years per calendar month).
   Daily series of the same dates are drawn for visual reference only.
 
-Usage: check_run.py --run-dir DIR [--min-area 10000] [--panels 24]
+Chunked runs (chunks/<start>-<end>/)
+  --chunk ID      the checks per calendar year of one chunk (its output) and its end state, no GRDC comparison;
+                  results in qc/runs/<campaign-id>/<run-id>/chunks/<id>/
+  no --chunk      the whole run: the GRDC comparison over all years (output of every chunk), the run's end state,
+                  and the status of every chunk check (each must have passed); per-year results stay in the chunk
+                  reports
+
+Usage: check_run.py --run-dir DIR [--chunk ID] [--min-area 10000] [--panels 24]
 """
 import argparse, datetime, glob, json, os, sys
 
@@ -193,11 +200,12 @@ def climatology_years(years, cold_start):
     return years[1:] if cold_start and len(years) >= 3 else years
 
 
-def grdc_figures(W, rd, years, mapped, files, ref, st_daily, mask, figs, qc, panels, cold_start=True):
+def grdc_figures(W, ydir, years, mapped, files, ref, st_daily, mask, figs, qc, panels, cold_start=True):
+    """`ydir(year)`: the directory whose output/ holds the files of that year (the run, or its chunk)."""
     # simulated monthly means at the station cells
     sim = {}
     for y in years:
-        with nc.Dataset(f'{rd}/output/monthly.{y}-01.nc') as m:
+        with nc.Dataset(f'{ydir(y)}/output/monthly.{y}-01.nc') as m:
             m.set_auto_mask(False)
             for t in range(len(m.dimensions['time'])):
                 q = read(m, 'OUT_DISCHARGE', t)
@@ -286,19 +294,41 @@ def grdc_figures(W, rd, years, mapped, files, ref, st_daily, mask, figs, qc, pan
     return summary, made
 
 
+def station_daily(odir, year, cells):
+    """Daily OUT_DISCHARGE of one year at the station cells (days x stations)."""
+    rows, cols = cells
+    with nc.Dataset(f'{odir}/output/daily.{year}-01-01.nc') as d:
+        d.set_auto_mask(False)
+        return np.array([read(d, 'OUT_DISCHARGE', t)[rows, cols] for t in range(len(d.dimensions['time']))])
+
+
+def year_dirs(rd, man):
+    """{year: directory whose output/ holds that year}: the run directory, or the chunk of each year."""
+    chunks = man.get('chunks') or []
+    if not chunks:
+        y0, y1 = int(man['period']['start'][:4]), int(man['period']['end'][:4])
+        return {y: rd for y in range(y0, y1 + 1)}
+    return {y: f'{rd}/{c["dir"]}' for c in chunks for y in range(c['start_year'], c['end_year'] + 1)}
+
+
 # ------------------------------------------------------------------------------------------------ main
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--run-dir', required=True)
     ap.add_argument('--min-area', type=float, default=10000.0, help='smallest GRDC catchment (km2) compared')
     ap.add_argument('--panels', type=int, default=24, help='stations shown in the climatology and daily figures')
+    ap.add_argument('--chunk', default=None, help='check one chunk of a chunked run')
     a = ap.parse_args(); W = workdir(); rd = os.path.abspath(a.run_dir)
     with open(f'{rd}/run_manifest.json') as fh:
         man = json.load(fh)
-    with open(f'{rd}/config/resolved.yaml') as fh:
+    chunks = {c['id']: c for c in man.get('chunks') or []}
+    if a.chunk and a.chunk not in chunks:
+        sys.exit(f'{man["run_id"]} has no chunk {a.chunk}')
+    first = (man.get('chunks') or [{'dir': '.'}])[0]['dir']
+    with open(f'{rd}/{first}/config/resolved.yaml') as fh:
         res = yaml.safe_load(fh)
     params = res['parameters']
-    qc = f'{W}/qc/{man["run_dir"]}'
+    qc = f'{W}/qc/{man["run_dir"]}' + (f'/chunks/{a.chunk}' if a.chunk else '')
     figs = f'{qc}/figures'; os.makedirs(figs, exist_ok=True); os.makedirs(f'{qc}/reports', exist_ok=True)
     with nc.Dataset(f'{W}/{params["domain"]["path"]}') as d:
         mask = np.asarray(d['mask'][:]).astype(bool); area = np.where(mask, np.asarray(d['area'][:], 'f8'), 0.0)
@@ -307,7 +337,8 @@ def main():
         r.set_auto_mask(False)
         own = np.asarray(r['downstream'][:]) == np.asarray(r['downstream_id'][:])
     view = {k: {y: f'{W}/{v["source"]}' for y, v in m.items()} for k, m in man['forcing_view'].items()}
-    years = list(range(int(man['period']['start'][:4]), int(man['period']['end'][:4]) + 1))
+    ydirs = year_dirs(rd, man)
+    years = sorted(ydirs) if not a.chunk else list(range(chunks[a.chunk]['start_year'], chunks[a.chunk]['end_year'] + 1))
     commit = os.popen(f'git -C {os.path.dirname(os.path.dirname(os.path.dirname(HERE)))} rev-parse HEAD').read().strip()
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     prov = {'title': 'withdrawal per water-use sector, derived from VIC-WUR output', 'run': man['run_dir'],
@@ -316,29 +347,46 @@ def main():
     mapped, files, ref, _ = grdc_compare(W, rd, years, mask, area, lat, lon, f'{W}/{params["routing"]["path"]}',
                                          figs, qc, a.min_area, a.panels)
     cells = (mapped['row'].values.astype(int), mapped['col'].values.astype(int))
-    results, st_daily = {}, []
-    for y in years:
-        results[y], d = check_year(y, rd, mask, area, lat, lon, own, figs, view, cells, prov, qc)
-        st_daily.append(d)
+    whole_chunked = bool(chunks) and not a.chunk
+    results, st_daily, chunk_status = {}, [], {}
+    if whole_chunked:          # per-year results are in the chunk checks; their status is required here
+        for cid in chunks:
+            p = f'{W}/qc/{man["run_dir"]}/chunks/{cid}/summary.json'
+            chunk_status[cid] = json.load(open(p))['status'] if os.path.exists(p) else 'not_checked'
+        for y in years:
+            st_daily.append(station_daily(ydirs[y], y, cells))
+    else:
+        for y in years:
+            results[y], d = check_year(y, ydirs[y], mask, area, lat, lon, own, figs, view, cells, prov, qc)
+            st_daily.append(d)
     st_daily = np.concatenate(st_daily)
-    cold_start = not (man.get('parent') or {}).get('init_state')
-    grdc_summary, grdc_figs = grdc_figures(W, rd, years, mapped, files, ref, st_daily, mask, figs, qc, a.panels,
-                                           cold_start)
-    state = sorted(glob.glob(f'{rd}/states/state.*.nc'))
-    report = {'run': man['run_dir'], 'checked_at': now, 'checked_by': 'workflow/05_simulation/monitor/check_run.py',
+    grdc_summary, grdc_figs = {}, []
+    if not a.chunk:
+        cold_start = not (man.get('parent') or {}).get('init_state')
+        grdc_summary, grdc_figs = grdc_figures(W, lambda y: ydirs[y], years, mapped, files, ref, st_daily, mask, figs,
+                                               qc, a.panels, cold_start)
+    end_state = chunks[a.chunk]['end_state'] if a.chunk else man.get('end_state')
+    state = [f'{rd}/{end_state}'] if end_state else sorted(glob.glob(f'{rd}/states/state.*.nc'))
+    state = [x for x in state if os.path.isfile(x)]
+    report = {'run': man['run_dir'], **({'chunk': a.chunk} if a.chunk else {}), 'checked_at': now,
+              'checked_by': 'workflow/05_simulation/monitor/check_run.py',
               'code_commit': commit, 'years': results, 'grdc': grdc_summary | {'figures': grdc_figs},
+              **({'chunk_checks': chunk_status} if whole_chunked else {}),
               'state_files': [{'path': os.path.relpath(s, rd), 'size_bytes': os.path.getsize(s)} for s in state]}
-    statuses = [v[k]['status'] for v in results.values() for k in ('coverage', 'budget')]
+    statuses = [v[k]['status'] for v in results.values() for k in ('coverage', 'budget')] + list(chunk_status.values())
     report['status'] = 'passed' if all(s == 'passed' for s in statuses) and state else 'failed'
     with open(f'{qc}/reports/check.json', 'w') as fh:
         json.dump(report, fh, indent=1, default=float)
     with open(f'{qc}/summary.json', 'w') as fh:
-        json.dump({'object': man['run_dir'], 'status': report['status'], 'checked_at': now,
-                   'checked_by': report['checked_by'], 'note': 'sanity checks of a smoke run, not acceptance of a '
-                   'production run'}, fh, indent=1)
+        json.dump({'object': man['run_dir'] + (f'/chunks/{a.chunk}' if a.chunk else ''), 'status': report['status'],
+                   'checked_at': now, 'checked_by': report['checked_by'],
+                   **({'chunk_checks': chunk_status} if whole_chunked else {}),
+                   'note': 'sanity checks of a smoke run, not acceptance of a production run'}, fh, indent=1)
     print(json.dumps({y: {k: v[k] for k in ('coverage', 'qtot', 'budget', 'withdrawal_by_sector_km3')}
                       for y, v in results.items()}, indent=1, default=float))
     print(json.dumps({k: v for k, v in grdc_summary.items() if k != 'largest'}, indent=1, default=float))
+    if chunk_status:
+        print('chunk checks', json.dumps(chunk_status))
     print('status', report['status'])
     qc_status.exit_with(report['status'])        # the check job ends FAILED unless passed
 

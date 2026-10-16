@@ -264,6 +264,9 @@ def runs(campaign, segments, label=None):
         if not re.fullmatch(r'[a-z0-9-]+', label):
             raise CampaignError(f'label {label} must be lowercase letters, digits and hyphens')
         y0, y1 = (int(v) for v in r['runs'][label]['years'])
+        chunk = r['runs'][label].get('chunk_years')   # non-production test: overrides resources chunk_years
+        if chunk is not None and not (isinstance(chunk, int) and chunk >= 1):
+            raise CampaignError(f'restriction run {label}: chunk_years must be a positive integer')
     elif label is not None:
         raise CampaignError('labels exist only for restricted non-production campaigns')
     for sid, s in segments.items():
@@ -275,7 +278,8 @@ def runs(campaign, segments, label=None):
         if start is None:
             raise CampaignError(f'{sid}: spin-up length is not declared (campaign spinup.length_years)')
         out.append({'run_id': sid + (f'__{label}' if r else ''), 'segment_id': sid, 'label': label if r else None,
-                    'start_year': start, 'end_year': end, 'segment': asdict(s)})
+                    'start_year': start, 'end_year': end, 'segment': asdict(s),
+                    **({'chunk_years': chunk} if r and chunk is not None else {})})
     return out
 
 

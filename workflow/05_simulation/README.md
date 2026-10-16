@@ -159,6 +159,20 @@ submitted): `config/` (`vic_global.txt`, `vic_constants.txt` with the dam consta
 (the view), `logs/`, `states/`, `output/`, `run_manifest.json`. An existing run directory is never
 rendered again; renders of campaign runs need a clean repository.
 
+**Chunked runs (task L4b, user 2026-10-16).** A run longer than `chunk_years` of the resources (20) is split into
+chunks of `chunk_years` years, the last one shorter (`render_run.chunk_plan`; a restriction run of a non-production
+campaign may set its own `chunk_years`, e.g. campaign `chunk-test`). The run directory then holds only
+`run_manifest.json` and `chunks/<start>-<end>/` with `config/`, `forcing/` (the links of the chunk's years),
+`logs/`, `states/` and `output/` (`docs/directory-contracts.md`, `runs/`). The first chunk starts as the run (cold,
+parent or warm start); every later chunk from the previous chunk's end state, with its own VIC file, job and wall
+time; the run's end state is the last chunk's (`end_state` in the manifest; a child run starts from it). Every
+chunk starts on 1 January and its first year must be an identity link in every forcing family, as for a run:
+a chunk of a run on a constant DHF unit (`1850soc`, `2021soc`) therefore needs the unit's file of the chunk's start
+year (D20 extension years) or the render stops. `submit_run.py` submits one job per chunk, each waiting for the
+previous one (`afterok`), with a check of each chunk and the check of the whole run after the last chunk;
+`--retry` resubmits from the first chunk whose latest attempt did not complete. The manifest's `chunks` and the
+`chunk` of every attempt record the bookkeeping; the run is `completed` when every chunk is.
+
 **Initial state.** Parent relations come from the whole campaign, whatever `--run-id` selects. A run whose
 parent segment is a run of the campaign (and the campaign has no `restriction`) starts from the parent's end
 state (`INIT_STATE`): when the parent is rendered in the same call, the job checks before VIC starts that the
@@ -212,9 +226,10 @@ VIC starts.
 
 | File | Role |
 |---|---|
-| `check_run.py` | checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR` as a monthly mean), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), the non-renewable deficit at the end of each month when `OUT_NONREN_DEFICIT` is written, end state; GRDC comparison for the whole run |
+| `check_run.py` | for a chunked run `--chunk <id>` checks one chunk (its years and end state, no GRDC), and the check without `--chunk` covers the whole run (GRDC comparison of all years, end state, every chunk check passed); checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR` as a monthly mean), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), the non-renewable deficit at the end of each month when `OUT_NONREN_DEFICIT` is written, end state; GRDC comparison for the whole run |
 | `run_figures.py` | the derived file `reports/water_use_by_sector_<year>.nc` (monthly withdrawal per sector municipal, manufacturing, irrigation and its sources groundwater, surface, dam, remote, nonrenewable; VIC demand and estimated consumption for municipal and manufacturing; VIC-WUR writes the sources per sector but no sector total) and the figures of water use by sector and source, source shares, sector maps, distributions of withdrawal/demand and of remote and groundwater shares, and the water balance |
 | `grdc.py` | GRDC daily export (`raw/external/grdc/export-2024-11`, `manifests/inputs/grdc.yaml`): station files, upstream area along the routing network, station-to-cell mapping (closest upstream area within 3 cells, area error ≤ 30 %), monthly means (≥ 20 valid days) and climatology (≥ 5 years per month) |
+| `compare_runs.py`, `compare_runs.sbatch` | compares the output (every variable, time step and active cell) and the end states of two completed runs over their common years, chunked or not (`--submit`: Slurm job with job record under `logs/05_simulation/`); report `qc/<run>/reports/compare_<other run-id>.json`, status passed when bitwise identical, warning with the size of the differences otherwise; used for campaign `chunk-test` (a chunked run against the same run in one job) |
 | `check_run.sbatch`, `submit_check.py` | Slurm job of the check (one core, about 7 min and 13 GB for one year), job record under `logs/05_simulation/<job-name>_<slurm-job-id>/`; `submit_run.py` submits it after every run job, to start when the run has succeeded; job name `run-check-<campaign>-<label>`, or the run ID with hyphens for a production run; the job ends FAILED when the check fails (exit status 1) |
 
 Output in `qc/runs/<campaign>/<run-id>/`: `summary.json`, `reports/check.json`, `reports/grdc_stations.csv`,
@@ -229,7 +244,9 @@ catchment of at least 10 000 km2; daily series of the same dates are drawn for v
 | Key | Content |
 |---|---|
 | `campaign_id`, `run_id`, `segment_id`, `label`, `production`, `run_dir`, `period` | identity |
-| `status` | `rendered`, `submitted`, `running`, `completed` or `failed` (of the last attempt) |
+| `status` | `rendered`, `submitted`, `running`, `completed` or `failed` (of the last attempt; a chunked run is `completed` when every chunk is, `failed` when the latest attempt of a chunk failed) |
+| `end_state` | run-relative path of the end state (in the last chunk of a chunked run) |
+| `chunk_years`, `chunks[]` | chunked runs: per chunk `id` (`<start>-<end>`), years, `dir`, `init_state`, `job_file`, `expected_outputs`, `end_state`, `wall_time_hours` |
 | `parent` | parent segment, `init_state` (workdir path) or `cold_start`; a warm start (`state_of_run`) has `segment_id` null, `protocol_parent_segment` and the earlier run's `run_dir`; with a state: parent `run_id`, its completed `attempt` and the state's `state_sha256` (null when the parent was rendered in the same call; the attempt's `input_verification.parent_state` then records them) |
 | `workflow` | rendering commit, `code_dirty`, script, time |
 | `campaign_config` | campaign file and its sha256 |
@@ -241,7 +258,7 @@ catchment of at least 10 000 km2; daily series of the same dates are drawn for v
 | `inputs_fingerprint` | sha256 over executable, inputs, forcing view, rendered model files (not the Slurm job file) and, for a run with an initial state, `parent` |
 | `job_files` | earlier Slurm job files of the run kept by `--rerender-job`, with sha256, time, commit and resources |
 | `expected_outputs` | output files per year and the end state |
-| `attempts[]` | `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches, `parent_state`), `output_variables` (per stream: requested OUTVARs and the missing ones), `started_at`, `ended_at`, `vic_exit_code`, `scheduler` (sacct rows: state, exit code, elapsed, MaxRSS, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `status`, `failure_reason` |
+| `attempts[]` | `chunk` (chunked runs), `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches, `parent_state`, for a later chunk `chunk_state`: the previous chunk's end state and its sha256), `output_variables` (per stream: requested OUTVARs and the missing ones), `started_at`, `ended_at`, `vic_exit_code`, `scheduler` (sacct rows: state, exit code, elapsed, MaxRSS, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `status`, `failure_reason` |
 
 Tests: `tests/unit/test_simulation_resolve.py`, `tests/unit/test_simulation_render.py`,
 `tests/unit/test_simulation_submit.py`, `tests/unit/test_run_check_water_use.py`.

@@ -437,7 +437,9 @@ def parent_run_state(parent_dir, init_state, run_id):
     except FileNotFoundError:
         pm = {'attempts': []}
     last = pm['attempts'][-1] if pm['attempts'] else {}
-    if last.get('status') != 'completed' or not os.path.isfile(init_state):
+    sys.path.insert(0, os.path.join(HERE, '..', 'submit'))
+    import run_manifest as rm
+    if not rm.is_completed(pm) or not os.path.isfile(init_state):
         raise RenderError(f'{run_id}: its parent run {os.path.basename(parent_dir)} has not completed with the end '
                           f'state {init_state} (last attempt: {last.get("status", "none")}); render the parent '
                           'together with this run, or after the parent has completed')
@@ -536,8 +538,9 @@ def tf(value):
     return 'TRUE' if value else 'FALSE'
 
 
-def render_job(W, rdir, campaign_id, run_id, start_year, end_year, resources, model):
-    """The Slurm job of a run (templates/slurm/vic_run.sbatch) and its wall time in hours."""
+def render_job(W, rdir, campaign_id, run_id, start_year, end_year, resources, model, chunk_dir=None, chunk=None):
+    """The Slurm job of a run or of one chunk (templates/slurm/vic_run.sbatch: chunk_dir holds its config and logs)
+    and its wall time in hours."""
     nyears = end_year - start_year + 1
     wt = resources['wall_time']
     hours = min(math.ceil(wt['setup_hours'] + wt['hours_per_model_year'] * nyears), wt['max_hours'])
@@ -551,9 +554,46 @@ def render_job(W, rdir, campaign_id, run_id, start_year, end_year, resources, mo
           'SCHEDULER_LINES': '\n'.join(sched), 'RUN_DIR': rdir, 'RUN_ID': run_id, 'CAMPAIGN_ID': campaign_id,
           'CONDA_BASE': conda_base, 'WORKDIR': W, 'REPO': REPO, 'CHECK_PROCESSES': resources['check_processes'],
           'MODULE_LOADS': '\n'.join(f'  module load {m}' for m in model['runtime_modules']),
-          'LAUNCHER': resources['launcher'], 'EXECUTABLE': f'{W}/{model["executable"]}'}
+          'LAUNCHER': resources['launcher'], 'EXECUTABLE': f'{W}/{model["executable"]}',
+          'CHUNK_DIR': chunk_dir or rdir, 'CHUNK_OPTION': f' --chunk {chunk}' if chunk else ''}
     with open(os.path.join(REPO, SLURM_TEMPLATE)) as fh:
         return fill(fh.read(), sb), hours
+
+
+# ------------------------------------------------------------------------------------------------ chunks
+def chunk_plan(start_year, end_year, chunk_years):
+    """[(first, last)] of the chunks of a run: a run longer than chunk_years is split into chunks of chunk_years
+    years (the last one shorter); otherwise one piece, the run itself."""
+    if not chunk_years or end_year - start_year + 1 <= chunk_years:
+        return [(start_year, end_year)]
+    return [(y, min(y + chunk_years - 1, end_year)) for y in range(start_year, end_year + 1, chunk_years)]
+
+
+def chunk_id(first, last):
+    return f'{first:04d}-{last:04d}'
+
+
+def end_state_rel(start_year, end_year, chunk_years):
+    """Run-relative path of the end state of a run (in its last chunk when chunked)."""
+    plan = chunk_plan(start_year, end_year, chunk_years)
+    name = f'states/state.{end_year + 1:04d}0101_00000.nc'
+    return name if len(plan) == 1 else f'chunks/{chunk_id(*plan[-1])}/{name}'
+
+
+def run_chunk_years(run, resources):
+    """chunk_years of a run: a restriction run's own value (non-production tests), else the resources'."""
+    return run.get('chunk_years', resources.get('chunk_years'))
+
+
+def run_end_state(base, prun, resources):
+    """Absolute end-state path of a run of the campaign: as recorded in its manifest when it has been rendered
+    (manifests before chunks have none: states/), else from its chunk plan."""
+    rd = f'{base}/{prun["run_id"]}'
+    if os.path.exists(f'{rd}/run_manifest.json'):
+        with open(f'{rd}/run_manifest.json') as fh:
+            pm = json.load(fh)
+        return f'{rd}/' + pm.get('end_state', f'states/state.{prun["end_year"] + 1:04d}0101_00000.nc')
+    return f'{rd}/' + end_state_rel(prun['start_year'], prun['end_year'], run_chunk_years(prun, resources))
 
 
 # ------------------------------------------------------------------------------------------------ render
@@ -600,7 +640,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         init_state = None; parent_state = {}; init_how = 'cold_start'; warm = False
         init = campaign['initialisation']
         if parent and parent in in_campaign and not campaign.get('restriction'):
-            init_state = f'{base}/{parent}/states/state.{run["start_year"]:04d}0101_00000.nc'
+            init_state = run_end_state(base, by_segment[parent], resources)
             init_how = 'state of the parent run'
             # a parent rendered in this call has no state yet: the job binds it (run_manifest.py verify-inputs)
             parent_state = {'run_id': parent, 'attempt': None, 'state_sha256': None} if parent in in_call else \
@@ -631,97 +671,126 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         elif init['without_parent'] != 'cold_start':
             raise RenderError(f'{run["run_id"]}: parent {parent} is not simulated and initialisation.without_parent is '
                               f'{init["without_parent"]!r} (cold_start or state_of_run)')
-        for sub in ('config', 'logs', 'states', 'output', 'forcing'):
-            os.makedirs(f'{rdir}/{sub}')
-        fy.build_view(f'{rdir}/forcing', links)
-        view = f'{rdir}/forcing'
-        force_types = '\n'.join(
-            f'FORCE_TYPE              {vt:9s} {var:7s} {view}/climate/{var}/{var}_{seg["gcm"]}_{alias}_'
-            for vt, var in (('AIR_TEMP', 'tair'), ('PREC', 'prec'), ('PRESSURE', 'psurf'), ('SWDOWN', 'swdown'),
-                            ('LWDOWN', 'lwdown'), ('VP', 'vp'), ('WIND', 'wind')))
         usoc = campaign['dhf_forcing']['units'][seg['soc']]
         pl = campaign['plugins']
-        wu_lines = []
-        for prefix, sector in WATER_USE_FILES:
-            if sector in pl['water_use']['sectors']:
-                for kind, var in WATER_USE_VARIABLES:
-                    wu_lines.append(f'PLUGIN_FORCE_TYPE  {prefix}_{kind:12s} {var:21s} YEAR  '
-                                    f'{view}/water_use/{sector}_{var}_{usoc}_')
-        streams_text, streams = output_streams(campaign, f'{rdir}/output')
-        end_state = run['end_year'] + 1
-        state_lines = '\n'.join([f'STATENAME               {rdir}/states/state', f'STATEYEAR               {end_state}',
-                                 'STATEMONTH              1', 'STATEDAY                1', 'STATESEC                0',
-                                 'STATE_FORMAT            NETCDF4', 'STATE_COMPRESS          2'])
-        values = {
-            'RUN_ID': run['run_id'], 'CAMPAIGN_ID': campaign['campaign_id'], 'CODE_COMMIT': commit,
-            'MODEL_COMMIT': model['commit'], 'START_YEAR': run['start_year'], 'END_YEAR': run['end_year'],
-            'DOMAIN': f'{W}/{rparams["domain"]["path"]}', 'PARAMETERS': f'{W}/{rparams["parameters"]["path"]}',
-            'CONSTANTS': f'{rdir}/config/vic_constants.txt', 'FORCE_TYPES': force_types,
-            'INIT_STATE_LINES': f'# {init_how}\nINIT_STATE              {init_state}' if init_state else
-                                '# cold start: no INIT_STATE (campaign initialisation.without_parent)',
-            'STATE_LINES': state_lines,
-            'ROUTING': tf(pl['routing']['enabled']), 'ROUT_STEPS_PER_DAY': pl['routing']['steps_per_day'],
-            'DECOMPOSITION': pl['routing']['decomposition'],
-            'ROUTING_PARAMETERS': f'{W}/{rparams["routing"]["path"]}',
-            'DECOMPOSITION_PARAMETERS': f'{W}/{rparams["decomposition"]["path"]}',
-            'WATERUSE': tf(pl['water_use']['enabled']), 'WATERUSE_PARAMETERS': f'{W}/{rparams["water_use"]["path"]}',
-            'LOCAL_WITHDRAWAL': tf(pl['water_use']['local_withdrawal']),
-            'REMOTE_WITHDRAWAL': tf(pl['water_use']['remote_withdrawal']),
-            'COMPENSATION_WITHDRAWAL': tf(pl['water_use']['compensation_withdrawal']),
-            'NONRENEWABLE_WITHDRAWAL': tf(pl['water_use']['nonrenewable_withdrawal']),
-            'NONRENEWABLE_RUNOFF': tf(pl['water_use']['nonrenewable_runoff']),
-            'WATER_USE_FORCE_TYPES': '\n'.join(wu_lines),
-            'IRRIGATION': tf(pl['irrigation']['enabled']), 'IRRIGATION_PARAMETERS': f'{W}/{rparams["irrigation"]["path"]}',
-            'POTENTIAL_IRRIGATION': tf(pl['irrigation']['potential_irrigation']),
-            'EFFICIENT_IRRIGATION': tf(pl['irrigation']['efficient_irrigation']),
-            'OFFSET_IRRIGATION': tf(pl['irrigation']['offset_irrigation']),
-            'PBARE': pl['irrigation']['paddy_bare_class'],
-            'DAMS': tf(pl['dams']['enabled']), 'DAMS_PARAMETERS': f'{W}/{rparams["dams"]["path"]}',
-            'LANDUSE': tf(pl['landuse']['enabled']),
-            'LANDUSE_FORCE_TYPE': f'PLUGIN_FORCE_TYPE  CV  coverage  YEAR  {view}/landuse/coverage_{usoc}_',
-            'EFR': tf(pl['efr']['enabled']), 'WOFOST': tf(pl['wofost']['enabled']),
-            'RESULT_DIR': f'{rdir}/output/', 'LOG_DIR': f'{rdir}/logs/', 'OUTPUT_STREAMS': streams_text}
-        vic_text = fill(open(os.path.join(REPO, VIC_TEMPLATE)).read(), values)
-        if init_state:
-            check_start_january(vic_text, run['run_id'])
-        constants = (f'# VIC constants of run {run["run_id"]} (campaign plugins.dams, plugins.water_use)\n'
-                     f'DAM_ALPHA {pl["dams"]["alpha"]}\nDAM_BETA {pl["dams"]["beta"]}\nDAM_GAMMA {pl["dams"]["gamma"]}\n')
-        if pl['water_use'].get('nonrenewable_limit_mm') is not None:   # absent or null: no limit (compiled default)
-            constants += f'NONRENEWABLE_LIMIT {float(pl["water_use"]["nonrenewable_limit_mm"])}\n'
-        job_text, hours = render_job(W, rdir, campaign['campaign_id'], run['run_id'], run['start_year'],
-                                     run['end_year'], resources, model)
-        files = {'config/vic_global.txt': vic_text, 'config/vic_constants.txt': constants, 'config/job.sbatch': job_text}
-        resolved = {
-            'campaign_id': campaign['campaign_id'], 'run_id': run['run_id'], 'segment_id': run['segment_id'],
-            'label': run['label'], 'start_year': run['start_year'], 'end_year': run['end_year'],
-            'segment': seg, 'climate_input_alias': alias, 'dhf_unit': usoc,
-            'experiments_using_segment': seg['experiments'],
-            # a warm start comes from an earlier run (run_id, run_dir), not from the protocol parent segment
-            'parent': {'segment_id': None if warm else parent, **({'protocol_parent_segment': parent} if warm else {}),
-                       'init_state': init_state and os.path.relpath(init_state, W),
-                       'initialisation': init_how, **parent_state},
-            'campaign_file': os.path.relpath(campaign_path, REPO) if os.path.isabs(campaign_path) else campaign_path,
-            'campaign_sha256': file_hash(campaign_path), 'campaign': campaign,
-            'resources_file': campaign['resources'], 'resources': resources,
-            'model': model, 'parameters': rparams, 'decomposition': dec,
-            'protocol_water_global_variables': nvars,
-            'forcing_units': {k: {kk: vv for kk, vv in v.items() if kk != 'files'} for k, v in units.items()},
-            'output_streams': streams, 'wall_time_hours': hours,
-            'rendered_by': RENDERED_BY, 'code_commit': commit, 'code_dirty': dirty, 'rendered_at': utcnow()}
-        files['config/resolved.yaml'] = yaml.safe_dump(resolved, sort_keys=False)
-        for rel, text in files.items():
-            with open(f'{rdir}/{rel}', 'w') as fh:
-                fh.write(text)
-        expected = []
-        for y in range(run['start_year'], run['end_year'] + 1):
-            expected += [f'output/daily.{y}-01-01.nc', f'output/monthly.{y}-01.nc']
-        expected.append(f'states/state.{end_state:04d}0101_00000.nc')
+        cyears = run_chunk_years(run, resources)
+        plan = chunk_plan(run['start_year'], run['end_year'], cyears)
+        chunked = len(plan) > 1
+        streams_text, streams = output_streams(campaign, None)
+        parent_rec = {'segment_id': None if warm else parent, **({'protocol_parent_segment': parent} if warm else {}),
+                      'init_state': init_state and os.path.relpath(init_state, W),
+                      'initialisation': init_how, **parent_state}
+        files, expected, chunks, hours_total = {}, [], [], 0
+        for k, (c0, c1) in enumerate(plan):
+            cid = chunk_id(c0, c1) if chunked else None
+            pre = f'chunks/{cid}/' if chunked else ''
+            cdir = f'{rdir}/chunks/{cid}' if chunked else rdir
+            if k == 0:
+                c_init, c_how = init_state, init_how
+            else:
+                c_init = f'{rdir}/chunks/{chunk_id(*plan[k - 1])}/states/state.{c0:04d}0101_00000.nc'
+                c_how = f'end state of chunk {chunk_id(*plan[k - 1])} of this run'
+            check_start_year({'run_id': f'{run["run_id"]}' + (f' (chunk {cid})' if chunked else ''),
+                              'start_year': c0}, mapping)
+            for sub in ('config', 'logs', 'states', 'output', 'forcing'):
+                os.makedirs(f'{cdir}/{sub}')
+            clinks = [(n, t) for n, t in links if c0 <= year_of(n) <= c1]
+            fy.build_view(f'{cdir}/forcing', clinks)
+            view = f'{cdir}/forcing'
+            force_types = '\n'.join(
+                f'FORCE_TYPE              {vt:9s} {var:7s} {view}/climate/{var}/{var}_{seg["gcm"]}_{alias}_'
+                for vt, var in (('AIR_TEMP', 'tair'), ('PREC', 'prec'), ('PRESSURE', 'psurf'), ('SWDOWN', 'swdown'),
+                                ('LWDOWN', 'lwdown'), ('VP', 'vp'), ('WIND', 'wind')))
+            wu_lines = []
+            for prefix, sector in WATER_USE_FILES:
+                if sector in pl['water_use']['sectors']:
+                    for kind, var in WATER_USE_VARIABLES:
+                        wu_lines.append(f'PLUGIN_FORCE_TYPE  {prefix}_{kind:12s} {var:21s} YEAR  '
+                                        f'{view}/water_use/{sector}_{var}_{usoc}_')
+            end_state = c1 + 1
+            state_lines = '\n'.join([f'STATENAME               {cdir}/states/state', f'STATEYEAR               {end_state}',
+                                     'STATEMONTH              1', 'STATEDAY                1', 'STATESEC                0',
+                                     'STATE_FORMAT            NETCDF4', 'STATE_COMPRESS          2'])
+            values = {
+                'RUN_ID': run['run_id'] + (f' chunk {cid}' if chunked else ''), 'CAMPAIGN_ID': campaign['campaign_id'],
+                'CODE_COMMIT': commit, 'MODEL_COMMIT': model['commit'], 'START_YEAR': c0, 'END_YEAR': c1,
+                'DOMAIN': f'{W}/{rparams["domain"]["path"]}', 'PARAMETERS': f'{W}/{rparams["parameters"]["path"]}',
+                'CONSTANTS': f'{cdir}/config/vic_constants.txt', 'FORCE_TYPES': force_types,
+                'INIT_STATE_LINES': f'# {c_how}\nINIT_STATE              {c_init}' if c_init else
+                                    '# cold start: no INIT_STATE (campaign initialisation.without_parent)',
+                'STATE_LINES': state_lines,
+                'ROUTING': tf(pl['routing']['enabled']), 'ROUT_STEPS_PER_DAY': pl['routing']['steps_per_day'],
+                'DECOMPOSITION': pl['routing']['decomposition'],
+                'ROUTING_PARAMETERS': f'{W}/{rparams["routing"]["path"]}',
+                'DECOMPOSITION_PARAMETERS': f'{W}/{rparams["decomposition"]["path"]}',
+                'WATERUSE': tf(pl['water_use']['enabled']), 'WATERUSE_PARAMETERS': f'{W}/{rparams["water_use"]["path"]}',
+                'LOCAL_WITHDRAWAL': tf(pl['water_use']['local_withdrawal']),
+                'REMOTE_WITHDRAWAL': tf(pl['water_use']['remote_withdrawal']),
+                'COMPENSATION_WITHDRAWAL': tf(pl['water_use']['compensation_withdrawal']),
+                'NONRENEWABLE_WITHDRAWAL': tf(pl['water_use']['nonrenewable_withdrawal']),
+                'NONRENEWABLE_RUNOFF': tf(pl['water_use']['nonrenewable_runoff']),
+                'WATER_USE_FORCE_TYPES': '\n'.join(wu_lines),
+                'IRRIGATION': tf(pl['irrigation']['enabled']), 'IRRIGATION_PARAMETERS': f'{W}/{rparams["irrigation"]["path"]}',
+                'POTENTIAL_IRRIGATION': tf(pl['irrigation']['potential_irrigation']),
+                'EFFICIENT_IRRIGATION': tf(pl['irrigation']['efficient_irrigation']),
+                'OFFSET_IRRIGATION': tf(pl['irrigation']['offset_irrigation']),
+                'PBARE': pl['irrigation']['paddy_bare_class'],
+                'DAMS': tf(pl['dams']['enabled']), 'DAMS_PARAMETERS': f'{W}/{rparams["dams"]["path"]}',
+                'LANDUSE': tf(pl['landuse']['enabled']),
+                'LANDUSE_FORCE_TYPE': f'PLUGIN_FORCE_TYPE  CV  coverage  YEAR  {view}/landuse/coverage_{usoc}_',
+                'EFR': tf(pl['efr']['enabled']), 'WOFOST': tf(pl['wofost']['enabled']),
+                'RESULT_DIR': f'{cdir}/output/', 'LOG_DIR': f'{cdir}/logs/', 'OUTPUT_STREAMS': streams_text}
+            vic_text = fill(open(os.path.join(REPO, VIC_TEMPLATE)).read(), values)
+            if c_init:
+                check_start_january(vic_text, run['run_id'])
+            constants = (f'# VIC constants of run {run["run_id"]} (campaign plugins.dams, plugins.water_use)\n'
+                         f'DAM_ALPHA {pl["dams"]["alpha"]}\nDAM_BETA {pl["dams"]["beta"]}\nDAM_GAMMA {pl["dams"]["gamma"]}\n')
+            if pl['water_use'].get('nonrenewable_limit_mm') is not None:   # absent or null: no limit (compiled default)
+                constants += f'NONRENEWABLE_LIMIT {float(pl["water_use"]["nonrenewable_limit_mm"])}\n'
+            job_text, hours = render_job(W, rdir, campaign['campaign_id'], run['run_id'], c0, c1, resources, model,
+                                         chunk_dir=cdir, chunk=cid)
+            hours_total += hours
+            cfiles = {'config/vic_global.txt': vic_text, 'config/vic_constants.txt': constants,
+                      'config/job.sbatch': job_text}
+            resolved = {
+                'campaign_id': campaign['campaign_id'], 'run_id': run['run_id'], 'segment_id': run['segment_id'],
+                'label': run['label'], 'start_year': run['start_year'], 'end_year': run['end_year'],
+                **({'chunk': {'id': cid, 'index': k, 'chunks': len(plan), 'start_year': c0, 'end_year': c1,
+                              'init_state': c_init and os.path.relpath(c_init, W), 'initialisation': c_how},
+                    'chunk_years': cyears} if chunked else {}),
+                'segment': seg, 'climate_input_alias': alias, 'dhf_unit': usoc,
+                'experiments_using_segment': seg['experiments'],
+                # a warm start comes from an earlier run (run_id, run_dir), not from the protocol parent segment
+                'parent': parent_rec,
+                'campaign_file': os.path.relpath(campaign_path, REPO) if os.path.isabs(campaign_path) else campaign_path,
+                'campaign_sha256': file_hash(campaign_path), 'campaign': campaign,
+                'resources_file': campaign['resources'], 'resources': resources,
+                'model': model, 'parameters': rparams, 'decomposition': dec,
+                'protocol_water_global_variables': nvars,
+                'forcing_units': {k2: {kk: vv for kk, vv in v.items() if kk != 'files'} for k2, v in units.items()},
+                'output_streams': streams, 'wall_time_hours': hours,
+                'rendered_by': RENDERED_BY, 'code_commit': commit, 'code_dirty': dirty, 'rendered_at': utcnow()}
+            cfiles['config/resolved.yaml'] = yaml.safe_dump(resolved, sort_keys=False)
+            for rel, text in cfiles.items():
+                with open(f'{cdir}/{rel}', 'w') as fh:
+                    fh.write(text)
+                files[pre + rel] = text
+            cexp = []
+            for y in range(c0, c1 + 1):
+                cexp += [f'{pre}output/daily.{y}-01-01.nc', f'{pre}output/monthly.{y}-01.nc']
+            cexp.append(f'{pre}states/state.{end_state:04d}0101_00000.nc')
+            expected += cexp
+            if chunked:
+                chunks.append({'id': cid, 'start_year': c0, 'end_year': c1, 'dir': f'chunks/{cid}',
+                               'init_state': c_init and os.path.relpath(c_init, W),
+                               'job_file': f'{pre}config/job.sbatch', 'expected_outputs': cexp,
+                               'end_state': f'{pre}states/state.{end_state:04d}0101_00000.nc', 'wall_time_hours': hours})
         manifest = {
             'schema': 'isimip4b-run-manifest-1', 'campaign_id': campaign['campaign_id'], 'run_id': run['run_id'],
             'segment_id': run['segment_id'], 'label': run['label'], 'production': campaign['production'],
             'status': 'rendered', 'run_dir': os.path.relpath(rdir, W),
             'period': {'start': f'{run["start_year"]}-01-01', 'end': f'{run["end_year"]}-12-31'},
-            'parent': resolved['parent'],
+            'parent': parent_rec,
             'workflow': {'code_commit': commit, 'code_dirty': dirty, 'rendered_by': RENDERED_BY,
                          'rendered_at': resolved['rendered_at']},
             'campaign_config': {'path': resolved['campaign_file'], 'sha256': resolved['campaign_sha256']},
@@ -730,16 +799,21 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             'inputs': {'parameter_set': campaign['parameter_set']['id'], 'parameters': rparams,
                        'forcing_units': units},
             'forcing_view': {k: {str(y): v for y, v in m.items()} for k, m in mapping.items()},
-            'forcing_links': link_record(W, links),
+            'forcing_links': link_record(W, links) if not chunked else
+            {f'chunks/{chunk_id(c0, c1)}/forcing/{n}': os.path.relpath(t, W)
+             for c0, c1 in plan for n, t in links if c0 <= year_of(n) <= c1},
             'rendered_files': {rel: text_sha256(text) for rel, text in files.items()},
             'expected_outputs': expected,
+            'end_state': end_state_rel(run['start_year'], run['end_year'], cyears),
+            **({'chunk_years': cyears, 'chunks': chunks} if chunked else {}),
             'attempts': []}
         sys.path.insert(0, os.path.join(HERE, '..', 'submit'))
         import run_manifest as rm
         manifest['inputs_fingerprint'] = rm.inputs_fingerprint(manifest)
         rm.save(rdir, manifest)
         rendered.append(rdir)
-        print(f'rendered {rdir} ({len(links)} forcing links, {hours} h wall time, {resources["ntasks"]} tasks)')
+        print(f'rendered {rdir} ({len(links)} forcing links, {len(plan)} chunk(s), {hours_total} h wall time, '
+              f'{resources["ntasks"]} tasks)')
     return rendered
 
 

@@ -1,8 +1,9 @@
 #!/bin/bash
-# Slurm job template of one VIC-WUR run (workflow/05_simulation/). Rendered by render/render_run.py into
-# runs/<campaign-id>/<run-id>/config/job.sbatch; submitted by submit/submit_run.py. Placeholders are upper-case
-# names in double braces. Steps: input checksums (run_manifest.py verify-inputs), VIC, run manifest completion
-# (run_manifest.py complete), which also runs when VIC fails.
+# Slurm job template of one VIC-WUR run or of one chunk of a run (workflow/05_simulation/). Rendered by
+# render/render_run.py into runs/<campaign-id>/<run-id>/config/job.sbatch, or for a chunked run into
+# runs/<campaign-id>/<run-id>/chunks/<start>-<end>/config/job.sbatch; submitted by submit/submit_run.py.
+# Placeholders are upper-case names in double braces. Steps: input checksums (run_manifest.py verify-inputs), VIC,
+# run manifest completion (run_manifest.py complete), which also runs when VIC fails.
 #SBATCH --job-name={{JOB_NAME}}
 #SBATCH --partition={{PARTITION}}
 #SBATCH --nodes={{NODES}}
@@ -11,11 +12,13 @@
 #SBATCH --mem={{MEM}}
 #SBATCH --time={{TIME}}
 {{SCHEDULER_LINES}}
-#SBATCH --output={{RUN_DIR}}/logs/slurm-%j.out
-#SBATCH --error={{RUN_DIR}}/logs/slurm-%j.err
+#SBATCH --output={{CHUNK_DIR}}/logs/slurm-%j.out
+#SBATCH --error={{CHUNK_DIR}}/logs/slurm-%j.err
 set -uo pipefail
 
 RUN_DIR={{RUN_DIR}}
+# the run directory itself, or the chunk directory of a chunked run
+CHUNK_DIR={{CHUNK_DIR}}
 echo "run {{RUN_ID}} (campaign {{CAMPAIGN_ID}}) job ${SLURM_JOB_ID} host $(hostname) start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # python environment for the manifest steps (conda's activation scripts are not safe under set -u)
@@ -27,7 +30,7 @@ export ISIMIP4B_WORKDIR={{WORKDIR}}
 export PYTHONPATH={{REPO}}/workflow
 MANIFEST="python3 {{REPO}}/workflow/05_simulation/submit/run_manifest.py"
 
-$MANIFEST verify-inputs --run-dir "$RUN_DIR" --job-id "$SLURM_JOB_ID" --processes {{CHECK_PROCESSES}}
+$MANIFEST verify-inputs --run-dir "$RUN_DIR" --job-id "$SLURM_JOB_ID" --processes {{CHECK_PROCESSES}}{{CHUNK_OPTION}}
 rc=$?
 if [ $rc -eq 0 ]; then
   conda deactivate
@@ -42,16 +45,16 @@ if [ $rc -eq 0 ]; then
   # Anunna's Slurm (task/cgroup only) confines the job to its cores but binds no task to its own cores, so
   # no OpenMP binding is set: OMP_PLACES/OMP_PROC_BIND would put every rank's threads on the first cores
   export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
-  cd "$RUN_DIR"
+  cd "$CHUNK_DIR"
   {{LAUNCHER}} bash -c 'echo "rank $SLURM_PROCID on $(hostname) cpus $(grep Cpus_allowed_list /proc/self/status | cut -f2)"'
-  {{LAUNCHER}} {{EXECUTABLE}} -g "$RUN_DIR/config/vic_global.txt" \
-      > "$RUN_DIR/logs/vic_stdout_${SLURM_JOB_ID}.txt" 2>&1
+  {{LAUNCHER}} {{EXECUTABLE}} -g "$CHUNK_DIR/config/vic_global.txt" \
+      > "$CHUNK_DIR/logs/vic_stdout_${SLURM_JOB_ID}.txt" 2>&1
   rc=$?
   echo "VIC exit code $rc at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   set +u; module purge; conda activate isimip4b; set -u
 fi
 
-$MANIFEST complete --run-dir "$RUN_DIR" --job-id "$SLURM_JOB_ID" --exit-code $rc
+$MANIFEST complete --run-dir "$RUN_DIR" --job-id "$SLURM_JOB_ID" --exit-code $rc{{CHUNK_OPTION}}
 crc=$?
 echo "end $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # the job fails when VIC failed or when the completion step failed or recorded the attempt as failed (missing

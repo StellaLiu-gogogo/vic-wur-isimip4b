@@ -2,8 +2,11 @@
 """Render check_run.sbatch for one run directory, submit it, and create the job record
 logs/05_simulation/<job-name>_<slurm-job-id>/ (job.sbatch, job.yaml, scheduler output).
 
-Usage: submit_check.py --run-dir runs/<campaign-id>/<run-id> [--time 04:00:00] [--mem 64G] [--partition main]
-       [--dependency <slurm-job-id>]   (start only when that job has completed successfully)
+For a chunked run, --chunk ID checks one chunk (its years and end state); without --chunk the check of a chunked run
+covers the whole run (GRDC comparison of all years, every chunk check passed).
+
+Usage: submit_check.py --run-dir runs/<campaign-id>/<run-id> [--chunk ID] [--time 04:00:00] [--mem 64G]
+       [--partition main] [--dependency <slurm-job-id>]   (start only when that job has completed successfully)
 """
 import argparse, datetime, os, subprocess, sys
 
@@ -21,8 +24,9 @@ def main():
     ap.add_argument('--mem', default='64G')
     ap.add_argument('--partition', default='main')
     ap.add_argument('--dependency', default=None)
+    ap.add_argument('--chunk', default=None)
     a = ap.parse_args()
-    submit(a.run_dir, a.time, a.mem, a.partition, a.dependency)
+    submit(a.run_dir, a.time, a.mem, a.partition, a.dependency, a.chunk)
 
 
 def job_name(rd):
@@ -33,12 +37,12 @@ def job_name(rd):
     return f'run-check-{os.path.basename(os.path.dirname(rd))}-{label}'
 
 
-def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=None):
+def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=None, chunk=None):
     """Render, submit on hold, write the job record, release; returns the job id."""
     W = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
     rd = os.path.abspath(run_dir if os.path.isabs(run_dir) else os.path.join(W, run_dir))
     rel = os.path.relpath(rd, W)
-    name = job_name(rd)
+    name = job_name(rd) + (f'-chunk-{chunk}' if chunk else '')
     commit = subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
     dirty = bool(subprocess.run(['git', '-C', REPO, 'status', '--porcelain'], capture_output=True, text=True).stdout.strip())
     conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
@@ -46,7 +50,8 @@ def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=Non
     stage_logs = f'{W}/logs/05_simulation'
     text = open(TEMPLATE).read()
     for k, v in {'JOB_NAME': name, 'PARTITION': partition, 'TIME': time, 'MEM': mem, 'STAGE_LOGS': stage_logs,
-                 'CONDA_BASE': conda_base, 'WORKDIR': W, 'REPO': REPO, 'RUN_DIR': rd}.items():
+                 'CONDA_BASE': conda_base, 'WORKDIR': W, 'REPO': REPO, 'RUN_DIR': rd,
+                 'CHECK_OPTIONS': f' --chunk {chunk}' if chunk else ''}.items():
         text = text.replace('{{' + k + '}}', v)
     if '{{' in text:
         raise SystemExit('unrendered placeholder in the job template')
@@ -66,7 +71,8 @@ def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=Non
               'submitted_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
               'resources': {'partition': partition, 'time': time, 'cpus_per_task': 1, 'mem': mem},
               'dependency': dependency,
-              'inputs': [rel], 'outputs': [f'qc/{rel}']}
+              'inputs': [rel], 'outputs': [f'qc/{rel}' + (f'/chunks/{chunk}' if chunk else '')],
+              **({'chunk': chunk} if chunk else {})}
     with open(f'{job_dir}/job.yaml', 'w') as fh:
         yaml.safe_dump(record, fh, sort_keys=False)
     subprocess.run(['scontrol', 'release', job_id], check=True)

@@ -19,8 +19,15 @@ inputs fingerprint). The job itself calls this script twice:
 
 A retry with identical inputs is a new attempt in the same manifest (docs/glossary.md, "Run").
 
-Usage: run_manifest.py verify-inputs --run-dir DIR --job-id ID [--processes 8]
-       run_manifest.py complete --run-dir DIR --job-id ID --exit-code N [--reason TEXT]
+A chunked run (docs/directory-contracts.md, runs/: chunks/<start>-<end>/) has one manifest at the run level with
+`chunks` (years, directory, initial state, job file, expected outputs and end state of each chunk); every attempt
+belongs to one chunk (`chunk`) and the job passes --chunk. A chunk after the first starts from the previous chunk's
+end state: verify-inputs requires the previous chunk's latest attempt to be completed and records the state's
+sha256 (a retry of the chunk must find the same state). The run is completed when the latest attempt of every chunk
+is completed (is_completed).
+
+Usage: run_manifest.py verify-inputs --run-dir DIR --job-id ID [--processes 8] [--chunk ID]
+       run_manifest.py complete --run-dir DIR --job-id ID --exit-code N [--reason TEXT] [--chunk ID]
        run_manifest.py rescan-logs --run-dir DIR --job-id ID
 """
 import argparse, contextlib, datetime, fcntl, glob, hashlib, json, os, re, subprocess, sys
@@ -93,13 +100,58 @@ def run_lock(run_dir):
 JOB_FILE = 'config/job.sbatch'
 
 
+def is_job_file(rel):
+    """config/job.sbatch of the run or of a chunk (chunks/<id>/config/job.sbatch)."""
+    return rel == JOB_FILE or rel.endswith('/' + JOB_FILE)
+
+
+def chunk(manifest, chunk_id):
+    """The record of one chunk of a chunked run; None for an unchunked run without --chunk."""
+    chunks = manifest.get('chunks') or []
+    if not chunks:
+        if chunk_id:
+            raise SystemExit(f'{manifest["run_id"]} has no chunks, but --chunk {chunk_id} was given')
+        return None
+    for c in chunks:
+        if c['id'] == chunk_id:
+            return c
+    raise SystemExit(f'{manifest["run_id"]}: no chunk {chunk_id} (chunks {[c["id"] for c in chunks]})')
+
+
+def latest_attempt(manifest, chunk_id=None):
+    """The latest attempt of the run, or of one chunk of a chunked run; {} when there is none."""
+    at = [a for a in manifest['attempts'] if a.get('chunk') == chunk_id]
+    return at[-1] if at else {}
+
+
+def is_completed(manifest):
+    """The run has completed: its latest attempt (unchunked), or the latest attempt of every chunk."""
+    chunks = manifest.get('chunks') or []
+    if not chunks:
+        return latest_attempt(manifest).get('status') == 'completed'
+    return all(latest_attempt(manifest, c['id']).get('status') == 'completed' for c in chunks)
+
+
+def first_incomplete_chunk(manifest):
+    """Index of the first chunk whose latest attempt is not completed (None when every chunk completed)."""
+    for i, c in enumerate(manifest.get('chunks') or []):
+        if latest_attempt(manifest, c['id']).get('status') != 'completed':
+            return i
+    return None
+
+
+def chunk_dir(run_dir, manifest, chunk_id):
+    c = chunk(manifest, chunk_id)
+    return os.path.join(run_dir, c['dir']) if c else run_dir
+
+
 def inputs_fingerprint(manifest):
     """sha256 over the recorded input identities, the executable and the rendered model files (not the Slurm
     job file, which only says how the run is executed); equal fingerprints mean identical inputs, so a
     resubmission is an attempt of the same run."""
     keys = {'executable_sha256': manifest['model']['executable_sha256'],
             'inputs': manifest['inputs'], 'forcing_view': manifest['forcing_view'],
-            'rendered': {k: v for k, v in manifest['rendered_files'].items() if k != JOB_FILE}}
+            'rendered': {k: v for k, v in manifest['rendered_files'].items() if not is_job_file(k)}}
     if (manifest.get('parent') or {}).get('init_state'):   # parent state: path, run, attempt and sha256 when known
         keys['parent'] = manifest['parent']
     return hashlib.sha256(json.dumps(keys, sort_keys=True).encode()).hexdigest()
@@ -166,9 +218,11 @@ def parent_state(manifest, workdir):
         return None, None
     path = os.path.join(workdir, parent['init_state'])
     prd = os.path.dirname(os.path.dirname(path))
+    if not os.path.exists(os.path.join(prd, NAME)):             # the end state of a chunked parent: chunks/<id>/states/
+        prd = os.path.dirname(os.path.dirname(prd))
     pm = load(prd) if os.path.exists(os.path.join(prd, NAME)) else {'attempts': []}
     last = pm['attempts'][-1] if pm['attempts'] else {}
-    if last.get('status') != 'completed' or not os.path.isfile(path):
+    if not is_completed(pm) or not os.path.isfile(path):
         return None, parent['init_state']
     rec = {'run_id': pm.get('run_id'), 'attempt': last['attempt'], 'path': parent['init_state'],
            'sha256': file_hash(path, 'sha256')}
@@ -179,8 +233,30 @@ def parent_state(manifest, workdir):
     return rec, None
 
 
-def verify_inputs(run_dir, job_id, workdir, processes):
+def previous_chunk_state(manifest, chunk_id, run_dir):
+    """For a chunk after the first: the previous chunk's latest attempt must have completed and its end state exist;
+    returns (record, problem). Earlier attempts of this chunk fix the state's sha256."""
+    chunks = manifest['chunks']
+    i = [c['id'] for c in chunks].index(chunk_id)
+    if i == 0:
+        return None, None
+    prev = chunks[i - 1]
+    path = os.path.join(run_dir, prev['end_state'])
+    last = latest_attempt(manifest, prev['id'])
+    if last.get('status') != 'completed' or not os.path.isfile(path):
+        return None, prev['end_state']
+    rec = {'chunk': prev['id'], 'attempt': last['attempt'], 'path': prev['end_state'], 'sha256': file_hash(path, 'sha256')}
+    for a in manifest['attempts']:
+        b = (a.get('input_verification') or {}).get('chunk_state')
+        if a.get('chunk') == chunk_id and b and b['sha256'] != rec['sha256']:
+            return rec, prev['end_state']
+    return rec, None
+
+
+def verify_inputs(run_dir, job_id, workdir, processes, chunk_id=None):
     m = load(run_dir); a = attempt(m, job_id)
+    if a.get('chunk') != chunk_id:
+        raise SystemExit(f'attempt {a["attempt"]} belongs to chunk {a.get("chunk")}, not {chunk_id}')
     todo = checks(m, workdir)
 
     def one(item):
@@ -192,18 +268,23 @@ def verify_inputs(run_dir, job_id, workdir, processes):
     with ThreadPoolExecutor(processes) as ex:
         res = list(ex.map(one, todo))
     bad = [rel for rel, ok in res if not ok] + link_mismatches(m, run_dir, workdir) + units_not_accepted(m, workdir)
-    pstate, problem = parent_state(m, workdir)
+    first = not m.get('chunks') or chunk_id == m['chunks'][0]['id']
+    pstate, problem = parent_state(m, workdir) if first else (None, None)
+    bad += [problem] if problem else []
+    cstate, problem = previous_chunk_state(m, chunk_id, run_dir) if not first else (None, None)
     bad += [problem] if problem else []
     a['input_verification'] = {'files': len(res), 'mismatches': bad, 'passed': not bad, 'checked_at': utcnow(),
                                'seconds': round((datetime.datetime.now() - t0).total_seconds(), 1)}
     if pstate:
         a['input_verification']['parent_state'] = pstate
+    if cstate:
+        a['input_verification']['chunk_state'] = cstate
     if bad:
         a['status'] = 'failed'; a['failure_reason'] = 'input checksum mismatch'
     else:
         a['status'] = 'running'
     a['started_at'] = utcnow()
-    m['status'] = a['status']
+    m['status'] = run_status(m)
     save(run_dir, m)
     if bad:
         sys.exit(f'{len(bad)} input files differ from the recorded checksums, e.g. {bad[:3]}')
@@ -240,9 +321,25 @@ def timing_table(text):
     return out
 
 
+def run_status(manifest):
+    """Run-level status: completed (every chunk), failed (the latest attempt of a chunk or of the run failed),
+    otherwise the status of the latest attempt (submitted or running)."""
+    if is_completed(manifest):
+        return 'completed'
+    chunk_ids = [c['id'] for c in manifest.get('chunks') or []] or [None]
+    latest = [latest_attempt(manifest, c) for c in chunk_ids]
+    if any(x.get('status') == 'failed' for x in latest):
+        return 'failed'
+    live = [x['status'] for x in latest if x.get('status') in ('running', 'submitted')]
+    if 'running' in live:
+        return 'running'
+    return 'submitted' if live else ('running' if any(x.get('status') == 'completed' for x in latest) else
+                                     manifest.get('status', 'rendered'))
+
+
 def attempt_logs(run_dir, a):
     """Log files of one attempt: the scheduler and VIC stdout files named by its job id, and the VIC rank logs
-    created after it started (earlier attempts share logs/)."""
+    created after it started (earlier attempts share logs/). `run_dir` is the chunk directory of a chunk."""
     jid = str(a['slurm_job_id'])
     start = datetime.datetime.strptime(a.get('started_at') or a['submitted_at'], '%Y-%m-%dT%H:%M:%SZ').replace(
         tzinfo=datetime.timezone.utc).timestamp()
@@ -290,12 +387,12 @@ def requested_outputs(vic_global):
     return out
 
 
-def output_variables(run_dir, present):
+def output_variables(run_dir, present, config_dir=None):
     """{stream: {requested, missing}}: VIC drops an OUTVAR it does not know with only a warning
     (drivers/shared_image/src/vic_history.c), so the variables of the first output file of every stream are compared
-    with the OUTVARs of config/vic_global.txt."""
+    with the OUTVARs of config/vic_global.txt (of the run, or of the chunk in config_dir)."""
     import netCDF4 as nc
-    with open(os.path.join(run_dir, 'config', 'vic_global.txt')) as fh:
+    with open(os.path.join(config_dir or run_dir, 'config', 'vic_global.txt')) as fh:
         requested = requested_outputs(fh.read())
     files = sorted(f['path'] for v in present.values() for f in v)
     out = {}
@@ -309,13 +406,17 @@ def output_variables(run_dir, present):
     return out
 
 
-def complete(run_dir, job_id, exit_code, workdir, reason=None):
+def complete(run_dir, job_id, exit_code, workdir, reason=None, chunk_id=None):
     m = load(run_dir); a = attempt(m, job_id)
+    if a.get('chunk') != chunk_id:
+        raise SystemExit(f'attempt {a["attempt"]} belongs to chunk {a.get("chunk")}, not {chunk_id}')
+    cdir = chunk_dir(run_dir, m, chunk_id)
+    c = chunk(m, chunk_id)
     if reason:
         a['failure_reason'] = reason
     a['ended_at'] = utcnow(); a['vic_exit_code'] = int(exit_code)
     a['scheduler'] = sacct(job_id)
-    logs = attempt_logs(run_dir, a)
+    logs = attempt_logs(cdir, a)
     text = ''
     for p in logs:
         with open(p, errors='replace') as fh:
@@ -323,12 +424,12 @@ def complete(run_dir, job_id, exit_code, workdir, reason=None):
     a['vic_timing'] = timing_table(text)
     a['log_scan'] = {'files': [os.path.relpath(p, run_dir) for p in logs], 'categories': scan_logs(logs)}
     present = {}
-    for rel in m['expected_outputs']:
+    for rel in (c['expected_outputs'] if c else m['expected_outputs']):
         hits = sorted(glob.glob(os.path.join(run_dir, rel)))
         present[rel] = [{'path': os.path.relpath(h, run_dir), 'size_bytes': os.path.getsize(h)} for h in hits]
     a['outputs_present'] = present
     a['outputs_complete'] = all(present.values())
-    a['output_variables'] = output_variables(run_dir, present)
+    a['output_variables'] = output_variables(run_dir, present, cdir)
     dropped = {s: v['missing'] for s, v in a['output_variables'].items() if v['missing']}
     a['output_bytes'] = sum(f['size_bytes'] for v in present.values() for f in v)
     a['completed_by_commit'] = subprocess.run(['git', '-C', os.path.dirname(os.path.dirname(os.path.dirname(
@@ -340,9 +441,10 @@ def complete(run_dir, job_id, exit_code, workdir, reason=None):
     a['status'] = 'completed' if ok else 'failed'
     if not ok and 'failure_reason' not in a:
         a['failure_reason'] = 'VIC exit code {}; outputs complete: {}'.format(exit_code, a['outputs_complete'])
-    m['status'] = a['status']
+    m['status'] = run_status(m)
     save(run_dir, m)
-    print(f'run {m["run_id"]} attempt {a["attempt"]}: {a["status"]}')
+    print(f'run {m["run_id"]}' + (f' chunk {chunk_id}' if chunk_id else '') + f' attempt {a["attempt"]}: {a["status"]} '
+          f'(run {m["status"]})')
     if not ok:
         qc.exit_with('failed')
 
@@ -350,7 +452,7 @@ def complete(run_dir, job_id, exit_code, workdir, reason=None):
 def rescan_logs(run_dir, job_id):
     """Recompute the log scan of an attempt (e.g. after the scan rules changed); nothing else is touched."""
     m = load(run_dir); a = attempt(m, job_id)
-    logs = attempt_logs(run_dir, a)
+    logs = attempt_logs(chunk_dir(run_dir, m, a.get('chunk')), a)
     a['log_scan'] = {'files': [os.path.relpath(p, run_dir) for p in logs], 'categories': scan_logs(logs),
                      'rescanned_at': utcnow()}
     save(run_dir, m)
@@ -365,16 +467,17 @@ def main():
     ap.add_argument('--exit-code', type=int, default=None)
     ap.add_argument('--processes', type=int, default=8)
     ap.add_argument('--reason', default=None, help='complete: why the attempt ended (e.g. cancelled, and why)')
+    ap.add_argument('--chunk', default=None, help='chunk id (<start>-<end>) of a chunked run')
     a = ap.parse_args()
     workdir = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
     if a.action == 'verify-inputs':
-        verify_inputs(a.run_dir, a.job_id, workdir, a.processes)
+        verify_inputs(a.run_dir, a.job_id, workdir, a.processes, a.chunk)
     elif a.action == 'rescan-logs':
         rescan_logs(a.run_dir, a.job_id)
     else:
         if a.exit_code is None:
             sys.exit('complete needs --exit-code')
-        complete(a.run_dir, a.job_id, a.exit_code, workdir, a.reason)
+        complete(a.run_dir, a.job_id, a.exit_code, workdir, a.reason, a.chunk)
 
 
 if __name__ == '__main__':

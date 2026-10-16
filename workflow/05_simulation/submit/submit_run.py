@@ -14,6 +14,11 @@ in the run manifest, then release the job.
              (a change of how the run is executed, not of what is simulated); the previous job file is kept as
              config/job.attempt-<n>.sbatch and both are recorded in the manifest (job_files).
 
+A chunked run (resources chunk_years, render_run.py) is submitted as one job per chunk, each waiting for the
+previous one (afterok), with a check of each chunk and, after the last chunk, the check of the whole run; --retry
+resubmits from the first chunk whose latest attempt did not complete (with --rerender-job, the job files of those
+chunks are rendered again).
+
 The job verifies the input checksums before VIC starts and completes the manifest after VIC ends
 (run_manifest.py). After each run job a check job is submitted that starts when the run has succeeded
 (monitor/check_run.py: checks, derived per-sector withdrawal file, figures, GRDC comparison); --no-check
@@ -40,11 +45,14 @@ def utcnow():
     return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def submit(run_dir, dependency=None):
+def submit(run_dir, dependency=None, chunk=None):
+    """Submit the run, or one chunk of a chunked run; returns the Slurm job id."""
     with rm.run_lock(run_dir):          # one submission of a run at a time: check, submit, record, release
         m = rm.load(run_dir)
-        if any(a['status'] in ('submitted', 'running') for a in m['attempts']):
-            raise SystemExit(f'{run_dir}: an attempt is still submitted or running')
+        c = rm.chunk(m, chunk)
+        if any(a['status'] in ('submitted', 'running') for a in m['attempts'] if a.get('chunk') == chunk):
+            raise SystemExit(f'{run_dir}' + (f' chunk {chunk}' if chunk else '') + ': an attempt is still submitted '
+                             'or running')
         for rel, digest in m['rendered_files'].items():
             with open(os.path.join(run_dir, rel)) as fh:
                 if hashlib.sha256(fh.read().encode()).hexdigest() != digest:
@@ -52,35 +60,61 @@ def submit(run_dir, dependency=None):
         if rm.inputs_fingerprint(m) != m['inputs_fingerprint']:
             raise SystemExit(f'{run_dir}: inputs fingerprint changed; a retry must have identical inputs')
         cmd = ['sbatch', '--parsable', '--hold'] + ([f'--dependency=afterok:{dependency}'] if dependency else [])
-        r = subprocess.run(cmd + [os.path.join(run_dir, 'config', 'job.sbatch')], capture_output=True, text=True)
+        r = subprocess.run(cmd + [os.path.join(run_dir, c['job_file'] if c else rm.JOB_FILE)], capture_output=True,
+                           text=True)
         if r.returncode != 0:
             raise SystemExit(f'sbatch failed: {r.stderr}')
         job_id = r.stdout.strip().split(';')[0]
         commit, dirty = rr.git_state()
         m['attempts'].append({'attempt': len(m['attempts']) + 1, 'slurm_job_id': int(job_id), 'submitted_at': utcnow(),
                               'submitted_by_commit': commit, 'code_dirty': dirty, 'dependency': dependency,
-                              'inputs_fingerprint': m['inputs_fingerprint'], 'status': 'submitted'})
-        m['status'] = 'submitted'
+                              'inputs_fingerprint': m['inputs_fingerprint'], 'status': 'submitted',
+                              **({'chunk': chunk} if chunk else {})})
+        m['status'] = rm.run_status(m)
         try:
             rm.save(run_dir, m)
         except rm.ManifestConflict as e:   # the held job is never released without its attempt
             subprocess.run(['scancel', job_id])
             raise SystemExit(f'{e}; job {job_id} cancelled')
         subprocess.run(['scontrol', 'release', job_id], check=True)
-    print(f'submitted {m["run_id"]} as job {job_id} (attempt {len(m["attempts"])})')
+    print(f'submitted {m["run_id"]}' + (f' chunk {chunk}' if chunk else '') +
+          f' as job {job_id} (attempt {len(m["attempts"])})')
     return job_id
 
 
-def rerender_job(run_dir, W):
-    """Render config/job.sbatch again from the current template and resources; keep the previous file."""
+def submit_run(run_dir, dependency=None, check=True, from_chunk=0):
+    """Submit a run (with its check), or the chunks of a chunked run from index from_chunk on, each waiting for the
+    previous one, with a check per chunk and the check of the whole run after the last chunk. Returns the job id of
+    the run or of its last chunk (what a child run waits for)."""
+    m = rm.load(run_dir)
+    chunks = m.get('chunks') or []
+    if not chunks:
+        job = submit(run_dir, dependency)
+        if check:
+            sc.submit(run_dir, dependency=job)
+        return job
+    job = dependency
+    for c in chunks[from_chunk:]:
+        job = submit(run_dir, job, chunk=c['id'])
+        if check:
+            sc.submit(run_dir, dependency=job, chunk=c['id'])
+    if check:
+        sc.submit(run_dir, dependency=job)
+    return job
+
+
+def rerender_job(run_dir, W, from_chunk=0):
+    """Render the job file again from the current template and resources (the run's config/job.sbatch, or the job
+    files of the chunks from index from_chunk on); keep the previous files."""
     m = rm.load(run_dir)
     for rel, digest in m['rendered_files'].items():
-        if rel == rm.JOB_FILE:
+        if rm.is_job_file(rel):
             continue
         with open(os.path.join(run_dir, rel)) as fh:
             if hashlib.sha256(fh.read().encode()).hexdigest() != digest:
                 raise SystemExit(f'{run_dir}/{rel} differs from the rendered file; a changed run needs a new render')
-    with open(os.path.join(run_dir, 'config', 'resolved.yaml')) as fh:
+    first = (m.get('chunks') or [{'dir': '.'}])[0]['dir']
+    with open(os.path.join(run_dir, first, 'config', 'resolved.yaml')) as fh:
         res = yaml.safe_load(fh)
     resources = rr.read_yaml(os.path.join(rr.REPO, res['resources_file']))
     # the checks of a new render that depend on the resources (render_run.py check_build and check_tasks)
@@ -91,24 +125,31 @@ def rerender_job(run_dir, W):
         rr.check_tasks(resources['ntasks'], dict(res['decomposition']))
     except rr.RenderError as e:
         raise SystemExit(f'{run_dir}: {e}')
-    text, hours = rr.render_job(W, run_dir, res['campaign_id'], res['run_id'], res['start_year'], res['end_year'],
-                                resources, res['model'])
-    old = os.path.join(run_dir, rm.JOB_FILE)
-    keep = os.path.join(run_dir, 'config', f'job.attempt-{len(m["attempts"])}.sbatch')
-    if os.path.exists(keep):
-        raise SystemExit(f'{keep} exists')
-    os.rename(old, keep)
-    with open(old, 'w') as fh:
-        fh.write(text)
     commit, dirty = rr.git_state()
-    m.setdefault('job_files', []).append({
-        'kept_as': os.path.relpath(keep, run_dir), 'sha256': m['rendered_files'][rm.JOB_FILE],
-        'replaced_at': utcnow(), 'replaced_by_commit': commit, 'code_dirty': dirty,
-        'resources': {k: resources[k] for k in ('ntasks', 'cpus_per_task', 'mem', 'launcher')}, 'wall_time_hours': hours})
-    m['rendered_files'][rm.JOB_FILE] = rr.text_sha256(text)
+    chunks = m.get('chunks') or []
+    pieces = [(None, res['start_year'], res['end_year'], rm.JOB_FILE)] if not chunks else \
+        [(c['id'], c['start_year'], c['end_year'], c['job_file']) for c in chunks[from_chunk:]]
+    for cid, y0, y1, rel in pieces:
+        text, hours = rr.render_job(W, run_dir, res['campaign_id'], res['run_id'], y0, y1, resources, res['model'],
+                                    chunk_dir=os.path.join(run_dir, os.path.dirname(os.path.dirname(rel))) if cid
+                                    else None, chunk=cid)
+        old = os.path.join(run_dir, rel)
+        keep = os.path.join(os.path.dirname(old), f'job.attempt-{len(m["attempts"])}.sbatch')
+        if os.path.exists(keep):
+            raise SystemExit(f'{keep} exists')
+        os.rename(old, keep)
+        with open(old, 'w') as fh:
+            fh.write(text)
+        m.setdefault('job_files', []).append({
+            'kept_as': os.path.relpath(keep, run_dir), 'sha256': m['rendered_files'][rel], **({'chunk': cid} if cid else {}),
+            'replaced_at': utcnow(), 'replaced_by_commit': commit, 'code_dirty': dirty,
+            'resources': {k: resources[k] for k in ('ntasks', 'cpus_per_task', 'mem', 'launcher')},
+            'wall_time_hours': hours})
+        m['rendered_files'][rel] = rr.text_sha256(text)
+        print(f'rendered a new job file for {m["run_id"]}' + (f' chunk {cid}' if cid else '') +
+              f'; previous kept as {os.path.relpath(keep, run_dir)}')
     m['inputs_fingerprint'] = rm.inputs_fingerprint(m)
     rm.save(run_dir, m)
-    print(f'rendered a new job file for {m["run_id"]}; previous kept as {os.path.relpath(keep, run_dir)}')
 
 
 def main():
@@ -127,15 +168,14 @@ def main():
         if not run_dir.startswith(os.path.join(W, 'runs') + os.sep):
             raise SystemExit('only run directories under runs/ are submitted')
         m = rm.load(run_dir)
-        if m['attempts'] and m['attempts'][-1]['status'] == 'completed':
-            raise SystemExit(f'{run_dir}: the last attempt completed; nothing to retry')
+        if rm.is_completed(m):
+            raise SystemExit(f'{run_dir}: the run completed; nothing to retry')
         if any(a['status'] in ('submitted', 'running') for a in m['attempts']):
             raise SystemExit(f'{run_dir}: an attempt is still submitted or running')
+        start = rm.first_incomplete_chunk(m) or 0
         if a.rerender_job:
-            rerender_job(run_dir, W)
-        job = submit(run_dir)
-        if not a.no_check:
-            sc.submit(run_dir, dependency=job)
+            rerender_job(run_dir, W, start)
+        submit_run(run_dir, check=not a.no_check, from_chunk=start)
         return
     if not a.campaign:
         raise SystemExit('give --campaign or --retry')
@@ -155,9 +195,8 @@ def main():
     jobs = {}
     for r, d in zip(todo, dirs):
         parent = r['segment']['parent']
-        jobs[r['segment_id']] = submit(d, dependency=jobs.get(parent))
-        if not a.no_check:   # the check job starts only when the run job has completed successfully
-            sc.submit(d, dependency=jobs[r['segment_id']])
+        # the check jobs start only when their run (chunk) job has completed successfully
+        jobs[r['segment_id']] = submit_run(d, dependency=jobs.get(parent), check=not a.no_check)
 
 
 if __name__ == '__main__':
