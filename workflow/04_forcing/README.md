@@ -43,13 +43,15 @@ time axis re-stamped. Classification: production workflow code (user, 2026-10-11
 |---|---|---|
 | O1 | the unit-extension rules of the contract moved from the climate producer into `workflow/common/unit_extension.py` | done 2026-10-12 (code-equivalence entries pending the user's approval) |
 | O2 | land-use and water-use producers: extension path (`common/unit_extension.py`) and `--start-years` for `1850soc` and `2021soc` (the constant field of the scenario's first year re-stamped; water-use demand per day of the start year); verifiers check a start year against the raw data of its source year and against the unit's source-year files; the land-use units `1850soc` and `2021soc` (made before the fingerprint block existed) are regenerated as a whole in O4 (user, 2026-10-12) | done 2026-10-18 (entry `start-years-water-use`; land use has no code-equivalence entry because its units made before the fingerprint block cannot be extended: the scratch test of histsoc 2015 on commit base 4d52a73 (jobs 43351749 before, 43329875 after, comparison 43351751, `scratch/first-year-files/compare-o2.log`) found the coverage identical; the start-years test 1850soc 1850 + 1601, 1576 (job 43329877) and 2021soc 2022 + 1850, 1800 (job 43329878) passed the verifiers) |
-| O3 | climate producer: spin-up start years copied from the cycle year; verifier source-year rule | open |
-| O4 | code-equivalence entries; extension of the accepted units (user authorisation per unit); verification of every extended unit | open |
-| O5 | climate `esm-picontrol` 1601–1650, then the start years 1551, 1576, 1800, 1825 | open |
-| O6 | `05_simulation`: spin-up continuation blocks, run-ID rule, campaign spin-up keys, README | open, after task L |
+| O3 | climate producer: spin-up start years copied from the cycle year; verifier source-year rule | moved to task P (user, 2026-10-17) |
+| O4 | regeneration of the land-use units `1850soc` (start years 1601, 2022, 1551, 1576 and 1591, the latter for the natural-run spin-up 1591–1600 of task L) and `2021soc` (1850, 1800, 1825) as whole units; extension of the water-use units `1850soc` (1601, 2022, 1551, 1576) and `2021soc` (1850, 1800, 1825); verification of every unit; vegetation QC run again (`check_landuse_tiles` of the renderer needs the current land-use files checked) | open (user authorisation per unit pending) |
+| O5 | climate `esm-picontrol` 1601–1650, then the start years 1551, 1576, 1800, 1825 | moved to task P (user, 2026-10-17) |
+| O6 | `05_simulation`: spin-up continuation blocks, run-ID rule, campaign spin-up keys, README | moved to task P (user, 2026-10-17) |
 
-Start years needed (D20): land use and water use `1850soc` 1601, 2022, 1551, 1576; `2021soc` 1850, 1800, 1825;
-climate `esm-picontrol` 1551, 1576, 1800, 1825.
+Start years needed (D20): land use `1850soc` 1601, 2022, 1551, 1576 and 1591 (task L natural-run spin-up);
+water use `1850soc` 1601, 2022, 1551, 1576; land use and water use `2021soc` 1850, 1800, 1825; climate
+`esm-picontrol` 1551, 1576, 1800, 1825 (task P). The climate start years and task P's records use the same form as
+O2: `start_years` `{year: source year}` in `provenance.yaml` and the file attribute `source_year`.
 
 ## Allowed content
 
