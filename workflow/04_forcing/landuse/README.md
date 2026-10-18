@@ -8,6 +8,7 @@ contract), one forcing unit per soc scenario under
 | File | Role |
 |---|---|
 | `isimip_landuse_to_vic_annual.py` | producer: allocation (joint order-free water-filling, fallback chains, single-child rule, natural remainder by the VIC 2003–2022 mean composition), writes `coverage_<soc>_<year>.nc`, `provenance.yaml`, and per-year ledger and QA JSON under `qc/forcing/landuse/<soc>/reports/` |
+| `../../../tests/unit/test_landuse_forcing.py` | unit tests: driver rules (extension, start years, year range, scratch), closure, file format, weights cache, Slurm rendering |
 | `verify_forcing.py` | independent verification with its own code path (file format VIC reads, closure, conservation); writes `verify_<year>.{json,png}` and `summary.json` under `qc/forcing/landuse/<soc>/` and sets `qc.status` in the unit's `provenance.yaml` (`passed` only when every file of the unit passes) |
 | `landuse_forcing.sbatch` | Slurm template: producer, then verifier, in one job |
 | `submit_landuse_forcing.py` | renders the template, submits it on hold, writes the job record `logs/04_forcing/<job-name>_<slurm-job-id>/` (`job.sbatch`, `job.yaml`, scheduler output), releases the job |
@@ -64,9 +65,28 @@ prints the rendered job. `--verify-only` runs only the verifier on the existing 
 used on 2026-10-03 to mark the method 1.3 units `failed` by the new format check before they were replaced). The producer and verifier can also be run directly with the same arguments
 (`--processes N` on both).
 
-A unit is generated as a whole: the producer refuses to write into an existing, non-empty
-`forcing/landuse/<soc>/`; replacing an accepted unit needs the user's authorization. Coverage files are
-written under a temporary name and renamed when complete; `provenance.yaml` is written last.
+A new unit is generated as a whole. An existing unit is never overwritten; running the producer for years it
+does not contain extends it under the conditions of `docs/directory-contracts.md` ("Forcing unit and
+provenance record"), checked by `workflow/common/unit_extension.py`: unchanged code fingerprint (Git trees of this
+directory and `workflow/common/`, `METHOD_VERSION`) or a chain of `manifests/code-equivalence.yaml` entries,
+unchanged inputs (SHA-256) and software versions, existing files intact; `provenance.yaml` is then rewritten with
+the new files and `qc.status: not_checked`. The units `histsoc`, `ssp1vlsoc-noadapt` and `ssp3hsoc-noadapt`
+were made before the fingerprint block existed (2026-10-03) and cannot be extended; their years are complete.
+Replacing an accepted unit needs the user's authorization. Coverage files are written under a temporary name and
+renamed when complete; `provenance.yaml` is written last.
+
+### Start years outside the scenario years (D20)
+
+VIC checks the forcing file of a run's first year, so runs on the constant scenarios that start outside their
+years need that year's file (`docs/decisions/D20-first-year-files.md`; `1850soc`: 1601, 2022 and the spin-up
+start years 1551, 1576; `2021soc`: 1850, 1800, 1825). `--start-years 1601,2022,1551,1576` writes them, for
+`1850soc` and `2021soc` only, as the coverage of the scenario's first year (1850 or 2022, the constant field;
+land use of these scenarios is identical in every year) with the time axis and `year` attribute of the start year
+and a `source_year` attribute. `provenance.yaml` lists them under `start_years` (`{year: source year}`), the
+QA record `qa_<year>.json` carries `source_year`. The verifier re-derives such a file from the ISIMIP data of its
+source year, requires the `source_year` attribute and the `start_years` entry to agree, and requires the coverage
+to equal the unit's file of the source year value for value. Start years can be given when a unit is created
+(`--years 1850-2021 --start-years ...`) or added later as an extension (`--start-years 1551` alone).
 
 If the repository is not clean, or with `--scratch`, the producer writes to
 `scratch/landuse-converter/<soc>/` (with `--scratch-label L`: `scratch/landuse-converter/runs/L/<soc>/`)

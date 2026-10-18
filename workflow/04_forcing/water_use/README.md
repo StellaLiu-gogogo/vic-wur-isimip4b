@@ -112,10 +112,27 @@ python3 workflow/04_forcing/water_use/submit_water_use_forcing.py --scenario his
 ```
 
 `--processes` (default 16) sets the parallel years; `--mem` defaults to 4 GB per process; `--dry-run`
-prints the rendered job. A unit is generated as a whole: the producer refuses to write into an existing,
-non-empty `forcing/water_use/<soc>/`; replacing an accepted unit needs the user's authorization. Files are
+prints the rendered job. A new unit is generated as a whole. An existing unit is never overwritten; running the
+producer for years it does not contain extends it under the conditions of `docs/directory-contracts.md`
+("Forcing unit and provenance record"), checked by `workflow/common/unit_extension.py` (unchanged code
+fingerprint or a code-equivalence chain, unchanged inputs and software, existing files intact); `provenance.yaml`
+is then rewritten with the new files and `qc.status: not_checked`, and `lost_demand_ledger.csv` keeps the rows of
+the earlier years. Replacing an accepted unit needs the user's authorization. Files are
 written under a temporary name and renamed when complete; `provenance.yaml` is written last. The input
-files are checked against their manifests (md5) before anything is written. If the repository is not
+files are checked against their manifests (md5) before anything is written.
+
+**Start years outside the scenario years (D20).** VIC checks the forcing files of a run's first year, so runs on
+the constant scenarios that start outside their years need that year's files
+(`docs/decisions/D20-first-year-files.md`; `1850soc`: 1601, 2022 and the spin-up start years 1551, 1576;
+`2021soc`: 1850, 1800, 1825). `--start-years 1601,2022,1551,1576` writes them, for `1850soc` and `2021soc` only,
+from the sources of the scenario's first year (1850 or 2022: withdrawal, consumption fraction and population
+weights, the constant field) with the demand divided by the days of the start year (365 or 366), the time axis
+of the start year and a `source_year` attribute. `provenance.yaml` lists them under `start_years`
+(`{year: source year}`), `qa_<year>.json` carries `source_year`. The verifier checks such a year against the
+sources of its source year (volume = demand × area × days of the start year), requires the `source_year`
+attribute and the `start_years` entry to agree, and, where the unit holds the files of the source year, requires
+the fractions to equal them value for value and the demand to equal theirs scaled by the ratio of the day counts.
+Start years can be given when a unit is created or added later as an extension (`--start-years 1551` alone). If the repository is not
 clean, or with `--scratch`, everything goes to `scratch/water-use-forcing/<soc>/` (with `--scratch-label L`:
 `scratch/water-use-forcing/runs/L/<soc>/`) and the verifier writes to `<that directory>/qc/`. The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or `--expect-commit <commit>`); a producer submitted for a forcing unit stops when the repository is no longer clean at that commit when the job starts, so the producer and the verifier never look at different places. `--verify-only` submits a job that runs only the verifier on the existing files of the unit (it updates `qc.status`; a repository that is not clean does not redirect it, but its results then go to `scratch/<stage scratch>/verify-uncommitted/qc/...` and the status is not changed; results of uncommitted verifier code are never moved from there: commit, then verify again).
 

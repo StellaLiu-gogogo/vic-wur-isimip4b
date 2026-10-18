@@ -40,16 +40,26 @@ Outputs:
   scratch/landuse-converter/vic-coverage-mean-2003-2022-weights_<key>.npz (weights cache, keyed by the sha256 of
       the domain file and the VIC coverage files, validated on reading and recorded in provenance.yaml `caches`;
       becomes an intermediate cache once workflow/common/cache.py exists)
+Start years (D20, docs/decisions/D20-first-year-files.md): VIC checks the forcing file of a run's first year, so
+runs that start outside the years of a constant scenario (1850soc: 1601, 2022 and the spin-up years 1551, 1576;
+2021soc: 1850 and the spin-up years 1800, 1825) need a file of that year. --start-years writes them, for 1850soc and
+2021soc only, as the coverage of the scenario's first year (1850 or 2022, the constant field) with the time axis
+and the `year` attribute of the start year and a `source_year` attribute; provenance.yaml lists them under
+`start_years` ({year: source year}).
+
 Rule 14 of the contract: accepted forcing is produced only from a clean repository. If the repository is
 not clean, everything is written under scratch/landuse-converter/<soc>/ instead and provenance records
-code_dirty: true. A forcing unit is generated as a whole: the producer refuses to write into an existing
-forcing/landuse/<soc>/ (replacing an accepted unit needs the user's authorization; move it away first).
-Years are converted in parallel with --processes (one year per process, about 6 GB each); the result does
-not depend on the number of processes.
+code_dirty: true. A new unit is generated as a whole; an existing unit is never overwritten, but it may be
+extended with years it does not contain under the conditions of docs/directory-contracts.md ("Forcing unit and
+provenance record", common/unit_extension.py: unchanged code fingerprint or a code-equivalence chain, unchanged
+inputs and software, existing files intact). Replacing an accepted unit needs the user's authorization (move it
+away first). Years are converted in parallel with --processes (one year per process, about 6 GB each); the
+result does not depend on the number of processes.
 
 Usage: isimip_landuse_to_vic_annual.py --scenario histsoc --years 1850-2021 [--parameter-set ID]
        [--parameter-status candidates|production] [--small inf] [--union-mask file.nc] [--max-iter 60]
        [--processes N] [--scratch [--scratch-label LABEL]]
+       isimip_landuse_to_vic_annual.py --scenario 1850soc --years 1850-2021 --start-years 1601,2022,1551,1576
   --scratch-label puts a test run under scratch/landuse-converter/runs/<LABEL>/<soc>/ so that it does not
   replace another test run.
 D04 (docs/decisions/D04-landuse-harmonization.md): every fallback parent uses a single child (--small inf,
@@ -63,11 +73,13 @@ import numpy as np
 import netCDF4 as nc
 from scipy.spatial import cKDTree
 
-from common import gitstate, hashing, provenance, workdir
+from common import gitstate, hashing, provenance, unit_extension, workdir
 
 WORKDIR = workdir.root()
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 CREATED_BY = 'workflow/04_forcing/landuse/isimip_landuse_to_vic_annual.py'
+CODE_DIRS = ('workflow/04_forcing/landuse', 'workflow/common')   # code fingerprint (Git tree hashes)
+CONSTANT = ('1850soc', '2021soc')   # scenarios constant in time: start years outside their years may be written (D20)
 RAW = f'{WORKDIR}/raw/ISIMIP4b/InputData/socioeconomic/landuse'
 COVERAGE = f'{WORKDIR}/raw/external/vic-coverage-version-a/5/coverage_VersionA_v5_{{y}}.nc'
 WEIGHT_YEARS = list(range(2003, 2023))
@@ -94,6 +106,48 @@ METHOD_VERSION = '1.4'   # bump when results change for identical inputs (1.2: D
 def git_state():
     """(commit, dirty) of the repository (common/gitstate.py)."""
     return gitstate.state(REPO)
+
+
+def scenario_years(scen):
+    """(first, last) year of the ISIMIP land-use files of the scenario."""
+    y0 = SCEN[scen][2]
+    return y0, (2021 if y0 == 1850 else 2100)
+
+
+def parse_years(text):
+    """'START-END' or 'YEAR' -> list of years; None -> []."""
+    if not text:
+        return []
+    y = text.split('-')
+    return list(range(int(y[0]), int(y[-1]) + 1))
+
+
+def parse_start_years(scen, text):
+    """Start years of --start-years (D20): a comma-separated list, allowed for the constant scenarios only, every
+    year outside the scenario's own years, no repeats. Returns the sorted list ([] when the option is not given)."""
+    if not text:
+        return []
+    years = [int(x) for x in text.split(',') if x.strip()]
+    if scen not in CONSTANT:
+        raise SystemExit(f'--start-years is allowed for {", ".join(CONSTANT)} only (constant scenarios, D20), not {scen}')
+    y0, y1 = scenario_years(scen)
+    inside = [y for y in years if y0 <= y <= y1]
+    if inside:
+        raise SystemExit(f'--start-years {inside} lie inside the years of {scen} ({y0}-{y1}); use --years for them')
+    if len(set(years)) != len(years) or any(y < 1 for y in years):
+        raise SystemExit(f'--start-years must be distinct positive years, not {text}')
+    return sorted(years)
+
+
+def source_year_of(scen, year):
+    """Year of the ISIMIP data a file of `year` is made from: the year itself inside the scenario's years, the
+    scenario's first year (the constant field) for a start year of a constant scenario (D20)."""
+    y0, y1 = scenario_years(scen)
+    if y0 <= year <= y1:
+        return year
+    if scen not in CONSTANT:
+        raise ValueError(f'{scen} has no data for {year}')
+    return y0
 
 
 def sph_area(lat, d, nlon):
@@ -282,7 +336,7 @@ def convert_year(scen, year, P, dom_grid, a, f15, furb):
     return Cv, qa, ledger
 
 
-def write_coverage(fn, Cv, vlat, vlon, scen, year, attrs):
+def write_coverage(fn, Cv, vlat, vlon, scen, year, attrs, source_year=None):
     o = nc.Dataset(fn, 'w', format='NETCDF4'); NY, NX = Cv.shape[1:]
     o.createDimension('time', 1); o.createDimension('veg_class', 16); o.createDimension('lat', NY); o.createDimension('lon', NX)
     v = o.createVariable('time', 'f8', ('time',)); v[:] = [0.0]; v.units = f'days since {year}-01-01 00:00:00'
@@ -293,6 +347,10 @@ def write_coverage(fn, Cv, vlat, vlon, scen, year, attrs):
     v = o.createVariable('coverage', 'f4', ('time', 'veg_class', 'lat', 'lon'), zlib=True, complevel=4, fill_value=np.float32(np.nan))
     v[0] = Cv; v.units = '1'; v.long_name = 'annual vegetation coverage fraction'
     o.forcing_contract = 'PLUGIN_FORCE_TYPE CV coverage YEAR <prefix>'; o.soc_scenario = scen; o.year = year
+    if source_year is not None and source_year != year:    # a start year (D20): the constant field of source_year
+        o.source_year = source_year
+        o.start_year_note = ('coverage of source_year (the constant field of the scenario), time axis and year of this '
+                             'file (D20, docs/decisions/D20-first-year-files.md)')
     o.class_mapping = ('class12=sum(*_rainfed*, 17 vars); class15=rice_irrigated; class14=sum(*_irrigated*, 17 vars)-rice_irrigated; '
                        'class13=urbanareas; pastures->natural remainder')
     for k, val in attrs.items(): setattr(o, k, val)
@@ -304,23 +362,29 @@ _JOB = {}
 
 
 def produce_year(year):
-    """Convert, write, and record one year (runs in a worker process); returns (year, runtime_s, closure)."""
-    j = _JOB; a = j['args']
-    Cv, qa, ledger = convert_year(a.scenario, year, j['P'], j['grid'], a, j['f15'], j['furb'])
+    """Convert, write, and record one year (runs in a worker process); returns (year, runtime_s, closure, path).
+    A start year (D20) is converted from the data of its source year and written with its own time axis."""
+    j = _JOB; a = j['args']; source = source_year_of(a.scenario, year)
+    Cv, qa, ledger = convert_year(a.scenario, source, j['P'], j['grid'], a, j['f15'], j['furb'])
+    qa['year'] = year; qa['source_year'] = source
     fn = f"{j['out']}/coverage_{a.scenario}_{year}.nc"
-    write_coverage(fn + '.part', Cv, j['grid'][0], j['grid'][1], a.scenario, year, j['attrs'])
+    write_coverage(fn + '.part', Cv, j['grid'][0], j['grid'][1], a.scenario, year, j['attrs'], source_year=source)
     os.replace(fn + '.part', fn)   # a file under its final name is always complete
     with open(f"{j['qcdir']}/ledger_{year}.csv", 'w') as fh:
         fh.write('parent_row,parent_col,lat,lon,class,target_km2,allocated_km2,unplaced_km2,fallback_level,single_child\n' + '\n'.join(ledger) + '\n')
     json.dump(qa, open(f"{j['qcdir']}/qa_{year}.json", 'w'), indent=1)
-    print(f'{a.scenario} {year}: {qa["runtime_s"]:.0f} s, closure {qa["closure"]["max_abs_sum_minus_1_active"]:.1e}', flush=True)
-    return year, qa['runtime_s'], qa['closure']['max_abs_sum_minus_1_active']
+    print(f'{a.scenario} {year}{"" if source == year else f" (from {source})"}: {qa["runtime_s"]:.0f} s, '
+          f'closure {qa["closure"]["max_abs_sum_minus_1_active"]:.1e}', flush=True)
+    return year, qa['runtime_s'], qa['closure']['max_abs_sum_minus_1_active'], fn
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--scenario', required=True, choices=list(SCEN), help='ISIMIP soc-scenario specifier')
-    ap.add_argument('--years', required=True, help='single year or START-END')
+    ap.add_argument('--years', default=None, help='single year or START-END within the scenario years')
+    ap.add_argument('--start-years', default=None,
+                    help='comma-separated run start years outside the scenario years, written from the constant field '
+                         f'(D20); {", ".join(CONSTANT)} only')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--small', type=float, default=float('inf'),
@@ -336,10 +400,13 @@ def main():
     ap.add_argument('--scratch-label', default=None,
                     help='with --scratch: write under scratch/landuse-converter/runs/<LABEL>/<soc>/')
     a = ap.parse_args(); t0 = time.time()
-    y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
-    y0 = SCEN[a.scenario][2]; y1 = 2021 if y0 == 1850 else 2100
-    if years[0] < y0 or years[-1] > y1:
+    years = parse_years(a.years); start_years = parse_start_years(a.scenario, a.start_years)
+    y0, y1 = scenario_years(a.scenario)
+    if years and (years[0] < y0 or years[-1] > y1):
         raise SystemExit(f'{a.scenario} covers {y0}-{y1}, not {a.years}')
+    if not years and not start_years:
+        raise SystemExit('give --years and/or --start-years')
+    all_years = sorted(years + start_years)
     commit, dirty = git_state()
     if a.expect_commit and (dirty or commit != a.expect_commit):
         raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
@@ -353,51 +420,75 @@ def main():
     qcdir = f'{WORKDIR}/qc/forcing/{unit}/reports' if not to_scratch else f'{out}/qc'
     if to_scratch:
         print(f'{"repository is not clean" if dirty else "--scratch"}: writing to {out} (not a forcing unit)', file=sys.stderr)
-    elif os.path.exists(out) and os.listdir(out):
-        raise SystemExit(f'{out} exists and is not empty: a forcing unit is generated as a whole and an existing '
-                         f'unit is replaced only with the user\'s authorization (move it away first)')
-    os.makedirs(out, exist_ok=True); os.makedirs(qcdir, exist_ok=True)
     f15, furb, _ = SCEN[a.scenario]; f15 = f'{RAW}/{f15}'; furb = f'{RAW}/{furb}'
     f_dom = f'{WORKDIR}/parameters/{a.parameter_status}/{a.parameter_set}/domain/vic_global_5min_domain_nogl.nc'
-    for p in (f15, furb, f_dom):
+    coverage_files = [COVERAGE.format(y=yy) for yy in WEIGHT_YEARS]
+    inputs = [f15, furb, f_dom] + coverage_files            # every year uses all of them (static inputs)
+    for p in inputs:
         if not os.path.isfile(p): raise SystemExit(f'missing input {p}')
+    rp = lambda p: os.path.relpath(p, WORKDIR)
+    input_sha = {rp(p): hashing.sha256(p) for p in inputs}
+    code_tree = gitstate.tree_hashes(REPO, CODE_DIRS); software = provenance.software_versions()
+    # ---------------- unit state: new, extension, or refused (common/unit_extension.py)
+    prev = None if to_scratch else unit_extension.prepare(out, unit, all_years, CREATED_BY, METHOD_VERSION, code_tree,
+                                                         software, input_sha, list(input_sha))
+    if prev:
+        print(f'{unit}: extending with {all_years}', flush=True)
+    os.makedirs(out, exist_ok=True); os.makedirs(qcdir, exist_ok=True)
     dom = nc.Dataset(f_dom); vlat = dom['lat'][:].filled(np.nan); vlon = dom['lon'][:].filled(np.nan); mask = dom['mask'][:].filled(0).astype(bool); dom.close()
     P, cache, _ = weights(f_dom, vlat, vlon, mask)
     created_at = provenance.utcnow()
     attrs = {'code_commit': commit, 'code_dirty': str(dirty).lower(), 'created_by': CREATED_BY, 'created_at': created_at,
              'forcing_unit': unit, 'method_version': METHOD_VERSION,
-             'source_isimip': f'{os.path.relpath(f15, WORKDIR)}; {os.path.relpath(furb, WORKDIR)}',
+             'source_isimip': f'{rp(f15)}; {rp(furb)}',
              'source_weights': 'raw/external/vic-coverage-version-a/5 (2003-2022 mean class pattern)'}
     _JOB.update(args=a, P=P, grid=(vlat, vlon, mask), f15=f15, furb=furb, out=out, qcdir=qcdir, attrs=attrs)
-    nproc = max(1, min(a.processes, len(years)))
+    nproc = max(1, min(a.processes, len(all_years)))
     if nproc == 1:
-        done = [produce_year(yy) for yy in years]
+        done = [produce_year(yy) for yy in all_years]
     else:
         # an executor (not a Pool) fails at once if a worker is killed, e.g. by the memory limit
         with ProcessPoolExecutor(nproc, mp_context=get_context('fork')) as ex:
-            done = list(ex.map(produce_year, years))
+            done = list(ex.map(produce_year, all_years))
     print(f'{len(done)} year(s), {nproc} process(es), {sum(d[1] for d in done) / len(done):.0f} s per year', flush=True)
-    # ---------------- provenance of the whole unit (all coverage files present)
-    files = sorted(f for f in os.listdir(out) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc'))
+    # ---------------- provenance of the whole unit
+    new = [unit_extension.file_record(d[3], d[0], commit) for d in done]
+    if to_scratch:      # scratch: list whatever is in the directory
+        recs = {r['path']: r for r in new}
+        new = [recs.get(f) or {'path': f} for f in sorted(os.listdir(out)) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc')]
+    starts = {y: source_year_of(a.scenario, y) for y in start_years}
+    upd = unit_extension.extend(prev, new, input_sha, code_tree, CREATED_BY, METHOD_VERSION, commit, created_at, all_years,
+                                details={'start_years': starts} if starts else None) if prev else {}
+    files = upd['files'] if prev else sorted(new, key=lambda f: f['path'])
+    yrs = unit_extension.unit_years({'files': [f for f in files if 'year' in f]})
     prov = {
-        'forcing_unit': unit, 'created_by': CREATED_BY, 'code_commit': commit, 'code_dirty': dirty, 'created_at': created_at,
+        'forcing_unit': unit, 'created_by': CREATED_BY,
+        'code_commit': prev['code_commit'] if prev else commit, 'code_dirty': dirty,
+        'created_at': prev['created_at'] if prev else created_at,
         'input_manifest': 'manifests/inputs/isimip4b-dkrz-2026-09-21/inventory.tsv',
-        'inputs': [os.path.relpath(f15, WORKDIR), os.path.relpath(furb, WORKDIR), os.path.relpath(f_dom, WORKDIR)] +
-                  [os.path.relpath(COVERAGE.format(y=yy), WORKDIR) for yy in WEIGHT_YEARS],
-        'input_sha256': {'landuse-15crops': hashing.sha256(f15), 'landuse-urbanareas': hashing.sha256(furb),
-                         'domain': hashing.sha256(f_dom)},
+        'inputs': [rp(x) for x in inputs], 'input_sha256': dict(sorted(input_sha.items())),
         'method': {'name': 'annual Cv, joint order-free water-filling', 'version': METHOD_VERSION, 'target_grid': 'vic-5arcmin',
                    'weights': 'VIC coverage 2003-2022 mean class pattern', 'calendar': 'proleptic_gregorian', 'single_child_threshold': a.small,
-                   'union_mask': os.path.relpath(a.union_mask, WORKDIR) if a.union_mask else None, 'max_iter': a.max_iter,
-                   'parameter_set': f'{a.parameter_status}/{a.parameter_set}'},
-        'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario} --years {years[0]}-{years[-1]} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status} --small {a.small}'
+                   'union_mask': rp(a.union_mask) if a.union_mask else None, 'max_iter': a.max_iter,
+                   'parameter_set': f'{a.parameter_status}/{a.parameter_set}',
+                   'start_years': f'run start years outside {y0}-{y1} carry the coverage of the scenario\'s first year '
+                                  f'(the constant field) with their own time axis (D20); listed under start_years'
+                                  if a.scenario in CONSTANT else None},
+        'fingerprint': provenance.fingerprint(code_tree, METHOD_VERSION, software),
+        'years': unit_extension.years_span(yrs),
+        'start_years': starts,
+        'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario}' + (f' --years {years[0]}-{years[-1]}' if years else '')
+                           + (f' --start-years {",".join(str(y) for y in start_years)}' if start_years else '')
+                           + f' --parameter-set {a.parameter_set} --parameter-status {a.parameter_status} --small {a.small}'
                            + (' --scratch' if a.scratch else '') + (f' --scratch-label {a.scratch_label}' if a.scratch_label else ''),
-        'caches': [os.path.relpath(cache, WORKDIR)],      # for information only; key: sha256 of the domain and VIC coverage
-        'files': [{'path': f, 'size_bytes': os.path.getsize(f'{out}/{f}'), 'sha256': hashing.sha256(f'{out}/{f}')}
-                  for f in files],
-        'qc': {'status': 'not_checked', 'evidence': f'qc/forcing/{unit}'}}
+        'caches': [rp(cache)],      # for information only; key: sha256 of the domain and VIC coverage
+        'files': files,
+        'qc': {'status': 'not_checked', 'evidence': f'qc/forcing/{unit}' if not to_scratch else rp(qcdir)}}
+    prov.update(upd)
+    if prev:    # start years of the whole unit, the earlier ones and the new ones
+        prov['start_years'] = {**(prev.get('start_years') or {}), **starts}
     provenance.write(f'{out}/provenance.yaml', prov)
-    print(f'done: {len(years)} year(s) in {time.time() - t0:.0f} s -> {out}')
+    print(f'done: {len(all_years)} year(s) in {time.time() - t0:.0f} s -> {out}')
 
 
 if __name__ == '__main__':

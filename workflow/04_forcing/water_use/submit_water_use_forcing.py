@@ -9,7 +9,8 @@ files (it updates qc.status in provenance.yaml). The submit script decides wheth
 (a repository that is not clean) and passes the decision on; a producer started for a forcing unit stops when the
 repository is no longer clean at the submitted commit.
 
-Usage: submit_water_use_forcing.py --scenario histsoc --years 1850-2021 [--scratch [--scratch-label LABEL]]
+Usage: submit_water_use_forcing.py --scenario histsoc --years 1850-2021 [--start-years 1601,2022]
+       [--scratch [--scratch-label LABEL]]
        [--verify-only] [--processes 16] [--time 04:00:00] [--mem 64G] [--partition main] [--dry-run]
 """
 import argparse, os, re, sys
@@ -30,7 +31,9 @@ GB_PER_PROCESS = 4
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--scenario', required=True, choices=list(wu.SCEN))
-    ap.add_argument('--years', required=True, help='single year or START-END')
+    ap.add_argument('--years', default=None, help='single year or START-END within the scenario years')
+    ap.add_argument('--start-years', default=None,
+                    help='comma-separated run start years outside the scenario years (D20; 1850soc and 2021soc only)')
     ap.add_argument('--scratch', action='store_true')
     ap.add_argument('--scratch-label', default=None, help=f'with --scratch: {wu.SCRATCH}/runs/<label>/')
     ap.add_argument('--verify-only', action='store_true', help='run only the verifier on the existing output')
@@ -48,22 +51,27 @@ def main():
     commit, dirty = wu.git_state(); to_scratch = a.scratch or (dirty and not a.verify_only)
     if a.scratch_label and not (a.scratch and re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', a.scratch_label)):
         raise SystemExit('--scratch-label needs --scratch and lowercase words joined by hyphens')
-    y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
-    nproc = max(1, min(a.processes, len(years)))
+    years = wu.parse_years(a.years); start_years = wu.parse_start_years(a.scenario, a.start_years)
+    if not years and not start_years:
+        raise SystemExit('give --years and/or --start-years')
+    nproc = max(1, min(a.processes, len(years) + len(start_years)))
     mem = a.mem or f'{GB_PER_PROCESS * nproc}G'
-    span = f'{years[0]}' if len(years) == 1 else f'{years[0]}-{years[-1]}'
+    span = ('' if not years else f'{years[0]}' if len(years) == 1 else f'{years[0]}-{years[-1]}') + \
+        ('' if not start_years else ('-' if years else '') + 'start-' + '-'.join(str(y) for y in start_years))
+    year_args = (f' --years {years[0]}-{years[-1]}' if years else '') + \
+        (f' --start-years {",".join(str(y) for y in start_years)}' if start_years else '')
     job_name = f'water-use-forcing-{a.scenario}-{span}' + ('-scratch' if to_scratch or dirty else '') + \
         (f'-{a.scratch_label}' if a.scratch_label else '') + ('-verify' if a.verify_only else '')
     unit = f'water_use/{a.scenario}'
     sbase = f'{W}/{wu.SCRATCH}' + (f'/runs/{a.scratch_label}' if a.scratch_label else '')
     out = f'{sbase}/{a.scenario}' if to_scratch else f'{W}/forcing/{unit}'
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
-    producer = f'--scenario {a.scenario} --years {years[0]}-{years[-1]} {params} --processes {nproc}' + \
+    producer = f'--scenario {a.scenario}{year_args} {params} --processes {nproc}' + \
         (' --scratch' if to_scratch else f' --expect-commit {commit}') + \
         (f' --scratch-label {a.scratch_label}' if a.scratch_label else '')
     # a verifier from a repository that is not clean checks the output in place but keeps its results in scratch and
     # never changes the output's status (--qc-to-scratch); otherwise it stops if the repository changes (--expect-commit)
-    verifier = f'--scenario {a.scenario} --years {years[0]}-{years[-1]} {params} --processes {nproc}' + \
+    verifier = f'--scenario {a.scenario}{year_args} {params} --processes {nproc}' + \
         (f' --unit-dir {out}' if to_scratch else (' --qc-to-scratch' if dirty else f' --expect-commit {commit}'))
     stage_logs = workdir.logs('04_forcing', W)
     text = jobrecord.render(TEMPLATE, {

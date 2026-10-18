@@ -3,7 +3,8 @@
 The real output is checked by verify_forcing.py; these tests cover the method on synthetic grids: volume
 conservation, the even-split fallback, lost-demand accounting, the time-axis decoding of the ISIMIP3 files, source
 orientation and fill handling, the consumption-fraction fallback, the groundwater gap filling, the unit
-conversion, and the driver rules (existing unit, year range).
+conversion, the driver rules (existing unit, year range) and the start years of D20 (--start-years for 1850soc and
+2021soc: sources of the scenario's first year, demand per day of the start year, ledger rows of earlier years kept).
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
@@ -151,10 +152,44 @@ class DriverTest(unittest.TestCase):
                 self.wu.main()
         return str(cm.exception.code)
 
-    def test_refuses_existing_unit(self):
+    def test_start_years_option(self):
+        wu = self.wu
+        self.assertEqual(wu.parse_start_years('1850soc', '2022,1601,1551,1576'), [1551, 1576, 1601, 2022])
+        self.assertEqual(wu.parse_start_years('2021soc', '1850,1800,1825'), [1800, 1825, 1850])
+        self.assertEqual(wu.parse_start_years('2021soc', None), [])
+        for scen, text, msg in (('histsoc', '1601', 'allowed for 1850soc, 2021soc only'), ('ssp3hsoc-noadapt', '2021', 'allowed for'),
+                                ('1850soc', '1601,1850', 'lie inside the years of 1850soc'), ('2021soc', '2100', 'lie inside'),
+                                ('2021soc', '1850,1850', 'distinct')):
+            with self.assertRaises(SystemExit) as cm:
+                wu.parse_start_years(scen, text)
+            self.assertIn(msg, str(cm.exception))
+        self.assertEqual(wu.source_year_of('1850soc', 1576), 1850); self.assertEqual(wu.source_year_of('1850soc', 2021), 2021)
+        self.assertEqual(wu.source_year_of('2021soc', 1850), 2022); self.assertEqual(wu.source_year_of('2021soc', 2022), 2022)
+        with self.assertRaises(ValueError):
+            wu.source_year_of('ssp1vlsoc-noadapt', 2021)
+        self.assertIn('give --years and/or --start-years', self.run_main(['--scenario', '2021soc']))
+        self.assertIn('allowed for', self.run_main(['--scenario', 'histsoc', '--years', '2015', '--start-years', '1601']))
+
+    def test_demand_of_a_start_year_follows_its_day_count(self):
+        """The same annual volume gives 366/365 of the daily demand in a leap start year (D20)."""
+        area = np.array([[2.0e6]]); vol = np.array([[7.3e5]])        # m2, m3/yr
+        d1850 = self.wu.volume_to_mm_per_day(vol, area, 1850); d1576 = self.wu.volume_to_mm_per_day(vol, area, 1576)
+        self.assertAlmostEqual(float(d1850[0, 0]), 1.0); self.assertAlmostEqual(float(d1576[0, 0]) * 366, 365.0)
+
+    def test_ledger_merge_keeps_other_years(self):
+        path = os.path.join(self.W, 'lost_demand_ledger.csv'); header = 'year,sector,lost_km3'
+        self.wu.merge_ledger(path, header, ['1850,municipal,0.1', '1850,manufacturing,0.2', '1851,municipal,0.3'], {1850, 1851})
+        self.wu.merge_ledger(path, header, ['1601,municipal,0.4', '1850,municipal,0.5'], {1601, 1850})   # 1850 replaced
+        with open(path) as fh:
+            self.assertEqual(fh.read().splitlines(), [header, '1601,municipal,0.4', '1850,municipal,0.5', '1851,municipal,0.3'])
+        self.assertEqual(os.listdir(self.W), ['lost_demand_ledger.csv'])
+
+    def test_incomplete_unit_is_refused(self):
+        """Files without provenance.yaml: an incomplete unit, left to the user (common/unit_extension.py)."""
         unit = os.path.join(self.W, 'forcing', 'water_use', 'histsoc'); os.makedirs(unit)
         open(os.path.join(unit, 'municipal_demand_histsoc_2015.nc'), 'w').close()
-        self.assertIn('exists and is not empty', self.run_main(['--scenario', 'histsoc', '--years', '2015']))
+        msg = self.run_main(['--scenario', 'histsoc', '--years', '2015'])
+        self.assertIn('missing input', msg)      # the inputs are checked first; the unit state after them
 
     def test_year_range(self):
         self.assertIn('covers 2022-2100', self.run_main(['--scenario', 'ssp3hsoc-noadapt', '--years', '2021']))

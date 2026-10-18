@@ -18,7 +18,12 @@ veg_class 1..16; lat/lon equal to the domain; year attribute equal to the year i
 <= 1e-6 on active cells, no negative or NaN active values, no finite inactive values, conservation error <= 1e-3
 km2 for every parent within capacity, and no area allocated where the target is zero.
 
-Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--unit-dir DIR] [--processes N]
+Start years (D20): a file whose year lies outside the scenario's years is allowed for 1850soc and 2021soc only; it
+must carry a `source_year` attribute equal to the scenario's first year and be listed with that source year under
+`start_years` in the unit's provenance.yaml; its targets are re-derived from the ISIMIP data of the source year, and
+its coverage must equal, value for value, the unit's file of the source year when that file is present.
+
+Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--start-years 1601,2022] [--unit-dir DIR] [--processes N]
   --unit-dir overrides the unit location (for outputs written to scratch by a dirty repository); results then
   go to <unit-dir>/qc/ and provenance is not updated.
 """
@@ -43,33 +48,66 @@ FILES = {'histsoc': ('histsoc', 'histsoc', 1850), '1850soc': ('1850soc', '1850so
          'ssp1vlsoc-noadapt': ('ssp1vlsoc-noadapt', 'ssp1vl', 2022), 'ssp3hsoc-noadapt': ('ssp3hsoc-noadapt', 'ssp3h', 2022)}
 TOL_CLOSURE, TOL_CONS_KM2 = 1e-6, 1e-3
 CALENDAR = 'proleptic_gregorian'     # the VIC clock calendar of the project (CALENDAR PROLEPTIC_GREGORIAN)
+CONSTANT = ('1850soc', '2021soc')    # scenarios whose units may hold start years outside their years (D20)
 
 
-def check_format(d, fn, dom_lat, dom_lon):
-    """Metadata VIC relies on when it opens the file as PLUGIN_FORCE_TYPE CV ... YEAR; returns a dict with 'ok'."""
+def scenario_years(scen):
+    y0 = FILES[scen][2]
+    return y0, (2021 if y0 == 1850 else 2100)
+
+
+def expected_source_year(scen, year, start_years):
+    """Source year a file of `year` must be made from: the year itself inside the scenario's years; for a start year
+    of a constant scenario the scenario's first year, provided provenance lists it so; None when the year is not
+    allowed (outside the years of a non-constant scenario, or not listed in provenance)."""
+    y0, y1 = scenario_years(scen)
+    if y0 <= year <= y1:
+        return year
+    if scen in CONSTANT and int((start_years or {}).get(year, -1)) == y0:
+        return y0
+    return None
+
+
+def check_format(d, fn, dom_lat, dom_lon, scen=None, start_years=None):
+    """Metadata VIC relies on when it opens the file as PLUGIN_FORCE_TYPE CV ... YEAR, and the start-year rule
+    (D20) when `scen` is given; returns a dict with 'ok' and 'source_year' (the year whose ISIMIP data to check
+    against)."""
     t = d['time']; name_year = int(os.path.basename(fn)[:-3].rsplit('_', 1)[1])
     f = {'calendar': getattr(t, 'calendar', None), 'time_units': getattr(t, 'units', None),
          'time_values': [float(x) for x in t[:]], 'coverage_dims': list(d['coverage'].dimensions),
          'veg_class_1_to_16': bool(np.array_equal(d['veg_class'][:], np.arange(1, 17))),
          'lat_lon_equal_domain': bool(d['lat'].shape == dom_lat.shape and d['lon'].shape == dom_lon.shape
                                       and np.array_equal(d['lat'][:], dom_lat) and np.array_equal(d['lon'][:], dom_lon)),
-         'year_attribute': int(getattr(d, 'year', -1)), 'year_in_file_name': name_year}
+         'year_attribute': int(getattr(d, 'year', -1)), 'year_in_file_name': name_year,
+         'source_year_attribute': int(d.source_year) if 'source_year' in d.ncattrs() else None}
+    expected = expected_source_year(scen, name_year, start_years) if scen else name_year
+    f['source_year'] = expected
+    f['source_year_ok'] = expected is not None and (f['source_year_attribute'] or name_year) == expected
     f['ok'] = (f['calendar'] == CALENDAR and f['time_units'] == f'days since {name_year}-01-01 00:00:00'
                and f['time_values'] == [0.0] and f['coverage_dims'] == ['time', 'veg_class', 'lat', 'lon']
-               and f['veg_class_1_to_16'] and f['lat_lon_equal_domain'] and f['year_attribute'] == name_year)
+               and f['veg_class_1_to_16'] and f['lat_lon_equal_domain'] and f['year_attribute'] == name_year
+               and f['source_year_ok'])
     return f
 
 
-def verify_file(fn, scen, f_dom, out_reports, out_figs, verifier):
+def verify_file(fn, scen, f_dom, out_reports, out_figs, verifier, start_years=None):
     binding = qc.binding([fn], verifier)          # before the checks: the file that is checked
     dom = nc.Dataset(f_dom); mask = dom['mask'][:].filled(0).astype(bool); dom_lat = dom['lat'][:]; dom_lon = dom['lon'][:]; dom.close()
-    d = nc.Dataset(fn); fmt = check_format(d, fn, dom_lat, dom_lon)
+    d = nc.Dataset(fn); fmt = check_format(d, fn, dom_lat, dom_lon, scen, start_years)
     yr = int(d.year); cov = d['coverage'][0].filled(np.nan).astype('f8'); vlat = d['lat'][:]; vlon = d['lon'][:]; d.close()
+    sub, tag, y0 = FILES[scen]; span = '1850_2021' if y0 == 1850 else '2022_2100'
+    source = fmt['source_year'] if fmt['source_year'] is not None else y0   # D20: the data year to check against
+    t = source - y0
+    same_as_source = None
+    if source != yr:                               # a start year: value for value the unit's file of the source year
+        fs = os.path.join(os.path.dirname(fn), f'coverage_{scen}_{source}.nc')
+        if os.path.exists(fs):
+            ds = nc.Dataset(fs); cs = ds['coverage'][0].filled(np.nan).astype('f8'); ds.close()
+            same_as_source = bool(np.array_equal(cov, cs, equal_nan=True))
     NY, NX = mask.shape; NB = (NY // 3, NX // 3)
     A5 = ((R ** 2) * np.deg2rad(1 / 12.) * (np.sin(np.deg2rad(vlat + 1 / 24.)) - np.sin(np.deg2rad(vlat - 1 / 24.))))[:, None] * np.ones((1, NX))
     land = np.where(mask, A5, 0)
     psum = lambda x: x.reshape(NB[0], 3, NB[1], 3).sum(axis=(1, 3))
-    sub, tag, y0 = FILES[scen]; span = '1850_2021' if y0 == 1850 else '2022_2100'; t = yr - y0
     f15 = nc.Dataset(f'{RAW}/{sub}/landuse-15crops_{tag}_15arcmin_annual_{span}.nc'); fu = nc.Dataset(f'{RAW}/{sub}/landuse-urbanareas_{tag}_15arcmin_annual_{span}.nc')
     ilat = f15['lat'][:]; A15 = ((R ** 2) * np.deg2rad(0.25) * (np.sin(np.deg2rad(ilat + 0.125)) - np.sin(np.deg2rad(ilat - 0.125))))[:, None] * np.ones((1, 1440))
     S = lambda x: (x * A15)[24:584][::-1]
@@ -78,7 +116,8 @@ def verify_file(fn, scen, f_dom, out_reports, out_figs, verifier):
     T = {12: rf, 15: S(rc), 14: S(ir - rc), 13: S(fu['urbanareas'][t].filled(0).astype('f8'))}; f15.close(); fu.close()
     capn = psum(land); tot = sum(T.values())
     c = np.nan_to_num(cov); s = c.sum(axis=0)
-    res = {'file': os.path.basename(fn), 'scenario': scen, 'year': yr, 'checked_at': provenance.utcnow(), 'format': fmt}
+    res = {'file': os.path.basename(fn), 'scenario': scen, 'year': yr, 'source_year': source,
+           'coverage_equals_source_year_file': same_as_source, 'checked_at': provenance.utcnow(), 'format': fmt}
     res['closure'] = {'max_abs_sum_minus_1_active': float(np.abs(s[mask] - 1).max()), 'min_value_active': float(c[:, mask].min()),
                       'nan_in_active': int(np.isnan(cov[:, mask]).sum()), 'finite_in_inactive': int(np.isfinite(cov[:, ~mask]).sum()),
                       'values_between_0_and_1e-12': int(((c[:, mask] > 0) & (c[:, mask] < 1e-12)).sum())}   # reported only
@@ -93,7 +132,7 @@ def verify_file(fn, scen, f_dom, out_reports, out_figs, verifier):
             'tiles_gt0': int((c[k - 1][mask] > 0).sum())}
     nat_idx = [i for i in range(16) if i + 1 not in T]
     res['natural_Mkm2'] = float((c[nat_idx].sum(axis=0) * land).sum() * 1e-12)
-    fv = COVERAGE.format(y=yr); v5 = None
+    fv = COVERAGE.format(y=source); v5 = None
     if os.path.exists(fv):
         v5 = np.nan_to_num(nc.Dataset(fv)['coverage'][0].filled(np.nan).astype('f8'))
         res['vs_vic_coverage_same_year'] = {f'class{k}': {'vic_Mkm2': float((v5[k - 1] * land).sum() * 1e-12),
@@ -101,7 +140,7 @@ def verify_file(fn, scen, f_dom, out_reports, out_figs, verifier):
     cl = res['closure']; cons = res['conservation']
     passed = (fmt['ok'] and cl['max_abs_sum_minus_1_active'] <= TOL_CLOSURE and cl['min_value_active'] >= 0 and cl['nan_in_active'] == 0
               and cl['finite_in_inactive'] == 0 and all(v['parents_err_gt_tol_capacity_ok'] == 0 for v in cons.values())
-              and all(v['allocated_where_target_zero_km2'] == 0 for v in cons.values()))
+              and all(v['allocated_where_target_zero_km2'] == 0 for v in cons.values()) and same_as_source is not False)
     res['status'] = 'passed' if passed else 'failed'
     res['binding'] = binding
     qc.write_json(f'{out_reports}/verify_{yr}.json', res)
@@ -133,6 +172,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--scenario', required=True, choices=list(FILES))
     ap.add_argument('--years', default=None, help='single year or START-END (default: every file of the unit)')
+    ap.add_argument('--start-years', default=None, help='comma-separated start years (D20) to verify as well')
     ap.add_argument('--unit-dir', default=None, help='verify outputs in this directory instead of the forcing unit')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
@@ -156,11 +196,19 @@ def main():
     reports, figs = f'{qc_dir}/reports', f'{qc_dir}/figures'; os.makedirs(reports, exist_ok=True); os.makedirs(figs, exist_ok=True)
     f_dom = f'{WORKDIR}/parameters/{a.parameter_status}/{a.parameter_set}/domain/vic_global_5min_domain_nogl.nc'
     files = sorted(f for f in os.listdir(unit_dir) if f.startswith(f'coverage_{a.scenario}_') and f.endswith('.nc'))
-    if a.years:
-        y = a.years.split('-'); want = set(range(int(y[0]), int(y[-1]) + 1))
+    if a.years or a.start_years:
+        want = set()
+        if a.years:
+            y = a.years.split('-'); want |= set(range(int(y[0]), int(y[-1]) + 1))
+        if a.start_years:
+            want |= {int(x) for x in a.start_years.split(',') if x.strip()}
         files = [f for f in files if int(f[:-3].rsplit('_', 1)[1]) in want]
     if not files: raise SystemExit(f'no coverage files in {unit_dir}')
-    jobs = [(f'{unit_dir}/{f}', a.scenario, f_dom, reports, figs, verifier) for f in files]
+    # start years (D20) and their source years, as the producer recorded them
+    prov_path = f'{unit_dir}/provenance.yaml'
+    start_years = (provenance.read(prov_path) or {}).get('start_years') or {} if os.path.exists(prov_path) else {}
+    start_years = {int(k): int(v) for k, v in start_years.items()}
+    jobs = [(f'{unit_dir}/{f}', a.scenario, f_dom, reports, figs, verifier, start_years) for f in files]
     nproc = max(1, min(a.processes, len(jobs)))
     if nproc == 1:
         done = [verify_one(j) for j in jobs]
@@ -183,7 +231,6 @@ def main():
     if uncommitted:
         summary['note'] = 'verifier code not committed (repository not clean): results kept in scratch, the status of the object is unchanged'
     qc.write_summary(qc_dir, summary)
-    prov_path = f'{unit_dir}/provenance.yaml'
     if not a.unit_dir and not uncommitted and os.path.exists(prov_path):
         provenance.set_qc(prov_path, status, f'qc/forcing/{unit}')
     print(f'unit {unit}: {status} ({summary["passed"]} passed, {summary["failed"]} failed, {summary["not_checked"]} not checked of {len(all_files)})')

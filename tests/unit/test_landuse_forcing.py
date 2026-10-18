@@ -1,9 +1,11 @@
 """Unit tests for the land-use forcing driver (workflow/04_forcing/landuse/).
 
 The allocation itself is checked by verify_forcing.py on real output; these tests cover the driver rules:
-an existing forcing unit is never written into, the year range is checked, the Slurm job is rendered
-completely with the verifier pointed at the producer's output, and the file format VIC reads (time axis and
-calendar) is written by the producer and checked by the verifier.
+an existing forcing unit is never overwritten (extended only under the rules of common/unit_extension.py), the
+year range is checked, the start years of D20 (--start-years: the constant field of the scenario's first year with
+the start year's time axis, 1850soc and 2021soc only) are written and recorded and the verifier checks their
+source year, the Slurm job is rendered completely with the verifier pointed at the producer's output, and the
+file format VIC reads (time axis and calendar) is written by the producer and checked by the verifier.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
@@ -43,20 +45,67 @@ class ProducerDriverTest(unittest.TestCase):
                 self.lu.main()
         return str(cm.exception.code)
 
-    def test_refuses_existing_unit(self):
+    def inputs(self):
+        """Input files that exist (content irrelevant: the producer stops before reading them in these tests)."""
+        for rel in [self.lu.SCEN['histsoc'][0], self.lu.SCEN['histsoc'][1]]:
+            p = os.path.join(self.lu.RAW, rel); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w').close()
+        p = os.path.join(self.W, 'parameters/candidates/vic-global-5arcmin-version-a/domain/vic_global_5min_domain_nogl.nc')
+        os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w').close()
+        for y in self.lu.WEIGHT_YEARS:
+            p = self.lu.COVERAGE.format(y=y); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w').close()
+
+    def test_existing_unit_without_fingerprint_cannot_be_extended(self):
+        """The units made before the fingerprint block existed (histsoc, the SSP units) are never written into."""
+        self.inputs()
         unit = os.path.join(self.W, 'forcing', 'landuse', 'histsoc'); os.makedirs(unit)
-        open(os.path.join(unit, 'provenance.yaml'), 'w').close()
-        msg = self.run_main(['--scenario', 'histsoc', '--years', '2015'])
-        self.assertIn('generated as a whole', msg)
+        with open(os.path.join(unit, 'provenance.yaml'), 'w') as fh:
+            fh.write('forcing_unit: landuse/histsoc\nmethod:\n  version: "1.4"\nfiles:\n- path: coverage_histsoc_2014.nc\n')
+        with mock.patch.object(self.lu.gitstate, 'tree_hashes', return_value={}):
+            msg = self.run_main(['--scenario', 'histsoc', '--years', '2015'])
+        self.assertIn('cannot be extended', msg); self.assertIn('code tree None', msg)
         self.assertEqual(os.listdir(unit), ['provenance.yaml'])
+
+    def test_year_already_in_the_unit_and_incomplete_unit(self):
+        self.inputs()
+        unit = os.path.join(self.W, 'forcing', 'landuse', 'histsoc'); os.makedirs(unit)
+        with open(os.path.join(unit, 'provenance.yaml'), 'w') as fh:
+            fh.write('files:\n- path: coverage_histsoc_2015.nc\n')
+        with mock.patch.object(self.lu.gitstate, 'tree_hashes', return_value={}):
+            self.assertIn('already contains [2015]', self.run_main(['--scenario', 'histsoc', '--years', '2015']))
+        os.remove(os.path.join(unit, 'provenance.yaml')); open(os.path.join(unit, 'coverage_histsoc_2015.nc'), 'w').close()
+        with mock.patch.object(self.lu.gitstate, 'tree_hashes', return_value={}):
+            self.assertIn('incomplete unit', self.run_main(['--scenario', 'histsoc', '--years', '2016']))
+
+    def test_start_years_option(self):
+        lu = self.lu
+        self.assertEqual(lu.parse_start_years('1850soc', '2022,1601,1551'), [1551, 1601, 2022])
+        self.assertEqual(lu.parse_start_years('2021soc', '1850'), [1850])
+        self.assertEqual(lu.parse_start_years('1850soc', None), [])
+        for scen, text, msg in (('histsoc', '1601', 'allowed for 1850soc, 2021soc only'), ('ssp1vlsoc-noadapt', '2021', 'allowed for'),
+                                ('1850soc', '1601,1900', 'lie inside the years of 1850soc'), ('2021soc', '2022', 'lie inside'),
+                                ('1850soc', '1601,1601', 'distinct')):
+            with self.assertRaises(SystemExit) as cm:
+                lu.parse_start_years(scen, text)
+            self.assertIn(msg, str(cm.exception))
+        self.assertEqual(lu.source_year_of('1850soc', 1601), 1850); self.assertEqual(lu.source_year_of('1850soc', 1900), 1900)
+        self.assertEqual(lu.source_year_of('2021soc', 1825), 2022); self.assertEqual(lu.source_year_of('2021soc', 2100), 2100)
+        with self.assertRaises(ValueError):
+            lu.source_year_of('histsoc', 1601)
+        self.assertIn('give --years and/or --start-years', self.run_main(['--scenario', '1850soc']))
+        self.assertIn('allowed for', self.run_main(['--scenario', 'histsoc', '--start-years', '1601']))
 
     def test_scratch_does_not_touch_existing_unit(self):
         unit = os.path.join(self.W, 'forcing', 'landuse', 'histsoc'); os.makedirs(unit)
         open(os.path.join(unit, 'provenance.yaml'), 'w').close()
-        msg = self.run_main(['--scenario', 'histsoc', '--years', '2015', '--scratch', '--scratch-label', 'unit-test'])
-        self.assertIn('missing input', msg)          # stops at the inputs, after choosing the scratch location
-        self.assertTrue(os.path.isdir(os.path.join(self.W, 'scratch', 'landuse-converter', 'runs', 'unit-test', 'histsoc')))
-        self.assertEqual(os.listdir(unit), ['provenance.yaml'])
+        err = io.StringIO()
+        with mock.patch.object(self.lu, 'git_state', return_value=('0' * 40, False)), \
+                mock.patch.object(sys, 'argv', ['producer', '--scenario', 'histsoc', '--years', '2015', '--scratch',
+                                                '--scratch-label', 'unit-test']), redirect_stderr(err):
+            with self.assertRaises(SystemExit) as cm:
+                self.lu.main()
+        self.assertIn('missing input', str(cm.exception.code))      # stops at the inputs, after choosing the scratch location
+        self.assertIn(os.path.join('scratch', 'landuse-converter', 'runs', 'unit-test', 'histsoc'), err.getvalue())
+        self.assertEqual(os.listdir(unit), ['provenance.yaml'])    # the unit is not even looked at
 
     def test_year_range(self):
         self.assertIn('covers 1850-2021', self.run_main(['--scenario', 'histsoc', '--years', '2020-2022']))
@@ -67,6 +116,84 @@ class ProducerDriverTest(unittest.TestCase):
                                                                '--scratch-label', 'x']))
         self.assertIn('--scratch-label needs', self.run_main(['--scenario', 'histsoc', '--years', '2015', '--scratch',
                                                                '--scratch-label', 'Bad_Label']))
+
+
+class StartYearsDriverTest(unittest.TestCase):
+    """main() on a tiny synthetic workdir: the allocation (convert_year) and the weights cache are stand-ins, the
+    files, provenance.yaml and the extension path are real. 1850soc with the start years 1601 (new unit) and 1551
+    (extension)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.W = self.tmp.name; self.lu = lu = load_producer(self.W)
+        for rel in lu.SCEN['1850soc'][:2]:
+            p = os.path.join(lu.RAW, rel); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w').write(rel)
+        for y in lu.WEIGHT_YEARS:
+            p = lu.COVERAGE.format(y=y); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w').write(str(y))
+        self.dom = os.path.join(self.W, 'parameters/candidates/vic-global-5arcmin-version-a/domain/vic_global_5min_domain_nogl.nc')
+        os.makedirs(os.path.dirname(self.dom))
+        with nc.Dataset(self.dom, 'w') as d:
+            d.createDimension('lat', 2); d.createDimension('lon', 3)
+            d.createVariable('lat', 'f8', ('lat',))[:] = [-1.0, 1.0]; d.createVariable('lon', 'f8', ('lon',))[:] = [10.0, 11.0, 12.0]
+            d.createVariable('mask', 'i4', ('lat', 'lon'))[:] = np.ones((2, 3), 'i4')
+        self.unit = os.path.join(self.W, 'forcing', 'landuse', '1850soc')
+        self.converted = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def convert(self, scen, year, P, grid, a, f15, furb):
+        """Stand-in for the allocation: the coverage depends on the (source) year, so a copied year is visible."""
+        self.converted.append(year)
+        Cv = np.zeros((16, 2, 3), 'f4'); Cv[11] = 0.25; Cv[0] = 0.75; Cv[1] = year * 1e-6
+        return Cv, {'runtime_s': 0.0, 'year': year, 'closure': {'max_abs_sum_minus_1_active': 0.0}}, ['0,0,0,0,12,1,1,0,1,0']
+
+    def main(self, argv):
+        lu = self.lu
+        with mock.patch.object(lu, 'git_state', return_value=('n' * 40, False)), \
+                mock.patch.object(lu.gitstate, 'tree_hashes', return_value={'workflow/04_forcing/landuse': 't', 'workflow/common': 'c'}), \
+                mock.patch.object(lu, 'weights', return_value=(np.zeros((16, 2, 3)), os.path.join(self.W, 'scratch/w.npz'), 'k')), \
+                mock.patch.object(lu, 'convert_year', self.convert), mock.patch.object(sys, 'argv', ['producer'] + argv), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            lu.main()
+
+    def prov(self):
+        import yaml
+        with open(os.path.join(self.unit, 'provenance.yaml')) as fh:
+            return yaml.safe_load(fh)
+
+    def test_new_unit_with_a_start_year_then_extension(self):
+        self.main(['--scenario', '1850soc', '--years', '1850-1851', '--start-years', '1601'])
+        self.assertEqual(self.converted, [1850, 1850, 1851])               # 1601 is converted from the 1850 data
+        p = self.prov()
+        self.assertEqual([f['year'] for f in p['files']], [1601, 1850, 1851])
+        self.assertEqual(p['start_years'], {1601: 1850}); self.assertEqual(p['years'], '1601-1851')
+        self.assertIn('--start-years 1601', p['rebuild_command']); self.assertIn('--years 1850-1851', p['rebuild_command'])
+        self.assertEqual(p['fingerprint']['code_tree'], {'workflow/04_forcing/landuse': 't', 'workflow/common': 'c'})
+        self.assertEqual(set(p['input_sha256']), set(p['inputs'])); self.assertEqual(len(p['inputs']), 23)
+        self.assertEqual(p['qc']['status'], 'not_checked'); self.assertNotIn('extended', p)
+        with nc.Dataset(os.path.join(self.unit, 'coverage_1850soc_1601.nc')) as d, \
+                nc.Dataset(os.path.join(self.unit, 'coverage_1850soc_1850.nc')) as s:
+            self.assertEqual((int(d.year), int(d.source_year)), (1601, 1850))
+            self.assertEqual(d['time'].units, 'days since 1601-01-01 00:00:00')
+            self.assertTrue(np.array_equal(d['coverage'][:], s['coverage'][:]))
+            self.assertNotIn('source_year', s.ncattrs())
+        # the extension: the same code, one more start year; existing files untouched
+        before = {f: os.stat(os.path.join(self.unit, f)).st_mtime_ns for f in os.listdir(self.unit) if f.endswith('.nc')}
+        self.converted.clear()
+        self.main(['--scenario', '1850soc', '--start-years', '1551'])
+        self.assertEqual(self.converted, [1850])
+        p = self.prov()
+        self.assertEqual([f['year'] for f in p['files']], [1551, 1601, 1850, 1851])
+        self.assertEqual(p['start_years'], {1551: 1850, 1601: 1850}); self.assertEqual(p['years'], '1551-1851')
+        self.assertEqual(len(p['extended']), 1)
+        self.assertEqual((p['extended'][0]['years'], p['extended'][0]['start_years']), ([1551], {1551: 1850}))
+        self.assertEqual({f: os.stat(os.path.join(self.unit, f)).st_mtime_ns for f in before}, before)
+        # a year already present, and a year inside the scenario given as a start year, are refused
+        for argv, msg in ((['--start-years', '1601'], 'already contains [1601]'), (['--start-years', '1900'], 'lie inside')):
+            with self.assertRaises(SystemExit) as cm:
+                self.main(['--scenario', '1850soc'] + argv)
+            self.assertIn(msg, str(cm.exception))
+        self.assertEqual([f['year'] for f in self.prov()['files']], [1551, 1601, 1850, 1851])
 
 
 class ClosureTest(unittest.TestCase):
@@ -132,6 +259,31 @@ class FormatTest(unittest.TestCase):
         f = self.check()
         self.assertEqual(f['calendar'], 'standard')
         self.assertFalse(f['ok'])
+
+    def test_verifier_start_year_rule(self):
+        """A file outside the scenario years passes only for a constant scenario, with source_year = first year and
+        the same entry in provenance (start_years)."""
+        import netCDF4 as nc
+        Cv = np.zeros((16, 2, 3), 'f4'); Cv[11] = 1.0
+        fn = os.path.join(self.tmp.name, 'coverage_1850soc_1601.nc')
+        self.lu.write_coverage(fn, Cv, self.lat, self.lon, '1850soc', 1601, {}, source_year=1850)
+        with nc.Dataset(fn) as d:
+            self.assertEqual(int(d.source_year), 1850)
+            f = self.vf.check_format(d, fn, self.lat, self.lon, '1850soc', {1601: 1850})
+            self.assertTrue(f['ok'], f); self.assertEqual(f['source_year'], 1850)
+            self.assertFalse(self.vf.check_format(d, fn, self.lat, self.lon, '1850soc', {})['ok'])          # not in provenance
+            self.assertFalse(self.vf.check_format(d, fn, self.lat, self.lon, '1850soc', {1601: 1851})['ok'])  # other source
+        other = os.path.join(self.tmp.name, 'coverage_histsoc_1601.nc'); os.rename(fn, other)
+        with nc.Dataset(other) as d:
+            self.assertFalse(self.vf.check_format(d, other, self.lat, self.lon, 'histsoc', {1601: 1850})['ok'])  # not constant
+        # a year inside the scenario must not carry a source_year of another year
+        with nc.Dataset(self.fn, 'a') as d:
+            d.source_year = 2015
+        with nc.Dataset(self.fn) as d:
+            self.assertFalse(self.vf.check_format(d, self.fn, self.lat, self.lon, 'histsoc', {})['ok'])
+        self.assertEqual(self.vf.expected_source_year('2021soc', 1800, {1800: 2022}), 2022)
+        self.assertIsNone(self.vf.expected_source_year('2021soc', 1800, {}))
+        self.assertEqual(self.vf.expected_source_year('2021soc', 2050, {}), 2050)
 
     def test_verifier_rejects_other_grid_and_year(self):
         import netCDF4 as nc
@@ -237,6 +389,16 @@ class SubmitRenderTest(unittest.TestCase):
         self.assertIn('#SBATCH --job-name=landuse-forcing-ssp1vlsoc-noadapt-2022-2100\n', text)
         self.assertNotIn('--unit-dir', text)                     # clean repository: the verifier checks the unit itself
         self.assertNotIn('--scratch', text)
+
+    def test_start_years_job(self):
+        text = self.dry_run_clean('--scenario', '1850soc', '--years', '1850-2021', '--start-years', '1601,2022,1551,1576')
+        self.assertIn('#SBATCH --job-name=landuse-forcing-1850soc-1850-2021-start-1551-1576-1601-2022\n', text)
+        self.assertEqual(text.count('--years 1850-2021 --start-years 1551,1576,1601,2022'), 2)   # producer and verifier
+        text = self.dry_run_clean('--scenario', '2021soc', '--start-years', '1850', '--verify-only')
+        self.assertIn('#SBATCH --job-name=landuse-forcing-2021soc-start-1850-verify', text)
+        self.assertIn('--processes 1', text)
+        with self.assertRaises(SystemExit):
+            self.dry_run_clean('--scenario', 'histsoc', '--start-years', '1601')
 
     def test_verify_only_job(self):
         text = self.dry_run_clean('--scenario', 'histsoc', '--years', '1850-2021', '--verify-only')

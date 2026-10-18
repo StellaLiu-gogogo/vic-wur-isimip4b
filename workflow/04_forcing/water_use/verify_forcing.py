@@ -15,13 +15,19 @@ Per year and sector:
   fractions  within [0, 1]; constant over the active children of a parent; consumption fraction equal to
              min(wc/ww, 1) of the source where ww > 0; groundwater fraction equal to the WaterGAP table value
              where the parent has an Arc_ID (tolerance 1e-6)
+Start years (D20): a file year outside the scenario's years is allowed for 1850soc and 2021soc only; the six files
+must carry a `source_year` attribute equal to the scenario's first year, the year must be listed with that source
+year under `start_years` in the unit's provenance.yaml, the demand volume is checked against the sources of the
+source year (demand x area x days of the file year), the fractions against the sources of the source year; where the
+unit holds the files of the source year, the fractions must equal them value for value and the demand must equal
+theirs scaled by the ratio of the day counts (float32 rounding).
 Writes qc/forcing/water_use/<soc>/reports/verify_<year>.json, figures/verify_<year>.png, summary.json, and sets
 qc.status in the unit's provenance.yaml: `passed` when every year of the unit passes, `failed` when any fails,
 `not_checked` while the unit is only partly verified. Each report records the SHA-256 of the six data files of its
 year and the verifier version; a report of an earlier run counts only while both still match (common/qc.py),
 otherwise its year is not_checked. Exit status: 0 passed, 1 failed, 3 warning, 4 not_checked (common/qc.py).
 
-Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--unit-dir DIR] [--processes N]
+Usage: verify_forcing.py --scenario histsoc [--years 1850-2021] [--start-years 1601,2022] [--unit-dir DIR] [--processes N]
   --unit-dir verifies outputs written to scratch; results then go to <unit-dir>/qc/ and provenance is not updated.
 """
 import argparse, calendar, os
@@ -47,6 +53,20 @@ SECTOR_SRC = {'municipal': ('dom', 'domestic/input/G_FRACTGW_DOM.txt'),
 YEARS = {'histsoc': (1850, 2021), '1850soc': (1850, 2021), '2021soc': (2022, 2100),
          'ssp1vlsoc-noadapt': (2022, 2100), 'ssp3hsoc-noadapt': (2022, 2100)}
 TOL_REL, TOL_ABS_M3, TOL_FRAC = 1e-5, 1.0, 1e-6
+CONSTANT = ('1850soc', '2021soc')    # scenarios whose units may hold start years outside their years (D20)
+SCALE_RTOL = 1e-6                    # float32 rounding of demand_start * days_start against demand_source * days_source
+
+
+def expected_source_year(scen, year, start_years):
+    """Source year the files of `year` must be made from: the year itself inside the scenario's years; for a start
+    year of a constant scenario the scenario's first year, provided provenance lists it so; None when the year is not
+    allowed (outside the years of a non-constant scenario, or not listed in provenance)."""
+    y0, y1 = YEARS[scen]
+    if y0 <= year <= y1:
+        return year
+    if scen in CONSTANT and int((start_years or {}).get(year, -1)) == y0:
+        return y0
+    return None
 
 
 def sources(scen, s, year):
@@ -106,7 +126,8 @@ def read_unit_file(path, name):
     d = nc.Dataset(path); d.set_auto_mask(False)
     t = d['time']
     info = {'time_units': t.units, 'calendar': getattr(t, 'calendar', ''), 'time_values': [float(v) for v in t[:]],
-            'dtype': str(d[name].dtype), 'dims': list(d[name].dimensions)}
+            'dtype': str(d[name].dtype), 'dims': list(d[name].dimensions),
+            'source_year': int(d.source_year) if 'source_year' in d.ncattrs() else None}
     lat, lon = np.asarray(d['lat'][:]), np.asarray(d['lon'][:])
     x = np.asarray(d[name][0], 'f8'); fill = float(getattr(d[name], '_FillValue', np.nan))
     d.close()
@@ -120,8 +141,12 @@ def year_files(unit_dir, scen, year):
 
 
 def verify_year(job):
-    year, scen, unit_dir, f_dom, ledger, reports, figs, verifier = job
+    year, scen, unit_dir, f_dom, ledger, reports, figs, verifier, start_years = job
     binding = qc.binding(year_files(unit_dir, scen, year), verifier)   # before the checks: the files checked
+    source = expected_source_year(scen, year, start_years)          # D20: the data year to check against
+    source_ok = source is not None
+    source = source if source_ok else YEARS[scen][0]
+    src_days = 366 if calendar.isleap(source) else 365
     dom = nc.Dataset(f_dom); dom.set_auto_mask(False)
     dlat, dlon = np.asarray(dom['lat'][:]), np.asarray(dom['lon'][:])
     active = np.asarray(dom['mask'][:]) == 1; area = np.asarray(dom['area'][:], 'f8'); dom.close()
@@ -133,8 +158,9 @@ def verify_year(job):
     PI, PJ = np.meshgrid(pi, pj, indexing='ij')
     nact = np.zeros((len(plat), len(plon))); np.add.at(nact, (PI[active], PJ[active]), 1)
     days = 366 if calendar.isleap(year) else 365
-    res = {'scenario': scen, 'year': year, 'checked_at': provenance.utcnow(), 'sectors': {}}
-    ok_all = True; maps = {}
+    res = {'scenario': scen, 'year': year, 'source_year': source, 'source_year_allowed': source_ok,
+           'checked_at': provenance.utcnow(), 'sectors': {}}
+    ok_all = source_ok; maps = {}
     for sec, (s, table) in SECTOR_SRC.items():
         r = {}; ok = True
         fields = {}
@@ -149,14 +175,26 @@ def verify_year(job):
                    'dims_ok': info['dims'] == ['time', 'lat', 'lon'],
                    'grid_identical_to_domain': bool(np.array_equal(lat, dlat) and np.array_equal(lon, dlon)),
                    'finite_exactly_on_active_cells': bool(np.array_equal(fin, active)),
+                   'source_year_attribute': info['source_year'],
+                   'source_year_ok': (info['source_year'] or year) == source,
                    'min': float(np.nanmin(x)), 'max': float(np.nanmax(x))}
             chk['range_ok'] = chk['min'] >= 0 and (var == 'demand' or chk['max'] <= 1)
             ok &= all(chk[k] for k in ('time_axis_ok', 'calendar_ok', 'float32', 'dims_ok', 'grid_identical_to_domain',
-                                       'finite_exactly_on_active_cells', 'range_ok'))
+                                       'finite_exactly_on_active_cells', 'source_year_ok', 'range_ok'))
             r[var] = chk; fields[var] = np.where(active, x, 0.0)
+            if source != year:          # a start year: value for value the unit's files of the source year (D20)
+                fs = f'{unit_dir}/{sec}_{var}_{scen}_{source}.nc'
+                if os.path.exists(fs):
+                    xs = np.where(active, read_unit_file(fs, var)[3], 0.0)
+                    if var == 'demand':
+                        a_, b_ = x[active].astype('f8') * days, xs[active].astype('f8') * src_days
+                        same = bool(np.allclose(a_, b_, rtol=SCALE_RTOL, atol=0.0))
+                    else:
+                        same = bool(np.array_equal(np.where(active, x, 0.0), xs))
+                    chk['equals_source_year_file'] = same; ok &= same
         if len(fields) < 3:
             res['sectors'][sec] = r; ok_all = False; continue
-        sww, scfw, scfc = sources(scen, s, year)
+        sww, scfw, scfc = sources(scen, s, source)
         src = source_field(sww, plat)
         vol = fields['demand'] * area * days / 1000.0
         agg = np.zeros_like(src); np.add.at(agg, (PI[active], PJ[active]), vol[active])
@@ -220,6 +258,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--scenario', required=True, choices=list(YEARS))
     ap.add_argument('--years', default=None, help='single year or START-END (default: every year of the unit)')
+    ap.add_argument('--start-years', default=None, help='comma-separated start years (D20) to verify as well')
     ap.add_argument('--unit-dir', default=None, help='verify outputs in this directory instead of the forcing unit')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
@@ -247,8 +286,17 @@ def main():
     if not unit_years:
         raise SystemExit(f'no files in {unit_dir}')
     years = unit_years
-    if a.years:
-        y = a.years.split('-'); want = set(range(int(y[0]), int(y[-1]) + 1)); years = [x for x in unit_years if x in want]
+    if a.years or a.start_years:
+        want = set()
+        if a.years:
+            y = a.years.split('-'); want |= set(range(int(y[0]), int(y[-1]) + 1))
+        if a.start_years:
+            want |= {int(x) for x in a.start_years.split(',') if x.strip()}
+        years = [x for x in unit_years if x in want]
+    # start years (D20) and their source years, as the producer recorded them
+    prov_path = f'{unit_dir}/provenance.yaml'
+    start_years = (provenance.read(prov_path) or {}).get('start_years') or {} if os.path.exists(prov_path) else {}
+    start_years = {int(k): int(v) for k, v in start_years.items()}
     ledger = {}
     lp = f'{reports}/lost_demand_ledger.csv'
     if os.path.exists(lp):
@@ -257,7 +305,7 @@ def main():
             for line in fh:
                 row = dict(zip(head, line.strip().split(',')))
                 ledger[(int(row['year']), row['sector'])] = float(row['lost_km3'])
-    jobs = [(yy, a.scenario, unit_dir, f_dom, ledger, reports, figs, verifier) for yy in years]
+    jobs = [(yy, a.scenario, unit_dir, f_dom, ledger, reports, figs, verifier, start_years) for yy in years]
     nproc = max(1, min(a.processes, len(jobs)))
     if nproc == 1:
         done = [verify_year(j) for j in jobs]
@@ -266,13 +314,14 @@ def main():
             done = list(ex.map(verify_year, jobs))
     y0, y1 = YEARS[a.scenario]
     checked = {yy for yy, _ in done}; per_year = {}
-    for yy in range(y0, y1 + 1):
+    for yy in sorted(set(range(y0, y1 + 1)) | set(unit_years)):      # the scenario years and every start year present
         per_year[yy] = (qc.report_status(f'{reports}/verify_{yy}.json', year_files(unit_dir, a.scenario, yy), verifier,
                                          yy in checked) if yy in unit_years else 'missing')
     status = qc.combine(per_year.values())          # a missing year counts as not_checked
     summary = {'object': f'forcing/{unit}', 'status': status, 'checked_by': 'workflow/04_forcing/water_use/verify_forcing.py',
                'updated_at': provenance.utcnow(),
-               'years_expected': f'{y0}-{y1}', 'years_present': len(unit_years),
+               'years_expected': f'{y0}-{y1}', 'start_years': {str(k): v for k, v in sorted(start_years.items())},
+               'years_present': len(unit_years),
                'passed': sum(v == 'passed' for v in per_year.values()), 'failed': sum(v == 'failed' for v in per_year.values()),
                'not_checked': sum(v == 'not_checked' for v in per_year.values()),
                'missing': sum(v == 'missing' for v in per_year.values()),
@@ -280,7 +329,6 @@ def main():
     if uncommitted:
         summary['note'] = 'verifier code not committed (repository not clean): results kept in scratch, the status of the object is unchanged'
     qc.write_summary(qc_dir, summary)
-    prov_path = f'{unit_dir}/provenance.yaml'
     if not a.unit_dir and not uncommitted and os.path.exists(prov_path):
         provenance.set_qc(prov_path, status, f'qc/forcing/{unit}')
     print(f'unit {unit}: {status} ({summary["passed"]} passed, {summary["failed"]} failed, '

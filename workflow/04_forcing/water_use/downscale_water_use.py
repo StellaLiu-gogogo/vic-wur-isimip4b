@@ -55,16 +55,28 @@ Method:
                     active cells without demand, zlib + shuffle; time `days since <year>-01-01 00:00:00`, value 0,
                     calendar proleptic_gregorian.
 
+Start years (D20, docs/decisions/D20-first-year-files.md): VIC checks the forcing files of a run's first year, so
+runs that start outside the years of a constant scenario (1850soc: 1601, 2022 and the spin-up years 1551, 1576;
+2021soc: 1850 and the spin-up years 1800, 1825) need files of that year. --start-years writes them, for 1850soc and
+2021soc only, from the sources of the scenario's first year (1850 or 2022: withdrawal, consumption fraction and
+population weights, the constant field) with the demand divided by the days of the start year (365 or 366), the time
+axis of the start year and a `source_year` attribute; provenance.yaml lists them under `start_years`
+({year: source year}).
+
 Outputs:
   forcing/water_use/<soc>/<sector>_<variable>_<soc>_<year>.nc, provenance.yaml (qc.status: not_checked)
-  qc/forcing/water_use/<soc>/reports/qa_<year>.json, lost_parents_<year>.csv, lost_demand_ledger.csv
+  qc/forcing/water_use/<soc>/reports/qa_<year>.json, lost_parents_<year>.csv, lost_demand_ledger.csv (one row per
+  year and sector of the whole unit; an extension keeps the rows of the earlier years)
 Rule 14 of the contract: accepted forcing is produced only from a clean repository. If the repository is not clean,
 or with --scratch, everything goes to scratch/water-use-forcing/<soc>/ (with --scratch-label L:
-scratch/water-use-forcing/runs/L/<soc>/) and provenance records code_dirty. A forcing unit is generated as a whole:
-the producer refuses to write into an existing, non-empty forcing/water_use/<soc>/.
+scratch/water-use-forcing/runs/L/<soc>/) and provenance records code_dirty. A new unit is generated as a whole; an
+existing unit is never overwritten, but it may be extended with years it does not contain under the conditions of
+docs/directory-contracts.md ("Forcing unit and provenance record", common/unit_extension.py: unchanged code
+fingerprint or a code-equivalence chain, unchanged inputs and software, existing files intact).
 
 Usage: downscale_water_use.py --scenario histsoc --years 1850-2021 [--processes N]
        [--parameter-set ID] [--parameter-status candidates|production] [--scratch [--scratch-label LABEL]]
+       downscale_water_use.py --scenario 1850soc --years 1850-2021 --start-years 1601,2022,1551,1576
 """
 import argparse, calendar, json, os, re, sys, time
 from concurrent.futures import ProcessPoolExecutor
@@ -75,7 +87,7 @@ import netCDF4 as nc
 import yaml
 from scipy.spatial import cKDTree
 
-from common import gitstate, hashing, provenance, workdir
+from common import gitstate, hashing, provenance, unit_extension, workdir
 
 WORKDIR = workdir.root()
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -116,6 +128,57 @@ SCEN = {'histsoc': ((1850, 2021), ('histsoc', 'population_histsoc')),
         'ssp1vlsoc-noadapt': ((2022, 2100), ('ssp1vlsoc-noadapt', 'population_ssp1')),
         'ssp3hsoc-noadapt': ((2022, 2100), ('ssp3hsoc-noadapt', 'population_ssp3'))}
 SSP_SOURCE = {'ssp1vlsoc-noadapt': 'ssp126', 'ssp3hsoc-noadapt': 'ssp370'}
+CONSTANT = ('1850soc', '2021soc')   # scenarios constant in time: start years outside their years may be written (D20)
+
+
+def parse_years(text):
+    """'START-END' or 'YEAR' -> list of years; None -> []."""
+    if not text:
+        return []
+    y = text.split('-')
+    return list(range(int(y[0]), int(y[-1]) + 1))
+
+
+def parse_start_years(scen, text):
+    """Start years of --start-years (D20): a comma-separated list, allowed for the constant scenarios only, every
+    year outside the scenario's own years, no repeats. Returns the sorted list ([] when the option is not given)."""
+    if not text:
+        return []
+    years = [int(x) for x in text.split(',') if x.strip()]
+    if scen not in CONSTANT:
+        raise SystemExit(f'--start-years is allowed for {", ".join(CONSTANT)} only (constant scenarios, D20), not {scen}')
+    y0, y1 = SCEN[scen][0]
+    inside = [y for y in years if y0 <= y <= y1]
+    if inside:
+        raise SystemExit(f'--start-years {inside} lie inside the years of {scen} ({y0}-{y1}); use --years for them')
+    if len(set(years)) != len(years) or any(y < 1 for y in years):
+        raise SystemExit(f'--start-years must be distinct positive years, not {text}')
+    return sorted(years)
+
+
+def source_year_of(scen, year):
+    """Year of the source data (withdrawal, consumption fraction, population) a file of `year` is made from: the year
+    itself inside the scenario's years, the scenario's first year (the constant field) for a start year of a constant
+    scenario (D20). The demand is always divided by the days of `year` itself."""
+    y0, y1 = SCEN[scen][0]
+    if y0 <= year <= y1:
+        return year
+    if scen not in CONSTANT:
+        raise ValueError(f'{scen} has no data for {year}')
+    return y0
+
+
+def merge_ledger(path, header, rows, years):
+    """Write the lost-demand ledger: the rows of this run (`rows`, 'year,sector,...') replace the rows of `years` in
+    an existing ledger, every other row is kept; rows are ordered by year, then as written."""
+    keep = []
+    if os.path.exists(path):
+        with open(path) as fh:
+            keep = [l.rstrip('\n') for l in fh.read().splitlines()[1:] if l.strip() and int(l.split(',')[0]) not in years]
+    out = sorted(keep + rows, key=lambda r: int(r.split(',')[0]))
+    with open(path + '.part', 'w') as fh:
+        fh.write(header + '\n' + ''.join(r + '\n' for r in out))
+    os.replace(path + '.part', path)
 
 
 # ----------------------------------------------------------------------------------------------- sources
@@ -412,15 +475,20 @@ _JOB = {}   # set by main() before the worker processes are forked; read-only in
 
 
 def produce_year(year):
-    """Write the six files of one year and its QC records (runs in a worker process)."""
-    j = _JOB; a = j['args']; t0 = time.time()
+    """Write the six files of one year and its QC records (runs in a worker process). A start year (D20) takes the
+    sources and population of its source year and the days of the year itself."""
+    j = _JOB; a = j['args']; t0 = time.time(); source = source_year_of(a.scenario, year)
     lat, lon, mask, area = j['grid']
-    pop, pop_file = read_population(a.scenario, year, lat)
-    qa = {'scenario': a.scenario, 'year': year, 'population_file': pop_file, 'days_in_year': days_in_year(year),
-          'sectors': {}}
+    pop, pop_file = read_population(a.scenario, source, lat)
+    qa = {'scenario': a.scenario, 'year': year, 'source_year': source, 'population_file': pop_file,
+          'days_in_year': days_in_year(year), 'sectors': {}}
+    attrs = j['attrs'] if source == year else dict(
+        j['attrs'], source_year=np.int32(source),
+        start_year_note='sources and population of source_year (the constant field of the scenario), demand per day of '
+                        'this year, time axis of this year (D20, docs/decisions/D20-first-year-files.md)')
     lost_rows = []
     for sec, sd in SECTORS.items():
-        spec = source_spec(a.scenario, sd['src'], year)
+        spec = source_spec(a.scenario, sd['src'], source)
         ww, wwfill = read_source(f'{WORKDIR}/{spec["ww"][0]}', spec['ww'][1], spec['ww'][2])
         child, cls, rep = split_volume(ww, pop, mask)
         demand = volume_to_mm_per_day(child, area, year)
@@ -433,7 +501,7 @@ def produce_year(year):
         for var, data in (('demand', demand), ('consumption_fraction', replicate(cf)),
                           ('groundwater_fraction', j['gw'][sec])):
             fn = base.format(v=var)
-            write_field(fn + '.part', f'{sec}_{var}', data, mask, lat, lon, year, j['attrs'])
+            write_field(fn + '.part', f'{sec}_{var}', data, mask, lat, lon, year, attrs)
             os.replace(fn + '.part', fn)
         written_km3 = float((np.where(mask, demand, 0.0) * area * days_in_year(year) / 1000.0).sum() / 1e9)
         active_parent = blocks(mask).any(axis=1).reshape(ww.shape)
@@ -511,7 +579,10 @@ SOURCE_NOTES = [
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--scenario', required=True, choices=list(SCEN), help='ISIMIP soc-scenario specifier')
-    ap.add_argument('--years', required=True, help='single year or START-END')
+    ap.add_argument('--years', default=None, help='single year or START-END within the scenario years')
+    ap.add_argument('--start-years', default=None,
+                    help='comma-separated run start years outside the scenario years, written from the constant field '
+                         f'(D20); {", ".join(CONSTANT)} only')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates', 'production'])
     ap.add_argument('--processes', type=int, default=1, help='years produced in parallel (about 3 GB each)')
@@ -521,10 +592,13 @@ def main():
                          'this commit')
     ap.add_argument('--scratch-label', default=None, help=f'with --scratch: write under {SCRATCH}/runs/<LABEL>/<soc>/')
     a = ap.parse_args(); t0 = time.time()
-    y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
+    years = parse_years(a.years); start_years = parse_start_years(a.scenario, a.start_years)
     y0, y1 = SCEN[a.scenario][0]
-    if years[0] < y0 or years[-1] > y1:
+    if years and (years[0] < y0 or years[-1] > y1):
         raise SystemExit(f'{a.scenario} covers {y0}-{y1}, not {a.years}')
+    if not years and not start_years:
+        raise SystemExit('give --years and/or --start-years')
+    all_years = sorted(years + start_years)
     if a.scratch_label and not (a.scratch and re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', a.scratch_label)):
         raise SystemExit('--scratch-label needs --scratch and lowercase words joined by hyphens')
     commit, dirty = git_state()
@@ -538,25 +612,33 @@ def main():
     qcdir = f'{out}/qc/reports' if to_scratch else f'{WORKDIR}/qc/forcing/{unit}/reports'
     if to_scratch:
         print(f'{"repository is not clean" if dirty else "--scratch"}: writing to {out} (not a forcing unit)', file=sys.stderr)
-    elif os.path.exists(out) and os.listdir(out):
-        raise SystemExit(f'{out} exists and is not empty: a forcing unit is generated as a whole and an existing '
-                         f"unit is replaced only with the user's authorization (move it away first)")
     dom_rel = DOMAIN.format(status=a.parameter_status, pset=a.parameter_set)
-    # ---------------- inputs and their checksums
-    srcs = sorted({spec[k][0] for yy in years for sd in SECTORS.values()
+    # ---------------- inputs and their checksums (a start year uses the sources of its source year)
+    source_years = sorted({source_year_of(a.scenario, yy) for yy in all_years})
+    srcs = sorted({spec[k][0] for yy in source_years for sd in SECTORS.values()
                    for spec in [source_spec(a.scenario, sd['src'], yy)] for k in ('ww', 'cf_ww', 'cf_wc')})
-    pops = sorted({os.path.relpath(f'{WORKDIR}/{POP}/{SCEN[a.scenario][1][0]}/{f}', WORKDIR)
-                   for f in os.listdir(f'{WORKDIR}/{POP}/{SCEN[a.scenario][1][0]}')
-                   for yy in years
+    pop_dir = f'{WORKDIR}/{POP}/{SCEN[a.scenario][1][0]}'
+    if not os.path.isdir(pop_dir):
+        raise SystemExit(f'missing input {pop_dir}')
+    pops = sorted({os.path.relpath(f'{pop_dir}/{f}', WORKDIR) for f in os.listdir(pop_dir)
+                   for yy in source_years
                    if (m := re.fullmatch(SCEN[a.scenario][1][1] + r'_5arcmin_annual_(\d{4})_(\d{4})\.nc', f))
                    and int(m.group(1)) <= yy <= int(m.group(2))})
     gws = [f'{GW}/{sd["gw_table"]}' for sd in SECTORS.values()] + [f'{GW}/input/Arc_ID_lon_lat_continentalarea.txt']
-    inputs = srcs + pops + gws + [COUNTRYMASK, dom_rel]
+    static = gws + [COUNTRYMASK, dom_rel]                  # used by every year
+    inputs = srcs + pops + static
     for p in inputs:
         if not os.path.isfile(f'{WORKDIR}/{p}'):
             raise SystemExit(f'missing input {p}')
     print(f'checking {len(inputs)} input files against their manifests', flush=True)
     check_inputs(inputs, a.parameter_set, dom_rel)
+    input_sha = {p: hashing.sha256(f'{WORKDIR}/{p}') for p in inputs}
+    code_tree = gitstate.tree_hashes(REPO, CODE_DIRS); software = provenance.software_versions()
+    # ---------------- unit state: new, extension, or refused (common/unit_extension.py)
+    prev = None if to_scratch else unit_extension.prepare(out, unit, all_years, CREATED_BY, METHOD_VERSION, code_tree,
+                                                         software, input_sha, static)
+    if prev:
+        print(f'{unit}: extending with {all_years}', flush=True)
     os.makedirs(out, exist_ok=True); os.makedirs(qcdir, exist_ok=True)
     # ---------------- grid, continents, static fields
     dom = nc.Dataset(f'{WORKDIR}/{dom_rel}')
@@ -580,54 +662,72 @@ def main():
                 continent=continent, continent_names=cnames, cf={}, cf_ww_zero={})
     # consumption fractions that do not change with the year are computed once
     for sec, sd in SECTORS.items():
-        static = a.scenario != 'histsoc' and a.scenario != '1850soc'
-        if static:
-            spec = source_spec(a.scenario, sd['src'], years[0])
+        static_cf = a.scenario != 'histsoc' and a.scenario != '1850soc'
+        if static_cf:
+            spec = source_spec(a.scenario, sd['src'], source_years[0])
             _JOB['cf'][sec] = consumption_parent(spec); _JOB['cf_ww_zero'][sec] = consumption_zero(spec)
         else:
             _JOB['cf'][sec] = None; _JOB['cf_ww_zero'][sec] = None
-    nproc = max(1, min(a.processes, len(years)))
+    nproc = max(1, min(a.processes, len(all_years)))
     if nproc == 1:
-        done = [produce_year(yy) for yy in years]
+        done = [produce_year(yy) for yy in all_years]
     else:
         # an executor (not a Pool) fails at once if a worker is killed, e.g. by the memory limit
         with ProcessPoolExecutor(nproc, mp_context=get_context('fork')) as ex:
-            done = list(ex.map(produce_year, years))
-    # ---------------- lost-demand ledger of the whole run
-    ledger = ['year,sector,source_km3,written_km3,parents_weighted,parents_even_split,even_split_km3,'
-              'parents_lost,lost_km3,source_fill_cells_in_active_parents']
+            done = list(ex.map(produce_year, all_years))
+    # ---------------- lost-demand ledger of the whole unit (the rows of other years are kept)
+    header = ('year,sector,source_km3,written_km3,parents_weighted,parents_even_split,even_split_km3,'
+              'parents_lost,lost_km3,source_fill_cells_in_active_parents')
+    rows = []
     for yy, qa in sorted(done):
         for sec, r in qa['sectors'].items():
-            ledger.append(f"{yy},{sec},{r['source_km3']:.6f},{r['child_km3']:.6f},{r['parents_weighted']},"
-                          f"{r['parents_even_split']},{r['even_split_km3']:.6f},{r['parents_lost']},{r['lost_km3']:.6f},"
-                          f"{r['source_fill_cells_in_active_parents']}")
-    with open(f'{qcdir}/lost_demand_ledger.csv', 'w') as fh:
-        fh.write('\n'.join(ledger) + '\n')
+            rows.append(f"{yy},{sec},{r['source_km3']:.6f},{r['child_km3']:.6f},{r['parents_weighted']},"
+                        f"{r['parents_even_split']},{r['even_split_km3']:.6f},{r['parents_lost']},{r['lost_km3']:.6f},"
+                        f"{r['source_fill_cells_in_active_parents']}")
+    merge_ledger(f'{qcdir}/lost_demand_ledger.csv', header, rows, set(all_years))
     print(f'{len(done)} year(s), {nproc} process(es), {sum(q["runtime_s"] for _, q in done) / len(done):.0f} s per year',
           flush=True)
     # ---------------- provenance of the whole unit, written last
-    files = sorted(f for f in os.listdir(out) if f.endswith('.nc'))
+    new = [unit_extension.file_record(f'{out}/{sec}_{var}_{a.scenario}_{yy}.nc', yy, commit)
+           for yy in all_years for sec in SECTORS for var in VARIABLES]
+    if to_scratch:      # scratch: list whatever is in the directory
+        recs = {r['path']: r for r in new}
+        new = [recs.get(f) or {'path': f} for f in sorted(os.listdir(out)) if f.endswith('.nc')]
+    starts = {y: source_year_of(a.scenario, y) for y in start_years}
+    upd = unit_extension.extend(prev, new, input_sha, code_tree, CREATED_BY, METHOD_VERSION, commit, created_at, all_years,
+                                details={'start_years': starts} if starts else None) if prev else {}
+    files = upd['files'] if prev else sorted(new, key=lambda f: f['path'])
+    yrs = unit_extension.unit_years({'files': [f for f in files if 'year' in f]})
     rp_qc = f'qc/forcing/{unit}' if not to_scratch else os.path.relpath(f'{out}/qc', WORKDIR)
+    method = method_record(a.scenario, gwrep, cnames)
+    if a.scenario in CONSTANT:
+        method['start_years'] = (f'run start years outside {y0}-{y1} take the sources and population of the scenario\'s '
+                                 f'first year (the constant field), the demand divided by the days of the start year, '
+                                 f'and their own time axis (D20); listed under start_years')
     prov = {
-        'forcing_unit': unit, 'created_by': CREATED_BY, 'code_commit': commit, 'code_dirty': dirty,
-        'created_at': created_at, 'input_manifest': WA_MANIFEST,
+        'forcing_unit': unit, 'created_by': CREATED_BY,
+        'code_commit': prev['code_commit'] if prev else commit, 'code_dirty': dirty,
+        'created_at': prev['created_at'] if prev else created_at, 'input_manifest': WA_MANIFEST,
         'other_manifests': [GW_MANIFEST, ISIMIP4B_MD5SUMS, PARAMETER_MANIFEST.format(pset=a.parameter_set)],
         'inputs': inputs,
-        'input_sha256': {p: hashing.sha256(f'{WORKDIR}/{p}') for p in inputs},
-        'method': method_record(a.scenario, gwrep, cnames),
+        'input_sha256': input_sha,
+        'method': method,
         'source_data_notes': SOURCE_NOTES,
-        'fingerprint': provenance.fingerprint(gitstate.tree_hashes(REPO, CODE_DIRS), METHOD_VERSION,
-                                              provenance.software_versions()),
-        'years': f'{years[0]}-{years[-1]}',
-        'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario} --years {years[0]}-{years[-1]} '
-                           f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
+        'fingerprint': provenance.fingerprint(code_tree, METHOD_VERSION, software),
+        'years': unit_extension.years_span(yrs),
+        'start_years': starts,
+        'rebuild_command': f'python3 {CREATED_BY} --scenario {a.scenario}' + (f' --years {years[0]}-{years[-1]}' if years else '')
+                           + (f' --start-years {",".join(str(y) for y in start_years)}' if start_years else '')
+                           + f' --parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
                            + (' --scratch' if a.scratch else '') + (f' --scratch-label {a.scratch_label}' if a.scratch_label else ''),
         'caches': [],
-        'files': [{'path': f, 'year': int(f[:-3].rsplit('_', 1)[1]), 'size_bytes': os.path.getsize(f'{out}/{f}'),
-                   'sha256': hashing.sha256(f'{out}/{f}')} for f in files],
+        'files': files,
         'qc': {'status': 'not_checked', 'evidence': rp_qc}}
+    prov.update(upd)
+    if prev:    # start years of the whole unit, the earlier ones and the new ones
+        prov['start_years'] = {**(prev.get('start_years') or {}), **starts}
     provenance.write(f'{out}/provenance.yaml', prov)
-    print(f'done: {len(years)} year(s) in {time.time() - t0:.0f} s -> {out}')
+    print(f'done: {len(all_years)} year(s) in {time.time() - t0:.0f} s -> {out}')
 
 
 if __name__ == '__main__':

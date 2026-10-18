@@ -198,3 +198,27 @@ equivalences:
       lost_demand_ledger.csv and lost_parents_2015.csv byte-identical; qa_2015.json identical; provenance.yaml differs
       only in code_dirty, files[].sha256 and the paths that carry the scratch label.
     approved: user, 2026-10-12
+  - id: start-years-water-use
+    producer: workflow/04_forcing/water_use/downscale_water_use.py
+    method_version: '1.0'
+    from:
+      workflow/04_forcing/water_use: 84758de3487d0e7eb96dc3a83b3fa811b5e2a2a4
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    to:
+      workflow/04_forcing/water_use: eaa6d9b9d08f90ce678774673a95ca914b6552f7
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    change: >-
+      task O2 (D20): the producer extends an existing unit under the rules of common/unit_extension.py instead of
+      refusing a non-empty unit, writes run start years outside the scenario years (--start-years, 1850soc and 2021soc
+      only) from the sources of the scenario's first year with the demand per day of the start year, records them under
+      start_years and keeps the lost-demand ledger rows of earlier years; the file entries of provenance.yaml gain
+      created_at and code_commit; the verifier checks start years against their source year; README. The method and
+      the files of the scenario years are unchanged.
+    evidence: >-
+      Scratch test on 2026-10-18, histsoc 2015, same inputs and commit base 4d52a73: before = worktree of 4d52a73
+      (Slurm job 43351750), after = the change (job 43329876), comparison job 43351751
+      (scratch/first-year-files/compare-o2.log): all six files identical in every variable and attribute except
+      code_dirty and created_at; lost_demand_ledger.csv and lost_parents_2015.csv byte-identical; qa_2015.json equal
+      except runtime and the new source_year key; provenance.yaml differs only in code_dirty, created_at, files[].sha256,
+      the paths that carry the scratch label and the new keys (start_years, files[].created_at, files[].code_commit).
+    approved: user, 2026-10-18
