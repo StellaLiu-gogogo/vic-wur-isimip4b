@@ -55,9 +55,11 @@ def _violations(path):
 
 
 def landuse_files(W):
-    """[(soc, path)] of every coverage file of the five land-use units, and {workdir path: sha256 recorded in the unit's
-    provenance.yaml (None when not recorded, so that render_run.py refuses the file)} of the same files."""
-    files, checked = [], {}
+    """[(soc, path)] of every coverage file of the five land-use units, {workdir path: sha256 recorded in the unit's
+    provenance.yaml (None when not recorded, so that render_run.py refuses the file)} of the same files, and the
+    workdir paths of files the records list but the units lack. The units' own records say which files a unit has
+    (the scenario years and the start years of D20); no count is assumed here."""
+    files, checked, missing = [], {}, []
     for soc in bv.SOC:
         u = f'{W}/forcing/landuse/{soc}'
         prov = f'{u}/provenance.yaml'
@@ -65,7 +67,8 @@ def landuse_files(W):
         names = [f for f in sorted(os.listdir(u)) if f.startswith(f'coverage_{soc}_') and f.endswith('.nc')]
         files += [(soc, f'{u}/{f}') for f in names]
         checked.update({f'forcing/landuse/{soc}/{f}': sha.get(f) for f in names})
-    return files, checked
+        missing += [f'forcing/landuse/{soc}/{f}' for f in sorted(sha) if f not in names]
+    return files, checked, missing
 
 
 def main():
@@ -116,7 +119,7 @@ def main():
     del cv, act
 
     # ---- every forcing tile is a parameter tile (all files of all five units, re-read here)
-    files, checked_files = landuse_files(W)
+    files, checked_files, missing_files = landuse_files(W)
     _SHARED['tiles'] = tiles
     per_soc = {soc: {'files': 0, 'violations_by_class': [0] * bv.NCLASS} for soc in bv.SOC}
     with ProcessPoolExecutor(a.processes, mp_context=get_context('fork')) as ex:   # fails at once if a worker dies
@@ -124,9 +127,13 @@ def main():
             per_soc[soc]['files'] += 1
             per_soc[soc]['violations_by_class'] = [x + y for x, y in zip(per_soc[soc]['violations_by_class'], viol)]
     total = sum(sum(p['violations_by_class']) for p in per_soc.values())
+    unrecorded = sorted(p for p, sha in checked_files.items() if sha is None)
+    # passed: no violation, every unit has files, every file is recorded in its unit's provenance.yaml and every
+    # recorded file is present (the records, not a fixed count, say which years a unit holds)
+    ok = total == 0 and all(p['files'] > 0 for p in per_soc.values()) and not unrecorded and not missing_files
     checks['forcing_tiles'] = {'per_soc': per_soc, 'files': len(files), 'violations': total,
-                               'status': 'passed' if total == 0 and len(files) == 172 * 2 + 79 * 3 else 'failed',
-                               'checked_files': checked_files}
+                               'files_not_in_provenance': unrecorded, 'recorded_files_missing': missing_files,
+                               'status': 'passed' if ok else 'failed', 'checked_files': checked_files}
 
     # ---- parameters per class
     added = np.zeros(tiles.shape, bool); ab = v['added_tile_bits'][:]

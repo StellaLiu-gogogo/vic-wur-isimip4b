@@ -71,9 +71,10 @@ class Workdir(unittest.TestCase):
 
 class VerifierRecordTest(Workdir):
     def test_records_every_file_read_with_its_sha256(self):
-        files, checked = vv.landuse_files(self.W)
+        files, checked, missing = vv.landuse_files(self.W)
         self.assertEqual(len(files), 10)
         self.assertEqual(checked, self.sha)
+        self.assertEqual(missing, [])
 
 
 class RenderCheckTest(Workdir):

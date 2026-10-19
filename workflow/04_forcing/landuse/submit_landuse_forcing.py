@@ -84,8 +84,10 @@ def main():
         print(text); return
     if a.verify_only and not (os.path.isdir(out) and os.listdir(out)):
         raise SystemExit(f'{out} has no files to verify')
-    if not a.verify_only and not to_scratch and os.path.exists(out) and os.listdir(out):
-        raise SystemExit(f'{out} exists and is not empty; the producer would refuse to write into it')
+    if not a.verify_only and not to_scratch and os.path.isdir(out) and os.listdir(out) \
+            and not os.path.exists(f'{out}/provenance.yaml'):
+        raise SystemExit(f'{out} contains files but no provenance.yaml (incomplete unit); ask the user')
+    # an existing unit with a record is extended, or refused, by the producer (common/unit_extension.py)
     f15, furb, _ = lu.SCEN[a.scenario]
     details = {
         'resources': {'partition': a.partition, 'time': a.time, 'cpus_per_task': nproc, 'mem': mem},

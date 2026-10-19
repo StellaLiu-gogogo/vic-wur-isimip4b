@@ -27,7 +27,8 @@ Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary and
   2003–2022 tiles and their parameters.
 - Domain `parameters/<status>/<set>/domain/vic_global_5min_domain_nogl.nc`.
 - The accepted land-use forcing units `forcing/landuse/{histsoc,1850soc,2021soc,ssp1vlsoc-noadapt,ssp3hsoc-noadapt}/`
-  (all 581 yearly files).
+  (every file the five units' `provenance.yaml` records list: the scenario years and the start years of D20; an
+  unrecorded or a missing file fails the check).
 - Köppen–Geiger 1991–2020, Beck et al. (2023), 1 km:
   `raw/external/koppen-geiger/beck2023/1991_2020/koppen_geiger_0p00833333.tif`
   (manifest `manifests/inputs/koppen-geiger-beck2023.yaml`), reduced to the

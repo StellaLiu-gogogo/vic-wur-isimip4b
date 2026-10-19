@@ -406,6 +406,7 @@ class VegetationVerifierTest(unittest.TestCase):
         self.bv = load('03_parameters/vegetation/build_vegetation.py', 'build_vegetation', W)
         sys.modules['build_vegetation'] = self.bv          # the verifier imports it by name
         self.vf = load('03_parameters/vegetation/verify_vegetation.py', 'veg_verifier', W)
+        sys.modules['veg_verifier'] = self.vf               # the worker processes of the verifier look it up by name
         pset = f'{W}/parameters/candidates/vic-global-5arcmin-version-a'
         os.makedirs(f'{pset}/domain'); os.makedirs(f'{pset}/bundle')
         self.comp = f'{W}/component'; os.makedirs(self.comp)
@@ -444,7 +445,7 @@ class VegetationVerifierTest(unittest.TestCase):
                 d.createVariable('backfill_level', 'i1', ('veg_class', 'lat', 'lon'))[:] = 0
 
     def tearDown(self):
-        sys.modules.pop('build_vegetation', None)
+        sys.modules.pop('build_vegetation', None); sys.modules.pop('veg_verifier', None)
         self.tmp.cleanup()
 
     def test_failed_exits_1(self):
@@ -452,6 +453,41 @@ class VegetationVerifierTest(unittest.TestCase):
         summary = json.load(open(f'{self.comp}/qc/summary.json'))
         self.assertEqual(summary['checks']['forcing_tiles'], 'failed')
         self.assertEqual((code, summary['status']), (1, 'failed'))
+
+    def coverage_file(self, soc, year, record=True):
+        """One coverage file of a unit (class 1 on the active cells, as the component's tiles) and its record."""
+        u = f'{self.W}/forcing/landuse/{soc}'; name = f'coverage_{soc}_{year}.nc'
+        cov = np.zeros((self.bv.NCLASS, 2, 2), 'f4'); cov[0] = 1.0; cov[:, 1, 1] = np.nan
+        with nc.Dataset(f'{u}/{name}', 'w') as d:
+            d.createDimension('time', 1); d.createDimension('veg_class', self.bv.NCLASS); d.createDimension('lat', 2); d.createDimension('lon', 2)
+            d.createVariable('coverage', 'f4', ('time', 'veg_class', 'lat', 'lon'))[0] = cov
+        if record:
+            prov = f'{u}/provenance.yaml'
+            rec = yaml.safe_load(open(prov)) if os.path.exists(prov) else {'files': []}
+            rec['files'].append({'path': name, 'sha256': 'x' * 64})
+            with open(prov, 'w') as fh:
+                yaml.safe_dump(rec, fh)
+
+    def forcing_tiles(self):
+        run_main(self.vf, ['--component-dir', self.comp, '--processes', '1'], self.W)
+        return json.load(open(f'{self.comp}/qc/reports/verify.json'))['checks']['forcing_tiles']
+
+    def test_forcing_tiles_follow_the_units_records(self):
+        """The files of the units are those their provenance records list (scenario years plus the start years of
+        D20), not a fixed count: all recorded and present -> passed; an unrecorded or a missing file -> failed."""
+        for soc in self.bv.SOC:
+            self.coverage_file(soc, 2015)
+        self.coverage_file('1850soc', 1601)                                # a start year, recorded
+        ft = self.forcing_tiles()
+        self.assertEqual((ft['status'], ft['files'], ft['violations']), ('passed', 6, 0))
+        self.assertEqual(ft['per_soc']['1850soc']['files'], 2)
+        self.coverage_file('2021soc', 1850, record=False)                  # present but not in provenance.yaml
+        ft = self.forcing_tiles()
+        self.assertEqual((ft['status'], ft['files_not_in_provenance']), ('failed', ['forcing/landuse/2021soc/coverage_2021soc_1850.nc']))
+        os.remove(f'{self.W}/forcing/landuse/2021soc/coverage_2021soc_1850.nc')
+        os.remove(f'{self.W}/forcing/landuse/histsoc/coverage_histsoc_2015.nc')   # recorded but gone
+        ft = self.forcing_tiles()
+        self.assertEqual((ft['status'], ft['recorded_files_missing']), ('failed', ['forcing/landuse/histsoc/coverage_histsoc_2015.nc']))
 
 
 if __name__ == '__main__':
