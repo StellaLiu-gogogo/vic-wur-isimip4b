@@ -159,6 +159,15 @@ class ChunkSubmitTest(unittest.TestCase):
             sr.submit_run('rd', check=True, from_chunk=1)
         self.assertEqual(calls, [('2016-2016', None), ('2017-2017', 'j')])
 
+    def test_spinup_gets_no_run_check(self):
+        checks = []
+        m = {**chunked_manifest(), 'segment_id': f'ec-earth3-esm-1-1_picontrol_1850soc_default_spinup'}
+        with mock.patch.object(sr.rm, 'load', return_value=m), \
+                mock.patch.object(sr, 'submit', return_value='j'), \
+                mock.patch.object(sr.sc, 'submit', side_effect=lambda *a, **k: checks.append(k)):
+            sr.submit_run('rd', check=True)
+        self.assertEqual(checks, [])
+
 
 class CompareRunsTest(unittest.TestCase):
     def test_arrays(self):

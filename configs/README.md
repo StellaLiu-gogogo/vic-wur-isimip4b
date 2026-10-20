@@ -35,7 +35,7 @@ Keys of a campaign file (checked by `workflow/05_simulation/render/resolve_campa
 | `spinup` | `length_years` and `climate_cycle` `[first, last]` (null when the campaign simulates no spin-up) |
 | `dhf_forcing` | `units` (segment soc scenario → land-use and water-use unit) and `constant` (scenarios constant in time) |
 | `plugins` | switches and settings of routing, irrigation, dams (operation constants), water use (sectors, withdrawal options, `nonrenewable_limit_mm`: limit of the non-renewable deficit in mm, null for none), land use, EFR, WOFOST |
-| `output` | format, compression, file frequency, streams, aggregation overrides, `isimip` (protocol variable → VIC outputs, frequency, streams, rule), `diagnostics`, `not_provided` (with reasons; together with `isimip` it must cover every protocol variable of the sector) |
+| `output` | format, compression, file frequency, streams, aggregation overrides, `isimip` (protocol variable → VIC outputs, frequency, streams, rule), `diagnostics`, `not_provided` (with reasons; together with `isimip` it must cover every protocol variable of the sector; not needed by a campaign of spin-ups alone), `spinup` (`monthly`: the VIC outputs a spin-up writes, D19; required when the campaign renders a spin-up) |
 | `resources` | path of the resource file |
 | `open_decisions` | the open decisions the campaign runs under |
 

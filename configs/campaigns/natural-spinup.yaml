@@ -1,0 +1,151 @@
+# Campaign `natural-spinup`: the spin-up of the natural run of task L (task P, non-production). Segments are derived by
+# workflow/05_simulation/render/resolve_campaign.py from the pinned protocol; this file selects experiments and
+# declares every choice the protocol does not make (configs/README.md).
+campaign_id: natural-spinup
+production: false
+description: >-
+  Ten-year spin-up of the natural run of task L (dam service maps, D19): picontrol climate cycle 1601-1610, 1850soc
+  land use, routing and land use only (no irrigation, water use, dams, EFR, WOFOST), the parameter files and model
+  build of campaign smoke. The years are labelled 1591-1600 by the D20 block rule, so that the end state is dated
+  1601-01-01. Task L's natural main run (historical 1850-2021, histsoc land use, the same plugins) starts from this end
+  state with initialisation.state_of_run (D19 warm-start rule for non-production runs). Not a production spin-up: no
+  convergence test, the output (monthly convergence variables) is a candidate.
+
+model:
+  lock: model/vic.lock.yaml
+  commit: 39e21ff5015d01d9bc20407a8f50006831417aff
+  driver: image
+  coupling: standalone image driver, GWM FALSE, no MODFLOW coupling
+
+parameter_set:
+  id: vic-global-5arcmin-version-a
+  status: candidates
+  # role -> file inside the parameter set (manifests/parameters/vic-global-5arcmin-version-a.yaml); the files of
+  # campaign smoke, so that the warm start of task L's natural main run finds identical parameter files (D19)
+  files:
+    domain: domain/vic_global_5min_domain_nogl.nc
+    parameters: bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc
+    routing: routing/vic_global_5min_routing.nc
+    decomposition: routing/vic_global_5min_file_decomposition_wateruse_dams.nc
+    irrigation: irrigation/vic_global_5min_irrigation_parameters.nc
+    # soc scenario of a segment -> dam file (D19). The dams plugin is off; the adopted T3_extended file is named as in
+    # campaign smoke and is not read.
+    dams:
+      histsoc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      1850soc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      2021soc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      2021soc-from-histsoc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      ssp1vlsoc-noadapt: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      ssp3hsoc-noadapt: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+    water_use: water_use/vic_global_5min_wateruse_parameters_receiving-network.nc
+
+protocol:
+  path: raw/external/isimip-protocol-4/f9be7b0cdf83409315d9fa7da8581cc6fd6ff3e1
+  commit: f9be7b0cdf83409315d9fa7da8581cc6fd6ff3e1
+  simulation_round: ISIMIP4b
+  sector: water_global
+
+gcms:
+  ec-earth3-esm-1-1:
+    # the DKRZ input of this GCM is emission-driven: input aliases esm-picontrol, esm-hist, esm-scen7-*
+    climate_input: emission-driven
+
+# An experiment whose pre-industrial period is picontrol with 1850soc: its spin-up segment is
+# ec-earth3-esm-1-1_picontrol_1850soc_default_spinup.
+experiments:
+  ids: [h_ssp3hsoc-noadapt_default]
+exclusions: []
+sensitivity_equivalence:
+  2021co2:
+    same_as: default
+    reason: VIC-WUR has no CO2-dependent process (docs/glossary.md, sensitivity scenario)
+
+# Non-production restriction: the spin-up segment only (run ID <segment-id>__<label>).
+restriction:
+  periods: [spinup]
+  runs:
+    natural1591-1600:
+      years: [1591, 1600]
+
+initialisation:
+  # cold start: the initial moisture of the parameter file (no INIT_STATE)
+  without_parent: cold_start
+  # state written at the end of every run (first day after the last simulated day): 1601-01-01
+  state_at_end: true
+
+# D19 spin-up rules with a length of 10 years instead of 50 (non-production): the years before 1601, climate cycle
+# picontrol 1601-1610. The start year 1591 is an extension year of the climate unit esm-picontrol (copy of 1601) and of
+# the land-use unit 1850soc (D20).
+spinup:
+  length_years: 10
+  climate_cycle: [1601, 1610]
+
+dhf_forcing:
+  # soc scenario of a segment -> land-use and water-use forcing unit
+  units:
+    histsoc: histsoc
+    1850soc: 1850soc
+    2021soc: 2021soc
+    2021soc-from-histsoc: 2021soc
+    ssp1vlsoc-noadapt: ssp1vlsoc-noadapt
+    ssp3hsoc-noadapt: ssp3hsoc-noadapt
+  # units that are constant in time: a simulation year the unit does not contain uses the first unit year
+  # with the same number of days (render/forcing_years.py)
+  constant: [1850soc, 2021soc]
+
+# Plugins as task L's natural main run: routing and land use on, everything else off. The settings of the plugins
+# that are off are those of campaign smoke; they are written to the VIC file but not used.
+plugins:
+  routing:
+    enabled: true
+    decomposition: FILE
+    steps_per_day: 24            # the unit hydrographs of the routing file have 3600 s steps
+  irrigation:
+    enabled: false
+    potential_irrigation: false
+    efficient_irrigation: false
+    offset_irrigation: false
+    paddy_bare_class: 16
+  dams:
+    enabled: false
+    alpha: 0.85
+    beta: 0.6
+    gamma: 5
+  water_use:
+    enabled: false
+    sectors: [municipal, manufacturing]
+    local_withdrawal: true
+    remote_withdrawal: true
+    compensation_withdrawal: false
+    nonrenewable_withdrawal: false
+    nonrenewable_runoff: false
+  landuse:
+    enabled: true
+  efr:
+    enabled: false
+  wofost:
+    enabled: false
+
+# A spin-up writes only the monthly variables of the D19 convergence test (user, 2026-10-17): soil moisture per layer,
+# snow water equivalent (December values), river storage; reservoir storage and irrigation withdrawal are left out
+# because the dams, irrigation and water-use plugins are off. Precipitation, evaporation, runoff and baseflow are
+# added for a water-balance check of the spin-up. No ISIMIP selection: the campaign renders no other run.
+output:
+  format: NETCDF4
+  compress: 2
+  history_frequency: NYEARS 1    # one file per calendar year
+  aggregation:
+    OUT_SOIL_MOIST: AGG_TYPE_AVG
+    OUT_SWE: AGG_TYPE_AVG
+    OUT_SNOW_CANOPY: AGG_TYPE_AVG
+    OUT_STREAM_MOIST: AGG_TYPE_AVG
+  spinup:
+    monthly: [OUT_SOIL_MOIST, OUT_SWE, OUT_SNOW_CANOPY, OUT_STREAM_MOIST, OUT_PREC, OUT_EVAP, OUT_RUNOFF, OUT_BASEFLOW]
+
+resources: configs/resources/vic-global-5arcmin.yaml
+
+open_decisions:
+  D01: provisional VIC commit; every run is a candidate
+  D02: compute scope open; does not block this campaign
+  D03: storage of 5 arcmin output open; the output (monthly convergence variables only) stays in the run directory
+  D06: extrasoc composition open; not used by this campaign

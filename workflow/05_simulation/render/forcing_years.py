@@ -17,7 +17,8 @@ constant and the spin-up climate cycle):
             water-use demand is mm/day of a calendar year (annual volume / days in year).
   cycle     spin-up climate: simulation year Y maps to a + (Y - a) mod L in the declared window [a, b]
             (L = b - a + 1); when that year has a different day count, the next year of the window (cyclic)
-            with the same day count is used. A year that maps to itself is recorded as identity.
+            with the same day count is used. A year that maps to itself is recorded as identity, and so is a
+            start year of the unit made as a copy of its cycle year for the same window (D20).
 
 The mapping of every year is returned as data and recorded in the run manifest.
 """
@@ -50,23 +51,43 @@ def map_identity_or_constant(sim_years, unit_years, constant):
     return out
 
 
-def map_cycle(sim_years, window, unit_years):
-    """{sim_year: (source_year, rule)} for spin-up climate over the window [a, b]; the rule is 'identity' when the
-    source year is the simulation year (the file and its time axis are of that year), else 'cycle'."""
+def cycle_source(year, window):
+    """Source year of simulation year `year` in the cycle window [a, b]: a + (year - a) mod L, or, when that year has
+    another day count, the next year of the window (cyclic) with the same day count."""
     a, b = int(window[0]), int(window[1])
-    span = list(range(a, b + 1))
-    missing = sorted(set(span) - set(unit_years))
+    span = list(range(a, b + 1)); n = len(span)
+    i = (year - a) % n
+    for k in range(n):
+        s = span[(i + k) % n]
+        if days(s) == days(year):
+            return s
+    raise ValueError(f'cycle window {a}-{b} has no {days(year)}-day year for {year}')
+
+
+def map_cycle(sim_years, window, unit_years, start_years=None, cycle_windows=None):
+    """{sim_year: (source_year, rule)} for spin-up climate over the window [a, b]; the rule is 'identity' when the
+    source year is the simulation year (the file and its time axis are of that year), else 'cycle'.
+
+    A start year of the unit (D20: provenance `start_years` {year: source year}, `cycle_windows` {year: [a, b]}) is a
+    copy of its cycle year re-stamped to its own year; it is used as itself ('identity') when it was made for this
+    window, so that a spin-up can start in it (VIC checks the start-year file's first time). A start year made for
+    another window stops the mapping: its data are not the cycle year of this window."""
+    a, b = int(window[0]), int(window[1])
+    missing = sorted(set(range(a, b + 1)) - set(unit_years))
     if missing:
         raise ValueError(f'cycle window {a}-{b} not covered by the unit (missing {missing[:5]}...)')
-    n = len(span); out = {}
+    starts = {int(y): int(s) for y, s in (start_years or {}).items()}
+    windows = {int(y): [int(v) for v in w] for y, w in (cycle_windows or {}).items()}
+    out = {}
     for y in sim_years:
-        i = (y - a) % n
-        for k in range(n):
-            s = span[(i + k) % n]
-            if days(s) == days(y):
-                out[y] = (s, 'identity' if s == y else 'cycle'); break
+        s = cycle_source(y, (a, b))
+        if y in starts and y in set(unit_years):
+            if starts[y] != s or windows.get(y) != [a, b]:
+                raise ValueError(f'start year {y} of the unit is a copy of {starts[y]} made for the cycle window '
+                                 f'{windows.get(y)}; the campaign window {a}-{b} needs a copy of {s}')
+            out[y] = (y, 'identity')
         else:
-            raise ValueError(f'cycle window {a}-{b} has no {days(y)}-day year for {y}')
+            out[y] = (s, 'identity' if s == y else 'cycle')
     return out
 
 

@@ -264,7 +264,7 @@ def forcing_plan(W, campaign, run, alias):
     def add_unit(rel_unit, family_key, link_dir, pattern, year_map):
         prov, files = unit_record(W, rel_unit)
         uyears = sorted(year_of(p) for p in files if re.fullmatch(pattern.format(year=r'\d{4}'), p))
-        ymap = year_map(uyears)
+        ymap = year_map(uyears, prov)
         rec = {'forcing_unit': rel_unit, 'code_commit': prov['code_commit'], 'created_at': prov['created_at'],
                'qc_status': prov['qc']['status'], 'files': {}}
         mapping[family_key] = {}
@@ -282,18 +282,22 @@ def forcing_plan(W, campaign, run, alias):
         rel = f'climate/{gcm}/{climate_alias}/{var}'
         pat = f'{var}_{gcm}_{climate_alias}_' + '{year}.nc'
         if spinup:
-            win = campaign['spinup']['climate_cycle']
-            add_unit(rel, f'climate/{var}', f'climate/{var}', pat, lambda uy, w=win: fy.map_cycle(years, w, uy))
+            win = (campaign.get('spinup') or {}).get('climate_cycle')
+            if not win:
+                raise RenderError(f'{run["run_id"]}: a spin-up needs the campaign key spinup.climate_cycle')
+            # a start year of the unit made for this window is used as itself (D20, forcing_years.map_cycle)
+            add_unit(rel, f'climate/{var}', f'climate/{var}', pat, lambda uy, pv, w=win: fy.map_cycle(
+                years, w, uy, pv.get('start_years'), pv.get('cycle_windows')))
         else:
             add_unit(rel, f'climate/{var}', f'climate/{var}', pat,
-                     lambda uy: fy.map_identity_or_constant(years, uy, constant=False))
+                     lambda uy, pv: fy.map_identity_or_constant(years, uy, constant=False))
     usoc = dhf['units'][seg['soc']]
     constant = usoc in dhf['constant']
     if spinup and not constant:
         raise RenderError(f'spin-up DHF {usoc} is not declared constant')
     if campaign['plugins']['landuse']['enabled']:
         add_unit(f'landuse/{usoc}', 'landuse', 'landuse', f'coverage_{usoc}_' + '{year}.nc',
-                 lambda uy: fy.map_identity_or_constant(years, uy, constant=constant))
+                 lambda uy, pv: fy.map_identity_or_constant(years, uy, constant=constant))
     if campaign['plugins']['water_use']['enabled']:
         for _, sector in WATER_USE_FILES:
             if sector not in campaign['plugins']['water_use']['sectors']:
@@ -305,7 +309,7 @@ def forcing_plan(W, campaign, run, alias):
                 # all six series live in one unit; record the unit once, files per series
                 before = dict(units.get(prov_rel, {}).get('files', {}))
                 add_unit(prov_rel, key, 'water_use', stem + '{year}.nc',
-                         lambda uy: fy.map_identity_or_constant(years, uy, constant=constant))
+                         lambda uy, pv: fy.map_identity_or_constant(years, uy, constant=constant))
                 units[prov_rel]['files'] = {**before, **units[prov_rel]['files']}
     return links, units, mapping
 
@@ -518,20 +522,58 @@ def check_output_files(campaign):
                           f'{HISTORY_FREQUENCY}')
 
 
-def output_streams(campaign, result_dir):
+# Spin-up output (D19, spin-up rule 3; user 2026-10-17): a spin-up writes only the variables of its convergence test,
+# as monthly means (December snow water equivalent needs monthly values; the test forms the annual values). The
+# campaign lists them under output.spinup; a variable of a plugin that is off is refused, because VIC drops an OUTVAR
+# it does not know with a warning only and the run would then miss a requested output.
+SPINUP_STREAMS = {'monthly': 'NMONTHS 1'}
+PLUGIN_OUTPUTS = (('dams', ('OUT_GDAM', 'OUT_LDAM')),
+                  ('water_use', ('OUT_WI_', 'OUT_DE_', 'OUT_WITHDRAWN', 'OUT_DEMAND', 'OUT_CONSUMED', 'OUT_RETURNED',
+                                 'OUT_NONREN')),
+                  ('irrigation', ('OUT_REQUIREMENT', 'OUT_APPLIED', 'OUT_SHORTAGE', 'OUT_LEFTOVER', 'OUT_RECEIVED')),
+                  ('routing', ('OUT_DISCHARGE', 'OUT_STREAM_MOIST')))
+
+
+def spinup_output(campaign, run_id):
+    """{stream: [OUTVAR]} of a spin-up run from the campaign's output.spinup (only the monthly stream); stops when the
+    key is missing, a stream is not monthly, or a variable belongs to a plugin that is off."""
+    o = campaign['output'].get('spinup')
+    if not o:
+        raise RenderError(f'{run_id}: a spin-up needs the campaign key output.spinup (monthly convergence variables)')
+    if set(o) != set(SPINUP_STREAMS) or not all(o.values()):
+        raise RenderError(f'{run_id}: output.spinup must list variables of the stream(s) {sorted(SPINUP_STREAMS)} '
+                          f'only, not {sorted(o)}')
+    off = []
+    for plugin, prefixes in PLUGIN_OUTPUTS:
+        if not campaign['plugins'][plugin]['enabled']:
+            off += [n for names in o.values() for n in names if n.startswith(prefixes)]
+    if off:
+        raise RenderError(f'{run_id}: output.spinup asks for {sorted(off)} of plugins that are off')
+    return {s: list(dict.fromkeys(o[s])) for s in SPINUP_STREAMS}
+
+
+def output_streams(campaign, result_dir, spinup_run=None):
+    """OUTFILE blocks of the VIC file and {stream: frequency}; for a spin-up run (spinup_run: its run ID) the monthly
+    convergence variables of output.spinup only."""
     o = campaign['output']; agg = o.get('aggregation', {})
+    if spinup_run:
+        chosen = spinup_output(campaign, spinup_run); freqs = SPINUP_STREAMS
+    else:
+        chosen = {}; freqs = o['streams']
+        for stream in o['streams']:
+            names = []
+            for var in o['isimip'].values():
+                if stream in var['streams']:
+                    names += [n for n in var['vic'] if n not in names]
+            names += [n for n in o.get('diagnostics', {}).get(stream, []) if n not in names]
+            chosen[stream] = names
     lines = []
-    for stream, freq in o['streams'].items():
-        names = []
-        for var in o['isimip'].values():
-            if stream in var['streams']:
-                names += [n for n in var['vic'] if n not in names]
-        names += [n for n in o.get('diagnostics', {}).get(stream, []) if n not in names]
-        lines += ['', f'OUTFILE                 {stream}', f'AGGFREQ                 {freq}',
+    for stream, names in chosen.items():
+        lines += ['', f'OUTFILE                 {stream}', f'AGGFREQ                 {freqs[stream]}',
                   f'HISTFREQ                {o["history_frequency"]}', f'OUT_FORMAT              {o["format"]}',
                   f'COMPRESS                {o["compress"]}']
         lines += [f'OUTVAR                  {n}' + (f'  * * * {agg[n]}' if n in agg else '') for n in names]
-    return '\n'.join(lines).lstrip('\n'), {s: f for s, f in o['streams'].items()}
+    return '\n'.join(lines).lstrip('\n'), {s: freqs[s] for s in chosen}
 
 
 def tf(value):
@@ -613,8 +655,12 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         runs = [r for r in runs if r['run_id'] == run_id] or sys.exit(f'no run {run_id} in the campaign')
     in_campaign = {r['segment_id'] for r in all_runs}; in_call = {r['segment_id'] for r in runs}
     by_segment = {r['segment_id']: r for r in all_runs}
-    nvars = check_outputs_cover_protocol(campaign, protocol_dir)
-    check_output_files(campaign)
+    # the ISIMIP output selection and its streams are checked when a run writes them; a spin-up writes only
+    # output.spinup (spinup_output), so a campaign of spin-ups alone needs no ISIMIP selection
+    nvars = None
+    if any(r['segment']['period'] != 'spinup' for r in runs):
+        nvars = check_outputs_cover_protocol(campaign, protocol_dir)
+        check_output_files(campaign)
     check_nonrenewable_output(campaign)
     model = check_build(W, campaign, resources)
     params = parameter_files(W, campaign)
@@ -676,7 +722,8 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         cyears = run_chunk_years(run, resources)
         plan = chunk_plan(run['start_year'], run['end_year'], cyears)
         chunked = len(plan) > 1
-        streams_text, streams = output_streams(campaign, None)
+        spinup = seg['period'] == 'spinup'
+        streams_text, streams = output_streams(campaign, None, run['run_id'] if spinup else None)
         parent_rec = {'segment_id': None if warm else parent, **({'protocol_parent_segment': parent} if warm else {}),
                       'init_state': init_state and os.path.relpath(init_state, W),
                       'initialisation': init_how, **parent_state}
@@ -777,7 +824,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
                 files[pre + rel] = text
             cexp = []
             for y in range(c0, c1 + 1):
-                cexp += [f'{pre}output/daily.{y}-01-01.nc', f'{pre}output/monthly.{y}-01.nc']
+                cexp += ([] if spinup else [f'{pre}output/daily.{y}-01-01.nc']) + [f'{pre}output/monthly.{y}-01.nc']
             cexp.append(f'{pre}states/state.{end_state:04d}0101_00000.nc')
             expected += cexp
             if chunked:

@@ -104,7 +104,7 @@ accepted units; units are never modified or copied. Rules (`forcing_years.py`):
 |---|---|---|
 | identity | the unit has the year | the same year |
 | constant | the DHF scenario is listed in the campaign's `dhf_forcing.constant` (`1850soc`, `2021soc`) and the unit lacks the year | the first year of the unit with the same number of days (365/366): VIC reads daily records within the year and the water-use demand is mm/day of its calendar year |
-| cycle | spin-up climate | `a + (Y − a) mod L` in the campaign's window `[a, b]`; when the day count differs, the next year of the window with the same count (a year that maps to itself is recorded as identity) |
+| cycle | spin-up climate | `a + (Y − a) mod L` in the campaign's window `[a, b]`; when the day count differs, the next year of the window with the same count (a year that maps to itself is recorded as identity, and so is a start year of the unit recorded as a copy of its cycle year for the same window, D20 amendment 2026-10-17; a start year made for another window stops the render) |
 
 `2021soc-from-histsoc` uses the `2021soc` unit (`dhf_forcing.units`). The mapping of every simulation year
 (source file, rule) is in the run manifest (`forcing_view`).
@@ -116,7 +116,8 @@ later years are opened by name and read from record 0 without any check. A linke
 therefore accepted for every year except a run's first year; the renderer stops when the first year of a
 run is not an identity link in every family. Runs that start in a year a unit does not contain (the
 pre-industrial segment starting 1601 with `1850soc`, `2021soc` historical runs starting 1850, `1850soc`
-future runs starting 2022, spin-ups before 1601) need that year in the unit itself (04_forcing).
+future runs starting 2022, spin-ups before 1601) need that year in the unit itself, written by the unit's producer as
+an extension year (`docs/decisions/D20-first-year-files.md`).
 
 **Initial state.** A run whose parent segment is a run of the campaign starts from the parent's end state. A
 run without such a parent starts as the campaign's `initialisation.without_parent` says: `cold_start` (no
@@ -198,11 +199,34 @@ sha256 (`forcing_tiles.checked_files`), since VIC stops in the first year a clas
 stay empty, and with the 128-group file more than about 6 ranks shorten nothing, so the cores go to OpenMP
 threads).
 
+## Spin-up runs (task P)
+
+Classification: production workflow code (user, 2026-10-17); implements the spin-up rules of D19 and D20 (task P took
+over the steps O3, O5 and O6 of task O). Steps and their state:
+
+| Step | Content | State |
+|---|---|---|
+| P1 | climate `esm-picontrol` 1601–1610 for ec-earth3-esm-1-1 (existing producer) | done 2026-10-17 (job 43339587, 70 files passed, commit `bb8cd76`); 1611–1650 later (D03) |
+| P2 | climate producer: spin-up start years copied from the cycle year (`--start-years`, `--cycle-window`), verifier check `start_year` (`workflow/04_forcing/climate/README.md`); start year 1591 of the natural-run spin-up | code written; code-equivalence entry and extension of the unit pending |
+| P3a | renderer: climate start years in the cycle rule, spin-up output (`output.spinup`), no run check for spin-ups | code written |
+| P3b | production spin-ups: continuation blocks (run ID `<segment-id>__block-<n>`, user 2026-10-17), convergence test of D19, warm start from a chunked run | open |
+| P4 | natural-run spin-up of task L: campaign `natural-spinup` (1591–1600, cycle 1601–1610, `1850soc` land use, routing and land use only) | campaign written; waits for P2 and the land-use start year 1591 (task O, O4) |
+
+**Spin-up output (D19 spin-up rule 3, user 2026-10-17).** A spin-up writes only the monthly variables listed under
+`output.spinup.monthly` of the campaign (one file per year, `output/monthly.<year>-01.nc`): the variables of the
+convergence test (soil moisture per layer, snow water equivalent for the December values, river and reservoir storage,
+irrigation withdrawal of the `2021soc` chain) and others the campaign adds. Monthly values are needed for December snow
+water equivalent; the annual values are formed by the convergence test. The renderer stops when a spin-up run has no
+`output.spinup`, when it lists a stream other than `monthly`, or when it asks for a variable of a plugin that is off
+(VIC would drop it with a warning only). A campaign of spin-ups alone needs no ISIMIP output selection; the protocol
+coverage and stream checks apply to the other runs. `submit_run.py` submits no run check (`check_run.py` reads the daily
+and monthly ISIMIP outputs) after a spin-up; the convergence test (P3b) will be its check.
+
 ## Submit (`submit/`)
 
 | File | Role |
 |---|---|
-| `submit_run.py` | renders the runs of a campaign (label) and submits each job on hold, records the attempt, releases it (the run directory is locked meanwhile, so a second submission of the same run stops, and a manifest write never drops a recorded attempt); a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files`; the new job file is checked like a render (resources modules = build `runtime_modules`, MPI tasks ≤ the decomposition groups recorded in `resolved.yaml`) |
+| `submit_run.py` | renders the runs of a campaign (label) and submits each job on hold (a spin-up without the run check), records the attempt, releases it (the run directory is locked meanwhile, so a second submission of the same run stops, and a manifest write never drops a recorded attempt); a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files`; the new job file is checked like a render (resources modules = build `runtime_modules`, MPI tasks ≤ the decomposition groups recorded in `resolved.yaml`) |
 | `run_manifest.py` | `verify-inputs` (job step before VIC: checksums of parameters, forcing files, executable and parent state file; every forcing unit still accepted; every forcing-view link points to its recorded source) and `complete` (job step after VIC, also on failure; every OUTVAR of `vic_global.txt` must be in the output files of its stream, since VIC drops an unknown OUTVAR with only a warning; exit status 1 when the attempt failed) |
 
 ```bash

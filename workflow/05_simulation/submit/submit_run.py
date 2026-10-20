@@ -85,8 +85,11 @@ def submit(run_dir, dependency=None, chunk=None):
 def submit_run(run_dir, dependency=None, check=True, from_chunk=0):
     """Submit a run (with its check), or the chunks of a chunked run from index from_chunk on, each waiting for the
     previous one, with a check per chunk and the check of the whole run after the last chunk. Returns the job id of
-    the run or of its last chunk (what a child run waits for)."""
+    the run or of its last chunk (what a child run waits for). A spin-up gets no run check: it writes only the monthly
+    convergence variables (D19), not the daily and monthly outputs monitor/check_run.py reads."""
     m = rm.load(run_dir)
+    if str(m.get('segment_id') or '').endswith('_spinup'):
+        check = False
     chunks = m.get('chunks') or []
     if not chunks:
         job = submit(run_dir, dependency)

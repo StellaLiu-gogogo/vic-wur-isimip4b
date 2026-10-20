@@ -103,7 +103,7 @@ class RulesTest(unittest.TestCase):
             rr.check_tasks(129, dict(dec))
 
 
-def fake_unit(W, rel, names, status='passed', dirty=False):
+def fake_unit(W, rel, names, status='passed', dirty=False, extra=None):
     d = os.path.join(W, 'forcing', rel); os.makedirs(d)
     files = []
     for n in names:
@@ -111,7 +111,7 @@ def fake_unit(W, rel, names, status='passed', dirty=False):
         files.append({'path': n, 'sha256': 'x' * 64})
     with open(os.path.join(d, 'provenance.yaml'), 'w') as fh:
         yaml.safe_dump({'forcing_unit': rel, 'code_commit': 'c' * 40, 'code_dirty': dirty, 'created_at': 't',
-                        'qc': {'status': status}, 'files': files}, fh)
+                        'qc': {'status': status}, 'files': files, **(extra or {})}, fh)
 
 
 class ForcingPlanTest(unittest.TestCase):
@@ -255,7 +255,8 @@ class RenderHarness(unittest.TestCase):
         write_dam_file(os.path.join(self.W, 'parameters', 'dams.nc'))
         model = {'commit': 'm' * 40, 'freeze_status': 'provisional', 'build': 'builds/vic/m', 'build_status': 'built',
                  'executable': 'builds/vic/m/vic.exe', 'executable_sha256': 'e' * 64, 'runtime_modules': []}
-        aliases = {'historical': ['historical', 'esm-hist'], 'ssp370': ['ssp370', 'esm-ssp370']}
+        aliases = {'historical': ['historical', 'esm-hist'], 'ssp370': ['ssp370', 'esm-ssp370'],
+                   'picontrol': ['picontrol', 'esm-picontrol']}
         self.model, self.params = model, params
         rc = rr.rc
         self.patches = [
@@ -459,6 +460,126 @@ class SpinupStartTest(unittest.TestCase):
         m = fy.map_cycle([1850], (1840, 1849), range(1840, 1850))
         with self.assertRaises(rr.RenderError):
             rr.check_start_year({'run_id': 's', 'start_year': 1850}, {'climate/tair': {1850: {'rule': m[1850][1]}}})
+
+
+class SpinupStartYearTest(unittest.TestCase):
+    """D20: a climate start year made as a copy of its cycle year for the campaign's window starts a spin-up."""
+
+    def test_cycle_source(self):
+        import forcing_years as fy
+        self.assertEqual(fy.cycle_source(1591, (1601, 1610)), 1601)
+        self.assertEqual(fy.cycle_source(1591, (1601, 1650)), 1641)
+        self.assertEqual(fy.cycle_source(1576, (1601, 1650)), 1628)          # D20: leap 1576 -> 1628
+        self.assertEqual(fy.cycle_source(1825, (1601, 1650)), 1625)
+
+    def test_start_year_is_identity(self):
+        import forcing_years as fy
+        years = [1591] + list(range(1601, 1611))
+        m = fy.map_cycle(range(1591, 1601), (1601, 1610), years, {1591: 1601}, {1591: [1601, 1610]})
+        self.assertEqual(m[1591], (1591, 'identity'))
+        self.assertEqual(m[1593], (1603, 'cycle'))
+        self.assertEqual(m[1592], (1604, 'cycle'))                          # leap 1592: the next leap year of the window
+        rr.check_start_year({'run_id': 's', 'start_year': 1591}, {'climate/tair': {1591: {'rule': m[1591][1]}}})
+
+    def test_without_start_year_record_stops_at_start(self):
+        import forcing_years as fy
+        m = fy.map_cycle([1591], (1601, 1610), range(1601, 1611))
+        with self.assertRaises(rr.RenderError):
+            rr.check_start_year({'run_id': 's', 'start_year': 1591}, {'climate/tair': {1591: {'rule': m[1591][1]}}})
+
+    def test_start_year_of_other_window_stops(self):
+        import forcing_years as fy
+        years = [1591] + list(range(1601, 1651))
+        with self.assertRaises(ValueError):                                  # made for 1601-1650: a copy of 1641
+            fy.map_cycle([1591], (1601, 1610), years, {1591: 1641}, {1591: [1601, 1650]})
+        with self.assertRaises(ValueError):                                  # same source, window not recorded
+            fy.map_cycle([1591], (1601, 1610), years, {1591: 1601}, {})
+
+
+class SpinupForcingPlanTest(unittest.TestCase):
+    """forcing_plan of a spin-up: climate cycled with the unit's start year, constant 1850soc land use."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.W = self.tmp.name
+        years = [1591] + list(range(1601, 1611))
+        for var in rr.CLIMATE_VARIABLES:
+            fake_unit(self.W, f'climate/{G}/esm-picontrol/{var}', [f'{var}_{G}_esm-picontrol_{y}.nc' for y in years],
+                      extra={'start_years': {1591: 1601}, 'cycle_windows': {1591: [1601, 1610]}})
+        fake_unit(self.W, 'landuse/1850soc', [f'coverage_1850soc_{y}.nc' for y in (1591, 1850, 1851, 1852)],
+                  extra={'start_years': {1591: 1850}})
+        self.c = smoke()
+        self.c['spinup'] = {'length_years': 10, 'climate_cycle': [1601, 1610]}
+        self.c['plugins']['water_use']['enabled'] = False
+        self.run = {'run_id': 's', 'start_year': 1591, 'end_year': 1600,
+                    'segment': {'gcm': G, 'soc': '1850soc', 'period': 'spinup'}}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_plan(self):
+        links, units, mapping = rr.forcing_plan(self.W, self.c, self.run, 'esm-picontrol')
+        self.assertEqual(mapping['climate/tair'][1591]['rule'], 'identity')
+        self.assertEqual(mapping['climate/tair'][1599]['source'],
+                         f'forcing/climate/{G}/esm-picontrol/tair/tair_{G}_esm-picontrol_1609.nc')
+        self.assertEqual(mapping['landuse'][1591]['rule'], 'identity')
+        self.assertEqual(mapping['landuse'][1592]['rule'], 'constant')
+        rr.check_start_year(self.run, mapping)
+        self.assertEqual(len(links), 10 * 8)
+
+    def test_missing_cycle_window_stops(self):
+        self.c['spinup']['climate_cycle'] = None
+        with self.assertRaises(rr.RenderError):
+            rr.forcing_plan(self.W, self.c, self.run, 'esm-picontrol')
+
+
+SPIN = f'{G}_picontrol_1850soc_default_spinup'
+SPINUP_VARS = ['OUT_SOIL_MOIST', 'OUT_SWE', 'OUT_SNOW_CANOPY', 'OUT_STREAM_MOIST']
+
+
+class SpinupOutputTest(RenderHarness):
+    """D19 spin-up rule 3 (user 2026-10-17): a spin-up writes only the monthly convergence variables."""
+
+    def setUp(self):
+        super().setUp()
+        self.segments = {SPIN: segment('picontrol', '1850soc', 'spinup', (1591, 1600), None)}
+        self.campaign['output']['spinup'] = {'monthly': list(SPINUP_VARS)}
+
+    def vic(self):
+        with open(os.path.join(self.W, 'runs', 'smoke', SPIN, 'config', 'vic_global.txt')) as fh:
+            return fh.read()
+
+    def test_monthly_only(self):
+        self.render(SPIN)
+        text = self.vic()
+        self.assertIn('OUTFILE                 monthly', text)
+        self.assertNotIn('OUTFILE                 daily', text)
+        outvars = [l.split()[1] for l in text.splitlines() if l.startswith('OUTVAR')]
+        self.assertEqual(outvars, SPINUP_VARS)
+        self.assertIn('OUT_SOIL_MOIST  * * * AGG_TYPE_AVG', text)
+        exp = self.manifest(SPIN)['expected_outputs']
+        self.assertEqual(exp, [f'output/monthly.{y}-01.nc' for y in range(1591, 1601)] + ['states/state.16010101_00000.nc'])
+
+    def test_other_runs_keep_their_streams(self):
+        self.segments[HIST] = segment('historical', 'histsoc', 'historical', (1850, 2021), None)
+        self.render(HIST)
+        self.assertEqual(self.manifest(HIST)['expected_outputs'][:2],
+                         ['output/daily.1850-01-01.nc', 'output/monthly.1850-01.nc'])
+
+    def test_missing_key_stops(self):
+        del self.campaign['output']['spinup']
+        with self.assertRaises(rr.RenderError):
+            self.render(SPIN)
+
+    def test_daily_stream_stops(self):
+        self.campaign['output']['spinup'] = {'daily': ['OUT_SWE']}
+        with self.assertRaises(rr.RenderError):
+            self.render(SPIN)
+
+    def test_variable_of_plugin_off_stops(self):
+        self.campaign['plugins']['dams']['enabled'] = False
+        self.campaign['output']['spinup']['monthly'].append('OUT_GDAM_STORAGE')
+        with self.assertRaises(rr.RenderError):
+            self.render(SPIN)
 
 
 if __name__ == '__main__':
