@@ -16,7 +16,9 @@ D01 does not block the climate forcing units of the smoke campaign: the user
 allowed producing the EC-Earth3-ESM-1-1 `esm-hist` 2011–2020 climate units
 as accepted forcing while D01 is open (user, 2026-09-30), and extended this
 to the years 1850–2010 of the same units (user, 2026-10-11; natural run
-1850–2021 of task L for the dam service maps, D19). The same holds
+1850–2021 of task L for the dam service maps, D19), and to the
+EC-Earth3-ESM-1-1 `esm-picontrol` climate units of the spin-ups with their
+D20 start years (user, 2026-10-17; task P). The same holds
 for the land-use forcing units of all five soc scenarios (`histsoc`,
 `1850soc`, `2021soc`, `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`): they do not
 depend on the VIC commit and may be accepted while D01 is open (user,
@@ -72,7 +74,7 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | D17 | Potential irrigation (`pirrww`, `pirrwwgw`, `pirruse`, `pirrusegw`): whether to report it and, if so, from additional runs with `POTENTIAL_IRRIGATION TRUE` | 08_delivery | | user | open |
 | D18 | Snow accumulating every year on high-mountain and glacier cells in the smoke run (about 21 times faster than in the WFDE5-driven natural run on the same cells): whether the climate forcing's elevation correction, the precipitation, or the model's snow treatment on such cells needs a change | - | none: parked; reviewed when the user has time, does not block any stage | user | open |
 | D19 | Dams and initial states per experiment: which dams the dam parameters contain (the GDW selection rule DOR ≥ 10 % leaves out large run-of-river reservoirs such as Three Gorges and Itaipu) and which of them (construction years) each DHF scenario uses (`1850soc`, `2021soc`, `histsoc`, SSP units; dams with construction year 0), and how runs are spun up and warm-started (spin-up DHF and dams, date of an initial state against the run start, reuse of another run's end state) | 05_simulation | | user | decided 2026-10-11, amended 2026-10-16 (dam-list comparison, task L choices) ([D19-dams-and-initial-states.md](D19-dams-and-initial-states.md)): ISIMIP4b dams (plus SSP future hydropower dams) located with GDW and snapped again on the parameter-set routing; one dam list, construction years per DHF scenario; two spin-ups per GCM with a convergence test; warm starts only for spin-ups and non-production runs, on 1 January, under conditions checked by the renderer |
-| D20 | First-year files of runs that start outside a forcing unit's years: the land-use and water-use units of `1850soc` and `2021soc` (`2021soc` historical from 1850, `1850soc` pre-industrial from 1601 and future from 2022) and the spin-up climate, which VIC checks for the start year | 05_simulation | | user | decided 2026-10-11 ([D20-first-year-files.md](D20-first-year-files.md)): option A, the units' producers write the start years as extension years (constant field re-stamped; climate copied from the cycle year); spin-up continuation blocks labelled as the last 25 years before the chain start |
+| D20 | First-year files of runs that start outside a forcing unit's years: the land-use and water-use units of `1850soc` and `2021soc` (`2021soc` historical from 1850, `1850soc` pre-industrial from 1601 and future from 2022) and the spin-up climate, which VIC checks for the start year | 05_simulation | | user | decided 2026-10-11, amended 2026-10-17 (start year 1591 of the natural-run spin-up, renderer cycle rule for climate start years) ([D20-first-year-files.md](D20-first-year-files.md)): option A, the units' producers write the start years as extension years (constant field re-stamped; climate copied from the cycle year); spin-up continuation blocks labelled as the last 25 years before the chain start |
 
 ## Context
 

@@ -27,6 +27,13 @@ For every file <variable>_<gcm>_<alias>_<year>.nc of a unit (or the years given)
               (lwdown - bilinear rlds) on dz is reported (expected -25 to -50 W m-2 km-1), not checked
   saturation  vp only: no active cell-day with vp > saturated vapour pressure at tair (VIC's svp) beyond
               float32 rounding (relative 1e-5); the producer caps vp at saturation
+A spin-up start year (D20; listed under start_years {year: cycle year} and cycle_windows {year: [a, b]} in the unit's
+provenance.yaml) is a copy of the unit's file of its cycle year. Instead of the input checks (the input has no such
+year) it gets structure, grid and time as above and
+  start_year  the recorded cycle year is the cycle year of the start year in the recorded window (the rule coded
+              again here), the file's attributes year, source_year, cycle_window and source_file agree with the
+              record, the source file is the unit's file of the cycle year with the SHA-256 recorded in the unit,
+              and every day of the data equals the source file's day exactly (fill values included)
 Writes <qc>/reports/verify_<year>.json, <qc>/figures/verify_<year>.png, and <qc>/summary.json, where <qc> is
 qc/forcing/climate/<gcm>/<alias>/<variable>/, and sets qc.status in the unit's provenance.yaml: `failed` if any
 file fails, `passed` or `warning` when every file of the unit is checked, `not_checked` otherwise. Each report
@@ -46,7 +53,7 @@ import netCDF4 as nc
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from common import provenance, qc, workdir
+from common import hashing, provenance, qc, workdir
 
 W = workdir.root()
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
@@ -170,8 +177,45 @@ def recompute_day(ctx, var, gcm, alias, year, step_in_file, tmpd):
 CTX = None     # Context, set before the worker pool is forked
 
 
+def cycle_year(year, window):
+    """Cycle year of `year` in [a, b] (D20; coded here independently of the producer and the renderer): the year at
+    offset (year - a) mod L in the window, or the next one (cyclic) with the same number of days."""
+    a, b = window
+    leap = lambda y: y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)   # noqa: E731
+    n = b - a + 1
+    for k in range(n):
+        y = a + ((year - a) % n + k) % n
+        if leap(y) == leap(year):
+            return y
+    return None
+
+
+def check_start_year(d, var, year, start, unit_dir, unit):
+    """The start_year check of a copied spin-up start year (see the module description)."""
+    source, window = int(start['source']), [int(v) for v in start['window'] or []]
+    want_src = f'forcing/{unit}/{os.path.basename(start["source_path"])}'
+    c = {'recorded_source_year': source, 'recorded_window': window,
+         'cycle_year': cycle_year(year, window) if len(window) == 2 else None,
+         'attr_year': int(d.year), 'attr_source_year': int(getattr(d, 'source_year', -1)),
+         'attr_cycle_window': [int(v) for v in np.atleast_1d(getattr(d, 'cycle_window', []))],
+         'attr_source_file': getattr(d, 'source_file', None), 'expected_source_file': want_src}
+    src = f'{W}/{want_src}'
+    c['source_sha256_matches_unit'] = os.path.exists(src) and hashing.sha256(src) == start['source_sha256']
+    days_differ = None
+    if c['source_sha256_matches_unit']:
+        with nc.Dataset(src) as s:
+            s.set_auto_mask(False)
+            days_differ = sum(int(not np.array_equal(d[var][k], s[var][k])) for k in range(len(d['time'])))
+            c['source_days'] = len(s['time'])
+    c['days_differing_from_source'] = days_differ
+    c['ok'] = (c['cycle_year'] == source and c['attr_year'] == year and c['attr_source_year'] == source
+               and c['attr_cycle_window'] == window and c['attr_source_file'] == want_src
+               and c['source_sha256_matches_unit'] and days_differ == 0 and c.get('source_days') == len(d['time']))
+    return c
+
+
 def verify_file(args):
-    fn, var, gcm, alias, reports, figs, unit_dir, verifier = args
+    fn, var, gcm, alias, reports, figs, unit_dir, verifier, start = args
     ctx = CTX
     binding = qc.binding([fn], verifier)          # before the checks: the file that is checked
     d = nc.Dataset(fn); d.set_auto_mask(False)
@@ -197,6 +241,13 @@ def verify_file(args):
                  'continuous': bool(np.array_equal(t[:], np.arange(n)))}
     C['time']['ok'] = (t.calendar == 'proleptic_gregorian' and t.units == f'days since {year}-01-01 00:00:00'
                        and n == nexp and C['time']['continuous'])
+    if start:          # a spin-up start year copied from its cycle year (D20): no input of its own to compare with
+        C['start_year'] = check_start_year(d, var, year, start, unit_dir, start['unit'])
+        res['status'] = status = 'passed' if all(c.get('ok', True) for c in C.values()) else 'failed'
+        d.close()
+        res['binding'] = binding
+        qc.write_json(f'{reports}/verify_{year}.json', res)
+        return var, year, status
     # source files (ISIMIP) for the mean check
     sd = {s: nc.Dataset(isimip_path(gcm, alias, s, year)) for s in set(srcs) | ({'tas'} if var == 'vp' else set())}
     tt = next(iter(sd.values()))['time']
@@ -324,12 +375,33 @@ def verify_file(args):
     return var, year, status
 
 
+def start_year_records(unit_dir, unit):
+    """{start year: {source, window, source_path, source_sha256, unit}} from the unit's provenance.yaml (D20); the
+    source is the accepted unit's file of the cycle year (also for a scratch copy)."""
+    prov_path = f'{unit_dir}/provenance.yaml'
+    prov = provenance.read(prov_path) if os.path.exists(prov_path) else {}
+    starts = prov.get('start_years') or {}
+    if not starts:
+        return {}
+    accepted = provenance.read(f'{W}/forcing/{unit}/provenance.yaml')
+    rec = {f['year']: f for f in accepted.get('files') or [] if 'year' in f}
+    windows = prov.get('cycle_windows') or {}
+    out = {}
+    for y, src in starts.items():
+        f = rec.get(int(src)) or {}
+        out[int(y)] = {'source': int(src), 'window': windows.get(y) or windows.get(int(y)) or [],
+                       'source_path': f.get('path', f'<no file of {src} in the unit>'),
+                       'source_sha256': f.get('sha256'), 'unit': unit}
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--gcm', required=True, choices=list(GCM_DIR))
     ap.add_argument('--alias', required=True)
     ap.add_argument('--variables', required=True, help='comma-separated VIC variables')
     ap.add_argument('--years', default=None, help='single year or START-END (default: every file of the unit)')
+    ap.add_argument('--years-list', default=None, help='comma-separated years, e.g. the start years of a unit')
     ap.add_argument('--scratch', action='store_true', help='verify the test output under scratch/climate-forcing/')
     ap.add_argument('--scratch-label', default=None, help='with --scratch: scratch/climate-forcing/runs/<label>/')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
@@ -367,13 +439,17 @@ def main():
         reports, figs = f'{qc_dir}/reports', f'{qc_dir}/figures'
         os.makedirs(reports, exist_ok=True); os.makedirs(figs, exist_ok=True)
         files = sorted(glob.glob(f'{unit_dir}/{v}_{a.gcm}_{a.alias}_*.nc'))
-        if a.years:
-            y = a.years.split('-'); want = set(range(int(y[0]), int(y[-1]) + 1))
+        if a.years or a.years_list:
+            y = (a.years or '0').split('-')
+            want = set(range(int(y[0]), int(y[-1]) + 1)) if a.years else set()
+            want |= {int(v) for v in (a.years_list or '').split(',') if v.strip()}
             files = [f for f in files if int(f[:-3].rsplit('_', 1)[1]) in want]
         if not files:
             raise SystemExit(f'no files for {v} in {unit_dir}')
         dirs[v] = (unit, unit_dir, qc_dir)
-        jobs += [(f, v, a.gcm, a.alias, reports, figs, unit_dir, verifier) for f in files]
+        starts = start_year_records(unit_dir, unit)
+        jobs += [(f, v, a.gcm, a.alias, reports, figs, unit_dir, verifier,
+                  starts.get(int(f[:-3].rsplit('_', 1)[1]))) for f in files]
     checked = set()
     with Pool(a.processes or min(len(jobs), 8)) as pool:
         for v, yr, st in pool.imap_unordered(verify_file, jobs):

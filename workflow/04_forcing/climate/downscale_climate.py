@@ -39,9 +39,18 @@ from a repository that is not clean, everything is written under scratch/climate
 An existing unit is never overwritten; it may be extended with years it does not contain yet under
 the conditions in docs/directory-contracts.md, "Forcing unit and provenance record" (common/unit_extension.py).
 
+Spin-up start years (D20, option A; task P): --start-years Y1,Y2 --cycle-window A-B writes each year Y, which the
+input alias does not contain, as a copy of its cycle year S = cycle_source(Y, [A, B]) (the renderer's cycle rule,
+workflow/05_simulation/render/forcing_years.py): the data of the unit's accepted file of S unchanged, the time axis
+and the `year` attribute those of Y, the attributes source_year and cycle_window added. provenance.yaml lists them
+under start_years {Y: S} and cycle_windows {Y: [A, B]}. Only the unit's own files are copied, so S must already be in
+the accepted unit; a scratch run copies from the accepted unit into scratch.
+
 Usage: downscale_climate.py --gcm ec-earth3-esm-1-1 --alias esm-hist --years 2011-2020
        [--variables tair,prec,...] [--parameter-set ID] [--parameter-status candidates|production]
        [--processes N] [--scratch [--scratch-label LABEL]]
+       downscale_climate.py --gcm ec-earth3-esm-1-1 --alias esm-picontrol --start-years 1591 --cycle-window 1601-1610
+       [--variables ...] [--processes N] [--scratch [--scratch-label LABEL]]
   --scratch-label puts a test run under scratch/climate-forcing/runs/<LABEL>/ so that it does not replace
   an earlier test run.
 """
@@ -502,6 +511,144 @@ def method_record(var, rel_paths):
     return m
 
 
+# ----------------------------------------------------------------------------------------------- start years
+START_YEAR_KEYS = ('start_years', 'cycle_windows', 'start_year_rule', 'start_years_command')
+
+
+def cycle_source(year, window):
+    """Cycle year of simulation year `year` in the window [a, b]: a + (year - a) mod L, or, when that year has another
+    day count, the next year of the window (cyclic) with the same day count. The same rule as cycle_source in
+    workflow/05_simulation/render/forcing_years.py, which the renderer applies to the spin-up years and with which it
+    checks the recorded source year of a start year (tests/unit/test_climate_start_years.py compares the two)."""
+    a, b = int(window[0]), int(window[1])
+    if b < a:
+        raise SystemExit(f'cycle window {a}-{b}: the last year is before the first')
+    span = list(range(a, b + 1)); n = len(span); i = (year - a) % n
+    for k in range(n):
+        s = span[(i + k) % n]
+        if calendar.isleap(s) == calendar.isleap(year):
+            return s
+    raise SystemExit(f'cycle window {a}-{b} has no year with the day count of {year}')
+
+
+def parse_window(text):
+    w = [int(v) for v in text.split('-')]
+    if len(w) != 2:
+        raise SystemExit(f'--cycle-window {text}: give FIRST-LAST, e.g. 1601-1650')
+    return w
+
+
+def input_has_year(W, gcm, alias, year):
+    """True when the ISIMIP input of the alias has a file covering `year` (for any variable)."""
+    d = f'{W}/' + ISIMIP_DIR.format(alias=alias, gcm_dir=GCM_DIR[gcm])
+    for f in glob.glob(f'{d}/{gcm}_*_era5_{alias}_*_global_30arcmin_daily_*_*.nc'):
+        m = re.search(r'_(\d{4})_(\d{4})\.nc$', f)
+        if m and int(m.group(1)) <= year <= int(m.group(2)):
+            return True
+    return False
+
+
+def copy_start_year(job):
+    """Worker: write the start years of one variable as copies of their cycle years (data unchanged, time axis of the
+    start year). Returns file records."""
+    var, ctx = job['var'], job['ctx']
+    records = []
+    for year, source in job['years'].items():
+        t0 = time.time()
+        src_path = ctx['source_files'][var][source]
+        final = f'{ctx["out_dir"][var]}/{out_name(var, ctx["gcm"], ctx["alias"], year)}'
+        part = final + '.part'
+        with nc.Dataset(src_path) as d:
+            d.set_auto_mask(False)
+            ndays = 366 if calendar.isleap(year) else 365
+            if len(d['time']) != ndays or d['time'].units != f'days since {source}-01-01 00:00:00':
+                raise SystemExit(f'{src_path}: not a {ndays}-day file of {source}')
+            attrs = {k: d.getncattr(k) for k in d.ncattrs()}
+            attrs.update(ctx['attrs'], forcing_unit=ctx['unit'][var], year=np.int32(year),
+                         source_year=np.int32(source), cycle_window=np.int32(ctx['window']),
+                         source_file=os.path.relpath(src_path, ctx['W']),
+                         start_year_note=f'spin-up start year (D20): the data of {source}, the cycle year of {year} '
+                                         f'in the window {ctx["window"][0]}-{ctx["window"][1]}, unchanged; time axis '
+                                         f'and year of {year}')
+            o, x = create_output(part, var, d['lat'][:], d['lon'][:], year, ndays, attrs)
+            o.set_auto_mask(False)
+            for k in range(ndays):
+                x[k] = d[var][k]
+            o.close()
+        os.replace(part, final)
+        records.append({'path': os.path.basename(final), 'year': year, 'size_bytes': os.path.getsize(final),
+                        'sha256': hashing.sha256(final), 'created_at': provenance.utcnow(),
+                        'code_commit': ctx['commit']})
+        print(f'{var} {year} (copy of {source}): {time.time() - t0:.0f} s', flush=True)
+    return var, records
+
+
+def write_start_years(a, W, commit, dirty, to_scratch, variables, unit, out_dir):
+    """--start-years: copy the cycle years of the accepted units as start years (D20) and record them."""
+    window = parse_window(a.cycle_window)
+    starts = sorted(int(v) for v in a.start_years.split(',') if v.strip())
+    inside = [y for y in starts if input_has_year(W, a.gcm, a.alias, y) or window[0] <= y <= window[1]]
+    if inside:
+        raise SystemExit(f'start years {inside} lie inside the years of the input {a.alias} or of the cycle window '
+                         f'{window[0]}-{window[1]}; a start year is written only for a year the input does not have (D20)')
+    plan = {y: cycle_source(y, window) for y in starts}
+    current = {'code_tree': gitstate.tree_hashes(REPO, CODE_DIRS), 'software': provenance.software_versions()}
+    source_files, existing, ins = {}, {}, {}
+    for v in variables:
+        udir = f'{W}/forcing/{unit[v]}'      # the accepted unit: source of the copies, also for a scratch run
+        prov = unit_extension.existing(udir)
+        if prov is None or (prov.get('qc') or {}).get('status') != 'passed' or prov.get('code_dirty'):
+            raise SystemExit(f'{unit[v]}: the source unit must be accepted (qc.status passed, code_dirty false)')
+        rec = {f['year']: f for f in prov['files'] if 'year' in f}
+        missing = sorted({s for s in plan.values() if s not in rec})
+        if missing:
+            raise SystemExit(f'{unit[v]} lacks the cycle years {missing}; produce them first (--years)')
+        source_files[v] = {s: f'{udir}/{rec[s]["path"]}' for s in set(plan.values())}
+        ins[v] = {os.path.relpath(p, W): rec[s]['sha256'] for s, p in source_files[v].items()}
+        for s, p in source_files[v].items():
+            if hashing.sha256(p) != rec[s]['sha256']:
+                raise SystemExit(f'{p}: sha256 differs from the unit\'s provenance.yaml')
+        existing[v] = None if to_scratch else unit_extension.prepare(
+            out_dir[v], unit[v], starts, CREATED_BY, METHOD_VERSION, current['code_tree'], current['software'],
+            ins[v], [])
+        if not to_scratch:
+            print(f'{unit[v]}: adding the start years {plan} (cycle window {window[0]}-{window[1]})', flush=True)
+    for d in out_dir.values():
+        os.makedirs(d, exist_ok=True)
+    created_at = provenance.utcnow()
+    attrs = {'code_commit': commit, 'code_dirty': str(dirty).lower(), 'created_by': CREATED_BY,
+             'created_at': created_at}
+    ctx = {'W': W, 'gcm': a.gcm, 'alias': a.alias, 'unit': unit, 'out_dir': out_dir, 'source_files': source_files,
+           'window': window, 'attrs': attrs, 'commit': commit}
+    jobs = [{'var': v, 'years': plan, 'ctx': ctx} for v in variables]
+    with Pool(a.processes or len(jobs)) as pool:
+        results = dict(pool.map(copy_start_year, jobs, chunksize=1))
+    details = {'start_years': plan, 'cycle_windows': {y: window for y in plan}}
+    for v in variables:
+        new = results[v]
+        if to_scratch:
+            prov = {'forcing_unit': unit[v], 'created_by': CREATED_BY, 'code_commit': commit, 'code_dirty': dirty,
+                    'created_at': created_at, 'inputs': sorted(ins[v]), 'input_sha256': dict(sorted(ins[v].items())),
+                    'files': sorted(new, key=lambda f: f['path']), **details,
+                    'qc': {'status': 'not_checked', 'evidence': os.path.relpath(f'{out_dir[v]}/qc', W)}}
+        else:
+            prev = existing[v]
+            prov = dict(prev)
+            prov.update(unit_extension.extend(prev, new, ins[v], current['code_tree'], CREATED_BY, METHOD_VERSION,
+                                              commit, created_at, starts, details=details))
+            prov['fingerprint'] = provenance.fingerprint(current['code_tree'], METHOD_VERSION, current['software'])
+            prov['start_years'] = {**(prev.get('start_years') or {}), **plan}
+            prov['cycle_windows'] = {**(prev.get('cycle_windows') or {}), **details['cycle_windows']}
+            prov['start_year_rule'] = ('spin-up start years (D20): a copy of the unit\'s file of the cycle year '
+                                       '(start_years {year: cycle year}, cycle window in cycle_windows), data unchanged, '
+                                       'time axis and year attribute of the start year')
+            prov['start_years_command'] = (f'python3 {CREATED_BY} --gcm {a.gcm} --alias {a.alias} --variables {v} '
+                                           f'--start-years {",".join(str(y) for y in sorted(prov["start_years"]))} '
+                                           f'--cycle-window <window of each year in cycle_windows>')
+        provenance.write(f'{out_dir[v]}/provenance.yaml', prov)
+    print(f'done: start years {plan} of {len(variables)} variable(s)')
+
+
 def select_variables(requested, to_scratch):
     """Variables to produce; variables blocked by an open decision only go to scratch."""
     variables = requested.split(',') if requested else \
@@ -518,7 +665,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--gcm', required=True, choices=list(GCM_DIR))
     ap.add_argument('--alias', required=True, help='climate-scenario input alias, e.g. esm-hist')
-    ap.add_argument('--years', required=True, help='single year or START-END')
+    ap.add_argument('--years', default=None, help='single year or START-END')
+    ap.add_argument('--start-years', default=None,
+                    help='comma-separated spin-up start years outside the input, written as copies of their cycle '
+                         'years (D20); needs --cycle-window, not together with --years')
+    ap.add_argument('--cycle-window', default=None, help='with --start-years: the campaign cycle window FIRST-LAST')
     ap.add_argument('--variables', default=None,
                     help='comma-separated VIC variables (default: all)')
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
@@ -531,7 +682,9 @@ def main():
     ap.add_argument('--scratch-label', default=None,
                     help=f'with --scratch: write under {SCRATCH}/runs/<label>/ (lowercase words joined by hyphens)')
     a = ap.parse_args(); t0 = time.time(); W = workdir.root()
-    y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
+    if bool(a.years) == bool(a.start_years) or bool(a.start_years) != bool(a.cycle_window):
+        raise SystemExit('give either --years, or --start-years with --cycle-window')
+    years = [] if a.start_years else list(range(int(a.years.split('-')[0]), int(a.years.split('-')[-1]) + 1))
     commit, dirty = git_state(); to_scratch = dirty or a.scratch
     if a.expect_commit and (dirty or commit != a.expect_commit):
         raise SystemExit(f'the job was submitted for commit {a.expect_commit} of a clean repository, but the repository '
@@ -546,6 +699,9 @@ def main():
         else f'{W}/forcing/climate'
     unit = {v: f'climate/{a.gcm}/{a.alias}/{v}' for v in variables}
     out_dir = {v: f'{base}/{a.gcm}/{a.alias}/{v}' if to_scratch else f'{W}/forcing/{unit[v]}' for v in variables}
+    if a.start_years:
+        write_start_years(a, W, commit, dirty, to_scratch, variables, unit, out_dir)
+        return
 
     # ---------------- inputs and their checksums
     dom = f'{W}/' + DOMAIN_FILE.format(status=a.parameter_status, pset=a.parameter_set)
@@ -623,6 +779,8 @@ def main():
                                     created_at, years) if prev else {}
         files = upd['files'] if prev else sorted(new, key=lambda f: f['path'])
         yrs = unit_extension.unit_years({'files': [f for f in files if 'year' in f]})
+        starts = {int(k) for k in ((prev or {}).get('start_years') or {})}   # D20 copies: not in the input's years
+        input_years = [y for y in yrs if y not in starts]
         qc_evidence = f'qc/forcing/{unit[v]}' if not to_scratch else rp(f'{out_dir[v]}/qc')
         prov = {
             'forcing_unit': unit[v], 'created_by': CREATED_BY,
@@ -636,13 +794,16 @@ def main():
             'fingerprint': provenance.fingerprint(current['code_tree'], METHOD_VERSION, current['software']),
             'years': unit_extension.years_span(yrs),
             'rebuild_command': f'python3 {CREATED_BY} --gcm {a.gcm} --alias {a.alias} --variables {v} '
-                               f'--years {yrs[0]}-{yrs[-1]} --parameter-set {a.parameter_set} '
+                               f'--years {input_years[0]}-{input_years[-1]} --parameter-set {a.parameter_set} '
                                f'--parameter-status {a.parameter_status}' + (' --scratch' if a.scratch else '')
                                + (f' --scratch-label {a.scratch_label}' if a.scratch_label else ''),
             'caches': [rp(cache)],              # for information only (grid relation and dz, keyed)
             'files': files,
             'qc': {'status': 'not_checked', 'evidence': qc_evidence}}
         prov.update(upd)
+        for k in START_YEAR_KEYS:          # the start years of the unit stay recorded (D20)
+            if prev and k in prev:
+                prov[k] = prev[k]
         provenance.write(f'{out_dir[v]}/provenance.yaml', prov)
     print(f'done: {len(variables)} variable(s) x {len(years)} year(s) in {time.time() - t0:.0f} s -> {base}')
 

@@ -10,6 +10,9 @@ repository is no longer clean at the submitted commit.
 
 Usage: submit_climate_forcing.py --gcm ec-earth3-esm-1-1 --alias esm-hist --years 2015 [--variables ...]
        [--scratch] [--verify-only] [--time 08:00:00] [--mem 64G] [--cpus 8] [--partition main] [--dry-run]
+       submit_climate_forcing.py --gcm ec-earth3-esm-1-1 --alias esm-picontrol --start-years 1591 --cycle-window 1601-1610
+  --start-years writes spin-up start years as copies of their cycle years (D20, downscale_climate.py); the verifier
+  then checks the start years (--years of the verifier: the start years).
 """
 import argparse, glob, os, sys
 
@@ -26,7 +29,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--gcm', required=True, choices=list(dc.GCM_DIR))
     ap.add_argument('--alias', required=True)
-    ap.add_argument('--years', required=True)
+    ap.add_argument('--years', default=None)
+    ap.add_argument('--start-years', default=None, help='spin-up start years (D20), with --cycle-window')
+    ap.add_argument('--cycle-window', default=None, help='with --start-years: FIRST-LAST of the campaign cycle')
     ap.add_argument('--variables', default=None)
     ap.add_argument('--scratch', action='store_true')
     ap.add_argument('--scratch-label', default=None, help='with --scratch: scratch/climate-forcing/runs/<label>/')
@@ -44,17 +49,27 @@ def main():
     # which --verify-only checks in place); otherwise the producer stops if the repository changes before it runs
     commit, dirty = dc.git_state(); to_scratch = a.scratch or (dirty and not a.verify_only)
     variables = dc.select_variables(a.variables, to_scratch)
-    y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
-    span = f'{years[0]}' if len(years) == 1 else f'{years[0]}-{years[-1]}'
+    if bool(a.years) == bool(a.start_years) or bool(a.start_years) != bool(a.cycle_window):
+        raise SystemExit('give either --years, or --start-years with --cycle-window')
+    starts = sorted(int(v) for v in a.start_years.split(',')) if a.start_years else []
+    if starts:
+        years = starts
+        span = 'start-' + '-'.join(str(v) for v in starts)
+        yopt = f'--start-years {",".join(str(v) for v in starts)} --cycle-window {a.cycle_window}'
+        vopt = f'--years-list {",".join(str(v) for v in starts)}'
+    else:
+        y = a.years.split('-'); years = list(range(int(y[0]), int(y[-1]) + 1))
+        span = f'{years[0]}' if len(years) == 1 else f'{years[0]}-{years[-1]}'
+        yopt = vopt = f'--years {years[0]}-{years[-1]}'
     job_name = f'climate-forcing-{a.gcm}-{a.alias}-{span}' + ('-scratch' if to_scratch or dirty else '') + \
         (f'-{a.scratch_label}' if a.scratch_label else '') + ('-verify' if a.verify_only else '')
-    common = f'--gcm {a.gcm} --alias {a.alias} --variables {",".join(variables)} --years {years[0]}-{years[-1]}'
+    common = f'--gcm {a.gcm} --alias {a.alias} --variables {",".join(variables)}'
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
     label = f' --scratch-label {a.scratch_label}' if a.scratch_label else ''
-    producer = f'{common} {params} --processes {min(a.cpus, len(variables))}' + (' --scratch' + label if to_scratch else f' --expect-commit {commit}')
+    producer = f'{common} {yopt} {params} --processes {min(a.cpus, len(variables))}' + (' --scratch' + label if to_scratch else f' --expect-commit {commit}')
     # a verifier from a repository that is not clean checks the output in place but keeps its results in scratch and
     # never changes the output's status (--qc-to-scratch); otherwise it stops if the repository changes (--expect-commit)
-    verifier = f'{common} {params} --processes {a.cpus}' + (' --scratch' + label if to_scratch else (' --qc-to-scratch' if dirty else f' --expect-commit {commit}'))
+    verifier = f'{common} {vopt} {params} --processes {a.cpus}' + (' --scratch' + label if to_scratch else (' --qc-to-scratch' if dirty else f' --expect-commit {commit}'))
     stage_logs = workdir.logs('04_forcing', W)
     text = jobrecord.render(TEMPLATE, {
         'JOB_NAME': job_name, 'PARTITION': a.partition, 'TIME': a.time, 'CPUS': str(a.cpus), 'MEM': a.mem,
@@ -72,8 +87,11 @@ def main():
         'resources': {'partition': a.partition, 'time': a.time, 'cpus_per_task': a.cpus, 'mem': a.mem},
         'commands': {'producer': None if a.verify_only else f'python3 workflow/04_forcing/climate/downscale_climate.py {producer}',
                      'verifier': f'python3 workflow/04_forcing/climate/verify_forcing.py {verifier}'},
-        'inputs': sorted({os.path.relpath(dc.isimip_file(W, a.gcm, a.alias, s, yy), W)
-                          for yy in years for v in variables for s in dc.VARIABLES[v]['sources']}) + [
+        'inputs': sorted(f'forcing/climate/{a.gcm}/{a.alias}/{v}/{dc.out_name(v, a.gcm, a.alias, s)}'
+                         for v in variables for s in {dc.cycle_source(yy, dc.parse_window(a.cycle_window))
+                                                      for yy in starts}) if starts else
+        sorted({os.path.relpath(dc.isimip_file(W, a.gcm, a.alias, s, yy), W)
+                for yy in years for v in variables for s in dc.VARIABLES[v]['sources']}) + [
             dc.DOMAIN_FILE.format(status=a.parameter_status, pset=a.parameter_set),
             dc.BUNDLE_FILE.format(status=a.parameter_status, pset=a.parameter_set), dc.ERA5_FILE],
         'outputs': [os.path.relpath(f'{base}/{a.gcm}/{a.alias}/{v}', W) for v in variables],

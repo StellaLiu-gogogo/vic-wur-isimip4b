@@ -14,6 +14,7 @@ read by `05_simulation`.
 | `climate_forcing.sbatch` | Slurm job template (producer, then verifier) |
 | `submit_climate_forcing.py` | renders the template, submits on hold, writes the job record `logs/04_forcing/<job-name>_<slurm-job-id>/{job.sbatch,job.yaml}`, releases the job |
 | `../../../tests/unit/test_climate_downscaling.py` | unit tests (grid relation, bilinear and conservative remapping against cdo, physics including the `lwdown` ratio against an independent implementation, time axis, variable selection) |
+| `../../../tests/unit/test_climate_start_years.py` | unit tests of the spin-up start years (copy, refusals, verifier check, the cycle rule against the renderer's) |
 | `../../../tests/unit/test_climate_extension.py` | unit tests of the extension branch of the producer (synthetic unit, Git and the worker replaced by stand-ins); the extension rules themselves are `workflow/common/unit_extension.py`, tested in `test_common_unit_extension.py` |
 
 Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary and verifier exit status, job records) come from `workflow/common/` (see its README); the verifier exits with 0 only for `passed` (1 failed, 3 warning, 4 not_checked), and a per-year report counts only for the data files and verifier version recorded in it.
@@ -136,6 +137,32 @@ result-neutral in `manifests/code-equivalence.yaml`, unchanged SHA-256 of reused
 new ISIMIP files matching their manifest, unchanged key software versions.
 Existing data files are verified and never touched; only `provenance.yaml`
 is rewritten, with `qc.status: not_checked` until the verifier has run.
+
+## Spin-up start years (D20, task P)
+
+A spin-up starts in a year its climate unit does not contain (D20: the labels before 1601 or 1850), and VIC checks the
+first time of the start-year file. `--start-years Y1,Y2 --cycle-window A-B` writes each start year Y as a copy of its
+cycle year S in the campaign's window (`cycle_source`, the rule of `workflow/05_simulation/render/forcing_years.py`;
+1591 → 1601 in 1601–1610, 1551 → 1601 and 1576 → 1628 in 1601–1650):
+
+- the data of the unit's accepted file of S, unchanged (every value, fill values included), with the time axis
+  `days since Y-01-01` and the attribute `year` of Y, plus the attributes `source_year`, `cycle_window`,
+  `source_file` and `start_year_note`; S must have the day count of Y and already be in the accepted unit;
+- only years the input alias does not contain and outside the window (the input of `esm-picontrol` has 1601–2100, so
+  1800 and 1825 of the `2021soc` chain are refused, D20 amendment 2026-10-17);
+- `provenance.yaml`: `start_years` {Y: S} and `cycle_windows` {Y: [A, B]} (the form of the land-use and water-use
+  start years), an `extended` entry, `qc.status: not_checked`; a later extension with input years keeps these keys
+  and its `rebuild_command` lists only the input years;
+- the verifier checks a start year with structure, grid and time and the check `start_year` (cycle year recomputed,
+  attributes, source file and its SHA-256 in the unit, every day equal to the source) instead of the input checks.
+
+The renderer uses a start year as itself only when it was made for the campaign's window. A scratch run
+(`--scratch`) copies from the accepted unit into `scratch/climate-forcing/`.
+
+```bash
+python3 workflow/04_forcing/climate/submit_climate_forcing.py --gcm ec-earth3-esm-1-1 --alias esm-picontrol --start-years 1591 --cycle-window 1601-1610 --scratch --scratch-label start-1591
+python3 workflow/04_forcing/climate/submit_climate_forcing.py --gcm ec-earth3-esm-1-1 --alias esm-picontrol --start-years 1591 --cycle-window 1601-1610
+```
 
 ## Decisions
 

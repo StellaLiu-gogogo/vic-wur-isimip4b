@@ -1,6 +1,6 @@
 # D20 — First-year files of runs that start outside a forcing unit's years
 
-Status: **decided 2026-10-11** by the user (option A).
+Status: **decided 2026-10-11** by the user (option A); amended 2026-10-17 (start year 1591, renderer cycle rule; see "Amendment 2026-10-17").
 Due stage: `05_simulation`.
 
 ## Context
@@ -165,3 +165,24 @@ Read-only checks of 2026-10-11 (VIC-WUR `39e21ff5`; accepted units under
 - If the spin-up block lengths change, the set of start years changes with
   them and further extension years are produced the same way.
 - Implementation is a workflow task proposed to the user after this record.
+
+## Amendment 2026-10-17
+
+Recorded in task P (spin-up runs), which took over the climate steps of task O (O3, O5, O6; user, 2026-10-17):
+
+- **Start year 1591.** The non-production spin-up of task L's natural run (10 years, `picontrol` cycle 1601–1610,
+  `1850soc` land use, routing and land use only) is labelled 1591–1600 by the block rule of decision 3, so that its
+  end state is dated 1601-01-01. It needs the start year 1591 in `landuse/1850soc` (task O, O4) and in
+  `climate/<gcm>/esm-picontrol` (a copy of 1601, the cycle year of 1591 in the window 1601–1610). The cycle year of a
+  start year depends on the window: in 1601–1650, 1591 would be a copy of 1641.
+- **Renderer.** The consequence "no renderer change" holds for the constant DHF units but not for the climate:
+  the renderer's `cycle` rule linked every spin-up year to its cycle year even when the unit contains a start year,
+  so the start year was never an identity link. The renderer now uses a start year of the climate unit as itself
+  when the unit records it as a copy of the cycle year of the campaign's window (provenance `start_years`,
+  `cycle_windows`), and stops when it was made for another window.
+- **Start years inside the input's years (open).** The climate start years 1800 and 1825 of the `2021soc` chain lie
+  inside the years of the `esm-picontrol` input (1601–2100). A copy of 1650 or 1625 under the name of a year the input
+  contains would conflict with the real year if the unit is ever extended beyond 1650. The climate producer
+  therefore writes a start year only for a year the input does not contain. How the `2021soc` chain gets its climate
+  (for example the real `picontrol` years 1800–1849 as its cycle window) is left to the user; it does not affect the
+  `1850soc` chain or the natural-run spin-up.
