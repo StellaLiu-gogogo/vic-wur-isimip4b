@@ -222,3 +222,23 @@ equivalences:
       except runtime and the new source_year key; provenance.yaml differs only in code_dirty, created_at, files[].sha256,
       the paths that carry the scratch label and the new keys (start_years, files[].created_at, files[].code_commit).
     approved: user, 2026-10-18
+  - id: submit-existing-unit-water-use
+    producer: workflow/04_forcing/water_use/downscale_water_use.py
+    method_version: '1.0'
+    from:
+      workflow/04_forcing/water_use: eaa6d9b9d08f90ce678774673a95ca914b6552f7
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    to:
+      workflow/04_forcing/water_use: 4328fa729e9e83ba4ceb13a7daf66d388b5d4c82
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    change: >-
+      task O4 (D20): the submit script no longer refuses an existing, non-empty unit (the producer extends it or stops
+      under common/unit_extension.py) and stops only for files without provenance.yaml. Only
+      submit_water_use_forcing.py changed (commit 9f45ae9); producer, verifier, job template and method unchanged.
+    evidence: >-
+      Scratch test on 2026-10-19, histsoc 2015, same inputs and commit base 248b933: before = worktree of 248b933 (Slurm
+      job 43353454), after = 9f45ae9 (job 43353455), comparison job 43353481 (scratch/first-year-files/compare-o4.log):
+      all six files identical in every variable and attribute except code_commit and created_at; lost_demand_ledger.csv
+      and lost_parents_2015.csv byte-identical; qa_2015.json identical; provenance.yaml differs only in code_commit,
+      created_at, files[].sha256, fingerprint.code_tree and the paths that carry the scratch label.
+    approved: user, 2026-10-20
