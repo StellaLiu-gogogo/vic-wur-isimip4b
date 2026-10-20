@@ -242,3 +242,28 @@ equivalences:
       and lost_parents_2015.csv byte-identical; qa_2015.json identical; provenance.yaml differs only in code_commit,
       created_at, files[].sha256, fingerprint.code_tree and the paths that carry the scratch label.
     approved: user, 2026-10-20
+  - id: start-years-climate
+    producer: workflow/04_forcing/climate/downscale_climate.py
+    method_version: '1.1'
+    from:
+      workflow/04_forcing/climate: 7b8e12ca4d11f1bf271433636131aca9d132fa23
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    to:
+      workflow/04_forcing/climate: f3c4b9a397637a714cca9fd8b0f6c2df2590f181
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    change: >-
+      task P2 (D20): the producer writes spin-up start years outside the input's years (--start-years with
+      --cycle-window) as copies of the unit's files of their cycle years with the time axis of the start year, records
+      them under start_years and cycle_windows, and keeps these keys on later extensions (rebuild_command lists only
+      the input years); the verifier checks start years against their source files (check start_year, --years-list);
+      the submit script passes both options; README (commit a86aaf9). The method and the files of the input years are
+      unchanged.
+    evidence: >-
+      Scratch test on 2026-10-20, ec-earth3-esm-1-1 esm-picontrol lwdown 1601, same inputs and commit base cf79c52:
+      before = worktree of cf79c52 (Slurm job 43368146), after = a86aaf9 (job 43368147), comparison job 43368167
+      (scratch/spinup-runs/compare-p2.log): every variable (values, dtype, dimensions, chunking, filters, attributes)
+      and every global attribute except code_commit, code_dirty and created_at identical; provenance.yaml differs only
+      in code_commit, files[].code_commit, files[].created_at, files[].sha256, fingerprint.code_tree and the paths that
+      carry the scratch label; both verifier reports passed, differing only in checked_at, the file SHA-256 and the
+      verifier commit and tree.
+    approved: user, 2026-10-20
