@@ -575,6 +575,20 @@ class SpinupOutputTest(RenderHarness):
         with self.assertRaises(rr.RenderError):
             self.render(SPIN)
 
+    def test_forcing_lines_only_for_plugins_on(self):
+        # VIC opens the start-year file of every PLUGIN_FORCE_TYPE line, also for a plugin that is off
+        self.campaign['plugins']['water_use']['enabled'] = False
+        self.render(SPIN)
+        lines = [l for l in self.vic().splitlines() if l.startswith('PLUGIN_FORCE_TYPE')]
+        self.assertEqual([l.split()[1] for l in lines], ['CV'])
+
+    def test_no_land_use_line_when_off(self):
+        self.campaign['plugins']['landuse']['enabled'] = False
+        self.render(SPIN)
+        lines = [l for l in self.vic().splitlines() if l.startswith('PLUGIN_FORCE_TYPE')]
+        self.assertNotIn('CV', [l.split()[1] for l in lines])
+        self.assertEqual(len(lines), 6)                                     # the water-use series of smoke
+
     def test_variable_of_plugin_off_stops(self):
         self.campaign['plugins']['dams']['enabled'] = False
         self.campaign['output']['spinup']['monthly'].append('OUT_GDAM_STORAGE')

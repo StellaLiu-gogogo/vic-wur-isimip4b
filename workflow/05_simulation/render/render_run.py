@@ -748,9 +748,12 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
                 f'FORCE_TYPE              {vt:9s} {var:7s} {view}/climate/{var}/{var}_{seg["gcm"]}_{alias}_'
                 for vt, var in (('AIR_TEMP', 'tair'), ('PREC', 'prec'), ('PRESSURE', 'psurf'), ('SWDOWN', 'swdown'),
                                 ('LWDOWN', 'lwdown'), ('VP', 'vp'), ('WIND', 'wind')))
-            wu_lines = []
+            # VIC opens the start-year file of every PLUGIN_FORCE_TYPE line, whether its plugin is on or not
+            # (plugins/general/src/plugin_forcing_utils.c, plugin_force_validate_global_param, at 39e21ff5); the forcing
+            # view has links only for the plugins that are on, so the lines of a plugin that is off are left out
+            wu_lines = [] if pl['water_use']['enabled'] else ['# water use off: no water-use forcing']
             for prefix, sector in WATER_USE_FILES:
-                if sector in pl['water_use']['sectors']:
+                if pl['water_use']['enabled'] and sector in pl['water_use']['sectors']:
                     for kind, var in WATER_USE_VARIABLES:
                         wu_lines.append(f'PLUGIN_FORCE_TYPE  {prefix}_{kind:12s} {var:21s} YEAR  '
                                         f'{view}/water_use/{sector}_{var}_{usoc}_')
@@ -784,7 +787,8 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
                 'PBARE': pl['irrigation']['paddy_bare_class'],
                 'DAMS': tf(pl['dams']['enabled']), 'DAMS_PARAMETERS': f'{W}/{rparams["dams"]["path"]}',
                 'LANDUSE': tf(pl['landuse']['enabled']),
-                'LANDUSE_FORCE_TYPE': f'PLUGIN_FORCE_TYPE  CV  coverage  YEAR  {view}/landuse/coverage_{usoc}_',
+                'LANDUSE_FORCE_TYPE': f'PLUGIN_FORCE_TYPE  CV  coverage  YEAR  {view}/landuse/coverage_{usoc}_'
+                                      if pl['landuse']['enabled'] else '# land use off: no land-use forcing',
                 'EFR': tf(pl['efr']['enabled']), 'WOFOST': tf(pl['wofost']['enabled']),
                 'RESULT_DIR': f'{cdir}/output/', 'LOG_DIR': f'{cdir}/logs/', 'OUTPUT_STREAMS': streams_text}
             vic_text = fill(open(os.path.join(REPO, VIC_TEMPLATE)).read(), values)

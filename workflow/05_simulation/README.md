@@ -106,7 +106,10 @@ accepted units; units are never modified or copied. Rules (`forcing_years.py`):
 | constant | the DHF scenario is listed in the campaign's `dhf_forcing.constant` (`1850soc`, `2021soc`) and the unit lacks the year | the first year of the unit with the same number of days (365/366): VIC reads daily records within the year and the water-use demand is mm/day of its calendar year |
 | cycle | spin-up climate | `a + (Y − a) mod L` in the campaign's window `[a, b]`; when the day count differs, the next year of the window with the same count (a year that maps to itself is recorded as identity, and so is a start year of the unit recorded as a copy of its cycle year for the same window, D20 amendment 2026-10-17; a start year made for another window stops the render) |
 
-`2021soc-from-histsoc` uses the `2021soc` unit (`dhf_forcing.units`). The mapping of every simulation year
+`2021soc-from-histsoc` uses the `2021soc` unit (`dhf_forcing.units`). The view and the `PLUGIN_FORCE_TYPE` lines of
+the VIC file cover only the plugins that are on: VIC opens the start-year file of every `PLUGIN_FORCE_TYPE` line,
+whatever the plugin switch says (`plugins/general/src/plugin_forcing_utils.c`; found by the first attempt of the
+natural-run spin-up, job 43368322, 2026-10-21). The mapping of every simulation year
 (source file, rule) is in the run manifest (`forcing_view`).
 
 **Start-year restriction.** VIC checks only the start-year file of each forcing: the climate file's first
