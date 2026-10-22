@@ -1,0 +1,289 @@
+# Campaign `natural-run`: the natural main run of the project (task Q, non-production), input of task L (dam service
+# maps, D19). Segments are derived by workflow/05_simulation/render/resolve_campaign.py from the pinned protocol; this
+# file selects experiments and declares every choice the protocol does not make (configs/README.md).
+campaign_id: natural-run
+production: false
+description: >-
+  Natural run 1850-2021 (no human water use) of ec-earth3-esm-1-1: the historical segment with esm-hist climate and
+  histsoc land use, routing and land use only (no irrigation, water use, dams, EFR, WOFOST), the parameter files and
+  model build of campaign natural-spinup. It starts from the end state (1601-01-01) of the natural-run spin-up
+  (campaign natural-spinup, picontrol 1601-1610 with 1850soc land use) under the D19 warm-start rule for
+  non-production runs. Task L forms the dam service maps from its discharge (mean 1992-2021) and multi-year daily
+  means of discharge, runoff and baseflow. Every output is a candidate (D01 provisional).
+
+model:
+  lock: model/vic.lock.yaml
+  commit: 39e21ff5015d01d9bc20407a8f50006831417aff
+  driver: image
+  coupling: standalone image driver, GWM FALSE, no MODFLOW coupling
+
+parameter_set:
+  id: vic-global-5arcmin-version-a
+  status: candidates
+  # role -> file inside the parameter set (manifests/parameters/vic-global-5arcmin-version-a.yaml); the files of
+  # campaign natural-spinup, whose end state starts this run (D19 warm-start rule: identical parameter files)
+  files:
+    domain: domain/vic_global_5min_domain_nogl.nc
+    parameters: bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc
+    routing: routing/vic_global_5min_routing.nc
+    decomposition: routing/vic_global_5min_file_decomposition_wateruse_dams.nc
+    irrigation: irrigation/vic_global_5min_irrigation_parameters.nc
+    # soc scenario of a segment -> dam file (D19). The dams plugin is off; the adopted T3_extended file is named as in
+    # campaign smoke and is not read.
+    dams:
+      histsoc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      1850soc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      2021soc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      2021soc-from-histsoc: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      ssp1vlsoc-noadapt: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+      ssp3hsoc-noadapt: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+    water_use: water_use/vic_global_5min_wateruse_parameters_receiving-network.nc
+
+protocol:
+  path: raw/external/isimip-protocol-4/f9be7b0cdf83409315d9fa7da8581cc6fd6ff3e1
+  commit: f9be7b0cdf83409315d9fa7da8581cc6fd6ff3e1
+  simulation_round: ISIMIP4b
+  sector: water_global
+
+gcms:
+  ec-earth3-esm-1-1:
+    # the DKRZ input of this GCM is emission-driven: input aliases esm-picontrol, esm-hist, esm-scen7-*
+    climate_input: emission-driven
+
+# The historical segment of this experiment is ec-earth3-esm-1-1_historical_histsoc_default_historical (1850-2021).
+experiments:
+  ids: [h_ssp3hsoc-noadapt_default]
+exclusions: []
+sensitivity_equivalence:
+  2021co2:
+    same_as: default
+    reason: VIC-WUR has no CO2-dependent process (docs/glossary.md, sensitivity scenario)
+
+# Non-production restriction: the historical segment only, all its years (run ID <segment-id>__<label>). The run is
+# split into chunks of chunk_years of the resources (20): 1850-1869, ..., 1990-2009, 2010-2021.
+restriction:
+  periods: [historical]
+  runs:
+    natural1850-2021:
+      years: [1850, 2021]
+
+initialisation:
+  # the parent segment (pre-industrial) is not simulated by this campaign: warm start from the end state of the
+  # natural-run spin-up (D19 warm-start rule, checked by render_run.py: 1 January, same model, executable,
+  # parameter files and plugins on)
+  without_parent: state_of_run
+  state_of_run:
+    run_dir: runs/natural-spinup/ec-earth3-esm-1-1_picontrol_1850soc_default_spinup__natural1591-1600
+    state: states/state.16010101_00000.nc
+    reason: >-
+      the natural run starts from the ten-year natural-run spin-up (job 43374681, completed 2026-10-21) with the same
+      plugins (routing and land use), instead of a cold start (user, 2026-10-11: start 1850, 10-year spin-up, warm
+      start); the state is dated 1601-01-01 and VIC does not check its date; the land-use plugin applies the histsoc
+      coverage of 1850 at the first step because the run starts on 1 January
+  # state written at the end of every run (first day after the last simulated day): 2022-01-01
+  state_at_end: true
+
+# Spin-up is not simulated by this campaign (restriction); the keys are listed so that the resolver can report the
+# full segment list.
+spinup:
+  length_years: null
+  climate_cycle: null
+
+dhf_forcing:
+  # soc scenario of a segment -> land-use and water-use forcing unit
+  units:
+    histsoc: histsoc
+    1850soc: 1850soc
+    2021soc: 2021soc
+    2021soc-from-histsoc: 2021soc
+    ssp1vlsoc-noadapt: ssp1vlsoc-noadapt
+    ssp3hsoc-noadapt: ssp3hsoc-noadapt
+  # units that are constant in time: a simulation year the unit does not contain uses the first unit year
+  # with the same number of days (render/forcing_years.py)
+  constant: [1850soc, 2021soc]
+
+# Plugins of the natural-run spin-up (the warm-start rule requires the same plugins on): routing and land use on,
+# everything else off. The settings of the plugins that are off are those of campaign smoke; they are written to the
+# VIC file but not used.
+plugins:
+  routing:
+    enabled: true
+    decomposition: FILE
+    steps_per_day: 24            # the unit hydrographs of the routing file have 3600 s steps
+  irrigation:
+    enabled: false
+    potential_irrigation: false
+    efficient_irrigation: false
+    offset_irrigation: false
+    paddy_bare_class: 16
+  dams:
+    enabled: false
+    alpha: 0.85
+    beta: 0.6
+    gamma: 5
+  water_use:
+    enabled: false
+    sectors: [municipal, manufacturing]
+    local_withdrawal: true
+    remote_withdrawal: true
+    compensation_withdrawal: false
+    nonrenewable_withdrawal: false
+    nonrenewable_runoff: false
+  landuse:
+    enabled: true
+  efr:
+    enabled: false
+  wofost:
+    enabled: false
+
+# Output: the ISIMIP selection of campaign smoke without the variables of the plugins that are off (VIC would drop
+# them with a warning only, and the run would miss a requested output). Daily OUT_DISCHARGE, OUT_RUNOFF and
+# OUT_BASEFLOW (qtot, dis) for task L (multi-year daily means, user 2026-10-22), as D03 for reported segments.
+output:
+  format: NETCDF4
+  compress: 2
+  history_frequency: NYEARS 1    # one file per stream and calendar year
+  streams:
+    daily: NDAYS 1
+    monthly: NMONTHS 1
+  # VIC outputs whose default aggregation (state: value at the end of the period) is replaced by the mean
+  aggregation:
+    OUT_SOIL_MOIST: AGG_TYPE_AVG
+    OUT_ROOTMOIST: AGG_TYPE_AVG
+    OUT_SOIL_TEMP: AGG_TYPE_AVG
+    OUT_SNOW_DEPTH: AGG_TYPE_AVG
+    OUT_SWE: AGG_TYPE_AVG
+    OUT_SNOW_CANOPY: AGG_TYPE_AVG
+    OUT_WDEW: AGG_TYPE_AVG
+    OUT_SURFSTOR: AGG_TYPE_AVG
+    OUT_STREAM_MOIST: AGG_TYPE_AVG
+    OUT_LAI: AGG_TYPE_AVG
+  # ISIMIP water_global variables (protocol definitions/variable/*.yaml) -> VIC outputs at the locked commit.
+  # streams: where the VIC outputs are written; the protocol frequency is in `frequency`. Conversion to
+  # ISIMIP units, sector arithmetic and 5' -> 0.5 degree aggregation happen in 06_postprocessing (D07).
+  isimip:
+    qtot: {vic: [OUT_RUNOFF, OUT_BASEFLOW], frequency: "daily & monthly", streams: [daily, monthly], rule: "sum"}
+    dis: {vic: [OUT_DISCHARGE], frequency: "daily & monthly", streams: [daily, monthly], rule: "m3 s-1, mean over the period"}
+    qs: {vic: [OUT_RUNOFF], frequency: "monthly", streams: [monthly]}
+    qsb: {vic: [OUT_BASEFLOW], frequency: "monthly", streams: [monthly], rule: "outflow of the bottom soil layer; no groundwater store under GWM FALSE"}
+    qg: {vic: [OUT_BASEFLOW], frequency: "monthly", streams: [monthly], rule: "seepage from the soil column reported as qg (protocol comment)"}
+    qr: {vic: [OUT_BASEFLOW], frequency: "monthly", streams: [monthly], rule: "seepage reported as qr (protocol comment); OUT_RECHARGE is percolation between soil layers and is not qr"}
+    evap: {vic: [OUT_EVAP], frequency: "monthly", streams: [monthly]}
+    potevap: {vic: [OUT_PET], frequency: "monthly", streams: [monthly], rule: "VIC potential evapotranspiration of the actual vegetation"}
+    soilmoist: {vic: [OUT_SOIL_MOIST], frequency: "daily if possible, else monthly", streams: [monthly], rule: "per layer"}
+    rootmoist: {vic: [OUT_ROOTMOIST], frequency: "monthly", streams: [monthly]}
+    tsl: {vic: [OUT_SOIL_TEMP], frequency: "daily if possible, else monthly", streams: [monthly], rule: "per layer, degC -> K"}
+    snd: {vic: [OUT_SNOW_DEPTH], frequency: "daily if possible, else monthly", streams: [monthly], rule: "cm -> m"}
+    snm: {vic: [OUT_SNOW_MELT], frequency: "daily if possible, else monthly", streams: [monthly]}
+    swe: {vic: [OUT_SWE, OUT_SNOW_CANOPY], frequency: "monthly", streams: [monthly], rule: "sum"}
+    canopystor: {vic: [OUT_WDEW], frequency: "monthly", streams: [monthly]}
+    riverstor: {vic: [OUT_STREAM_MOIST], frequency: "monthly", streams: [monthly]}
+    tws: {vic: [OUT_SOIL_MOIST, OUT_SWE, OUT_SNOW_CANOPY, OUT_WDEW, OUT_SURFSTOR, OUT_STREAM_MOIST], frequency: "monthly", streams: [monthly], rule: "sum of the stores; no reservoirs (dams off)"}
+    lai: {vic: [OUT_LAI], frequency: "daily else monthly", streams: [monthly], rule: "grid-cell total"}
+  # written after each chunk and after the whole run by the check jobs (workflow/05_simulation/monitor/check_run.py, submitted by
+  # submit_run.py to start when the run succeeds) into qc/runs/<campaign>/<run-id>/reports/
+  derived:
+    grdc_comparison: >-
+      grdc_stations.csv and figures: simulated discharge at the GRDC stations (raw/external/grdc, catchments
+      >= 10 000 km2) against the GRDC monthly climatology of the run years +- 10 years, and daily series of the
+      same dates for visual reference
+  # written for the run checks (water and energy balance), not ISIMIP variables; the water-use and irrigation
+  # diagnostics of campaign smoke are left out because those plugins are off
+  diagnostics:
+    monthly: [OUT_PREC, OUT_AIR_TEMP, OUT_RECHARGE, OUT_EVAP_BARE, OUT_EVAP_CANOP, OUT_TRANSP_VEG, OUT_SUB_SNOW,
+              OUT_WATER_ERROR, OUT_ENERGY_ERROR]
+  not_provided:
+    reservoirstor: dams plugin off (natural run)
+    airrww: water-use and irrigation plugins off (natural run, no human water use)
+    airrwwgw: water-use and irrigation plugins off (natural run, no human water use)
+    airruse: water-use and irrigation plugins off (natural run, no human water use)
+    adomww: water-use and irrigation plugins off (natural run, no human water use)
+    adomwwgw: water-use and irrigation plugins off (natural run, no human water use)
+    adomuse: water-use and irrigation plugins off (natural run, no human water use)
+    pdomww: water-use and irrigation plugins off (natural run, no human water use)
+    pdomwwgw: water-use and irrigation plugins off (natural run, no human water use)
+    aindww: water-use and irrigation plugins off (natural run, no human water use)
+    aindwwgw: water-use and irrigation plugins off (natural run, no human water use)
+    ainduse: water-use and irrigation plugins off (natural run, no human water use)
+    pindww: water-use and irrigation plugins off (natural run, no human water use)
+    pindwwgw: water-use and irrigation plugins off (natural run, no human water use)
+    atotww: water-use and irrigation plugins off (natural run, no human water use)
+    atotuse: water-use and irrigation plugins off (natural run, no human water use)
+    ptotww: water-use and irrigation plugins off (natural run, no human water use)
+    atotwwgw: water-use and irrigation plugins off (natural run, no human water use)
+    ptotwwgw: water-use and irrigation plugins off (natural run, no human water use)
+    qrf: no focussed recharge from surface water bodies (no groundwater layer under GWM FALSE)
+    qrd: optional; equals qr for a model without a groundwater layer
+    soilmoistfroz: FROZEN_SOIL FALSE, soil ice is not simulated
+    thawdepth: FROZEN_SOIL FALSE
+    glacierstor: no glacier model
+    groundwstor: no groundwater store under GWM FALSE
+    lakestor: LAKES FALSE
+    wetlandstor: no wetland store
+    triver: no river temperature model
+    pirrww: D17 open; the sector-4 demand of VIC is the daily soil-moisture deficit asked again every day, not a withdrawal volume; needs runs with POTENTIAL_IRRIGATION TRUE
+    pirrwwgw: as pirrww (D17)
+    pirruse: as pirrww (D17)
+    pirnreqcum: no crop growing-season accounting (WOFOST off)
+    airrusegreen: VIC does not separate green and blue water
+    pirrusegreen: VIC does not separate green and blue water
+    arainfusegreen: VIC does not separate green and blue water
+    amanww: manufacturing and electricity are not separated in the water-use forcing (reported as industrial)
+    amanuse: as amanww
+    aelecww: as amanww
+    aelecuse: as amanww
+    pmanww: as amanww
+    pmanuse: as amanww
+    pelecww: as amanww
+    pelecuse: as amanww
+    amanwwgw: as amanww
+    amanusegw: as amanww
+    aelecwwgw: as amanww
+    aelecusegw: as amanww
+    pmanwwgw: as amanww
+    pmanusegw: as amanww
+    pelecwwgw: as amanww
+    pelecusegw: as amanww
+    aliveww: no livestock sector
+    aliveuse: no livestock sector
+    pliveww: no livestock sector
+    pliveuse: no livestock sector
+    alivwwgw: no livestock sector
+    alivusegw: no livestock sector
+    plivwwgw: no livestock sector
+    plivusegw: no livestock sector
+    pdomuse: per-sector consumption is not written; derivable as pdomww x consumption fraction in postprocessing
+    pinduse: as pdomuse
+    ptotuse: as pdomuse
+    adomusegw: per-sector consumption by source is not written
+    aindusegw: as adomusegw
+    airrusegw: as adomusegw
+    pirrusegw: as adomusegw
+    pdomusegw: as adomusegw
+    pindusegw: as adomusegw
+    atotusegw: as adomusegw
+    ptotusegw: as adomusegw
+    soil: static; from the parameter set in postprocessing, not a VIC output
+    cellarea: static; from the domain file in postprocessing (D07)
+    contfrac: static; from the domain file in postprocessing (D07)
+    landfrac: static; from the domain file in postprocessing (D07)
+    yield: no crop model (WOFOST off)
+    evapcum: no crop model
+    initrcum: no crop model
+    plantday: no crop model
+    plantyear: no crop model
+    anthday: no crop model
+    matyday: no crop model
+    harvyear: no crop model
+    biom: no crop model
+    nupcum: no crop model
+    nincum: no crop model
+    nlosscum: no crop model
+    nleachcum: no crop model
+
+resources: configs/resources/vic-global-5arcmin.yaml
+
+open_decisions:
+  D01: provisional VIC commit; every run is a candidate
+  D06: extrasoc composition open; not used by this campaign
+  D17: potential irrigation open; not relevant (irrigation off)

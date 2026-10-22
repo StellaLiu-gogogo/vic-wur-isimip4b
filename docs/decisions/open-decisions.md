@@ -16,7 +16,8 @@ D01 does not block the climate forcing units of the smoke campaign: the user
 allowed producing the EC-Earth3-ESM-1-1 `esm-hist` 2011–2020 climate units
 as accepted forcing while D01 is open (user, 2026-09-30), and extended this
 to the years 1850–2010 of the same units (user, 2026-10-11; natural run
-1850–2021 of task L for the dam service maps, D19), and to the
+1850–2021 of task L for the dam service maps, D19) and to the year 2021
+(user, 2026-10-22; the same natural run, task Q), and to the
 EC-Earth3-ESM-1-1 `esm-picontrol` climate units of the spin-ups with their
 D20 start years (user, 2026-10-17; task P), including the years 1611–1650
 and 1800–1849 (user, 2026-10-22; D19 amendment of 2026-10-22). The same holds

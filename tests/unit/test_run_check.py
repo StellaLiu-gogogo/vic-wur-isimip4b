@@ -92,6 +92,7 @@ class SeriesTest(unittest.TestCase):
 YEAR = 2015
 RUN_MASK = np.array([[1, 1, 1], [1, 1, 0]], bool)
 FILL = 9.96921e36
+PLUGINS = ('routing', 'irrigation', 'dams', 'water_use', 'landuse', 'efr', 'wofost')
 
 
 def write_nc(path, dims, variables, dtype='f4'):
@@ -133,7 +134,8 @@ class CheckRunMainTest(unittest.TestCase):
                        'period': {'start': f'{YEAR}-01-01', 'end': f'{YEAR}-12-31'}}, fh)
         with open(f'{self.rd}/config/resolved.yaml', 'w') as fh:
             yaml.safe_dump({'parameters': {'domain': {'path': 'parameters/p/domain.nc'},
-                                           'routing': {'path': 'parameters/p/routing.nc'}}}, fh)
+                                           'routing': {'path': 'parameters/p/routing.nc'}},
+                            'campaign': {'plugins': {k: {'enabled': True} for k in PLUGINS}}}, fh)
         self.daily()
         self.monthly()
         self.state = f'{self.rd}/states/state.{YEAR + 1}0101_00000.nc'
@@ -220,6 +222,51 @@ class CheckRunMainTest(unittest.TestCase):
         self.assertEqual(report['years'][str(YEAR)]['coverage']['status'], 'passed')
         self.assertEqual(summary['status'], 'failed')
         self.assertEqual(self.exit_status, 1)
+
+
+class CheckRunNaturalTest(CheckRunMainTest):
+    """A natural run (routing and land use only): VIC writes no water-use or irrigation output and the run reads no
+    water-use forcing, so the check skips those parts and passes on coverage and the end state."""
+
+    def setUp(self):
+        super().setUp()
+        with open(f'{self.rd}/config/resolved.yaml') as fh:
+            res = yaml.safe_load(fh)
+        res['campaign']['plugins'] = {k: {'enabled': k in ('routing', 'landuse')} for k in PLUGINS}
+        with open(f'{self.rd}/config/resolved.yaml', 'w') as fh:
+            yaml.safe_dump(res, fh)
+        with open(f'{self.rd}/run_manifest.json') as fh:
+            man = json.load(fh)
+        man['forcing_view'] = {}
+        with open(f'{self.rd}/run_manifest.json', 'w') as fh:
+            json.dump(man, fh)
+
+    def monthly(self, withdrawn=None):
+        """Monthly output of a natural run: no water-use or irrigation variable."""
+        ny, nx = RUN_MASK.shape
+        write_nc(f'{self.rd}/output/monthly.{YEAR}-01.nc', {'time': 12, 'lat': ny, 'lon': nx},
+                 {v: (('time', 'lat', 'lon'), np.full((12, ny, nx), x))
+                  for v, x in (('OUT_WATER_ERROR', 0.0), ('OUT_DISCHARGE', 1.0))})
+
+    def test_complete_run_passes(self):
+        summary, report = self.main()
+        self.assertEqual((summary['status'], report['status']), ('passed', 'passed'), report['years'])
+        y = report['years'][str(YEAR)]
+        self.assertEqual(y['coverage']['status'], 'passed')
+        for key in ('budget', 'irrigation', 'sectors', 'withdrawal_by_sector_km3', 'derived_file'):
+            self.assertNotIn(key, y)
+        self.assertFalse(os.path.exists(f'{self.W}/qc/runs/c/r/reports/water_use_by_sector_{YEAR}.nc'))
+        self.assertIn('max_abs_monthly_mean_water_error_mm', y['water_balance'])
+        self.assertEqual(self.exit_status, 0)
+
+    def test_missing_state_fails(self):
+        os.remove(self.state)
+        summary, report = self.main()
+        self.assertEqual((summary['status'], report['status']), ('failed', 'failed'))
+        self.assertEqual(self.exit_status, 1)
+
+    def test_budget_violation_fails(self):
+        self.skipTest('no water-use budget in a natural run')
 
 
 class ClimatologyYearsTest(unittest.TestCase):

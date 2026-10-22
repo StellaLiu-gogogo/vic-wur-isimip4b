@@ -250,6 +250,16 @@ standard deviation of the detrended values. Results in `qc/runs/<campaign>/<run-
 `reports/convergence.json`, `reports/convergence_annual.csv`, `figures/convergence_{global,basins}.png`); from a
 repository that is not clean they go to `scratch/spinup-check/uncommitted/` and the block has no test.
 
+## Natural run (task Q)
+
+Classification: workflow (user, 2026-10-22). Campaign `natural-run` (non-production): the historical segment 1850–2021
+with `esm-hist` climate and `histsoc` land use, routing and land use only, warm-started from the end state of the
+natural-run spin-up (campaign `natural-spinup`, D19 warm-start rule), in chunks of 20 years. Its discharge gives task L
+the dam service maps (D19; mean 1992–2021) and multi-year daily means of discharge, runoff and baseflow (daily
+`OUT_DISCHARGE`, `OUT_RUNOFF`, `OUT_BASEFLOW`, user 2026-10-22). The output selection is that of campaign `smoke`
+without the variables of the plugins that are off (listed under `not_provided`); `check_run.py` skips the water-use
+checks of such a run. The `esm-hist` climate unit was extended with 2021 for this run (user, 2026-10-22).
+
 ## Submit (`submit/`)
 
 | File | Role |
@@ -278,7 +288,7 @@ VIC starts.
 
 | File | Role |
 |---|---|
-| `check_run.py` | for a chunked run `--chunk <id>` checks one chunk (its years and end state, no GRDC), and the check without `--chunk` covers the whole run (GRDC comparison of all years, end state, every chunk check passed); checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR` as a monthly mean), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), the non-renewable deficit at the end of each month when `OUT_NONREN_DEFICIT` is written, end state; GRDC comparison for the whole run |
+| `check_run.py` | for a chunked run `--chunk <id>` checks one chunk (its years and end state, no GRDC), and the check without `--chunk` covers the whole run (GRDC comparison of all years, end state, every chunk check passed); checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR` as a monthly mean), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), the non-renewable deficit at the end of each month when `OUT_NONREN_DEFICIT` is written, end state; GRDC comparison for the whole run. The water-use parts (budget, sectors, derived file, water-use figures) run only when the run's water-use plugin is on and the irrigation results only when its irrigation plugin is also on (`config/resolved.yaml`; a natural run has neither and writes none of their outputs) |
 | `run_figures.py` | the derived file `reports/water_use_by_sector_<year>.nc` (monthly withdrawal per sector municipal, manufacturing, irrigation and its sources groundwater, surface, dam, remote, nonrenewable; VIC demand and estimated consumption for municipal and manufacturing; VIC-WUR writes the sources per sector but no sector total) and the figures of water use by sector and source, source shares, sector maps, distributions of withdrawal/demand and of remote and groundwater shares, and the water balance |
 | `grdc.py` | GRDC daily export (`raw/external/grdc/export-2024-11`, `manifests/inputs/grdc.yaml`): station files, upstream area along the routing network, station-to-cell mapping (closest upstream area within 3 cells, area error ≤ 30 %), monthly means (≥ 20 valid days) and climatology (≥ 5 years per month) |
 | `compare_runs.py`, `compare_runs.sbatch` | compares the output (every variable, time step and active cell) and the end states of two completed runs over their common years, chunked or not (`--submit`: Slurm job with job record under `logs/05_simulation/`); report `qc/<run>/reports/compare_<other run-id>.json`, status passed when bitwise identical, warning with the size of the differences otherwise; used for campaign `chunk-test` (a chunked run against the same run in one job) |

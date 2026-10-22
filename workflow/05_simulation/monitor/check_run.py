@@ -7,14 +7,16 @@ view) and the GRDC daily export (raw/external/grdc/export-2024-11, see grdc.py).
 qc/runs/<campaign-id>/<run-id>/: summary.json, reports/check.json, reports/grdc_stations.csv,
 reports/water_use_by_sector_<year>.nc (run_figures.py) and figures/*.png.
 
-Checks per calendar year
+Checks per calendar year (the plugins of the run are read from its config/resolved.yaml; a run without the water-use
+plugin, e.g. a natural run, has no water-use output and gets no water-use checks)
   coverage        active cells (domain mask) without a finite qtot or discharge value
   qtot            annual qtot = sum of daily OUT_RUNOFF + OUT_BASEFLOW (mm/yr), map and global volume (km3/yr)
   water_balance   OUT_WATER_ERROR (monthly mean per cell, VIC's default aggregation): largest absolute value; global
                   P, ET, qtot
   outlets         mean discharge at the river outlets (routing downstream equal to the cell's own downstream_id)
-  irrigation      irrigation withdrawal (sector 4), requirement, received water
+  irrigation      irrigation withdrawal (sector 4), requirement, received water (water-use and irrigation plugins on)
   sectors         municipal (0) and manufacturing (2): forcing demand (mm/day x days), VIC demand, withdrawal
+                  (water-use plugin on, as the budget, the non-renewable deficit and the derived per-sector file)
   budget          per cell and month: withdrawn <= demand, consumed <= withdrawn,
                   GW + SURF + DAM + TREM + NREN (all sectors) = OUT_WITHDRAWN (the GWM FALSE definition in
                   plugins/wateruse/src/wu_output.c), and the variant GW + SURF + REM + DAM (informative);
@@ -69,7 +71,9 @@ def workdir():
 
 
 # ------------------------------------------------------------------------------------------------ per year
-def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_cells, provenance, qc):
+def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_cells, provenance, qc, plugins):
+    """`plugins`: {plugin: on} of the run. The water-use checks need the water-use plugin and the irrigation
+    results also the irrigation plugin; a natural run has neither, and VIC writes none of their outputs."""
     out = {}; figs_made = []
     daily = nc.Dataset(f'{rd}/output/daily.{year}-01-01.nc'); monthly = nc.Dataset(f'{rd}/output/monthly.{year}-01.nc')
     nd = len(daily.dimensions['time']); nm = len(monthly.dimensions['time'])
@@ -96,12 +100,30 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
     out['outlets'] = [{'lat': float(lat[cand[0][k]]), 'lon': float(lon[cand[1][k]]),
                        'mean_m3_s': float(dis_mean[cand[0][k], cand[1][k]])} for k in order]
 
+    if plugins['water_use']:
+        wu, wu_figs = check_water_use(year, monthly, nd, nm, mask, area, lat, lon, figs, forcing_view, provenance, qc,
+                                      plugins['irrigation'])
+        out.update(wu); figs_made += wu_figs
+    wb_err = max(float(np.nanmax(np.abs(read(monthly, 'OUT_WATER_ERROR', t))[mask], initial=0)) for t in range(nm))
+    wb, f = run_figures.water_balance(year, monthly, mask, area, lat, figs)
+    wb['max_abs_monthly_mean_water_error_mm'] = wb_err
+    out['water_balance'] = wb; figs_made.append(f)
+    out['figures'] = figs_made
+    daily.close(); monthly.close()
+    return out, st_daily
+
+
+def check_water_use(year, monthly, nd, nm, mask, area, lat, lon, figs, forcing_view, provenance, qc, irrigation):
+    """Water-use part of the yearly check (water-use plugin on): budget per cell and month, non-renewable deficit,
+    irrigation (irrigation plugin on), withdrawal by sector and source, the derived per-sector file and the water-use
+    figures. Returns (entries of the yearly result, figures made)."""
+    out = {}; figs_made = []
     # ---- water-use budget per cell and month
     sect = {n: np.zeros((5,) + mask.shape) for n in WI + ('OUT_DE_GW_SECT', 'OUT_DE_SURF_SECT')}
     tot = {k: np.zeros(mask.shape) for k in ('OUT_WITHDRAWN', 'OUT_DEMAND', 'OUT_CONSUMED', 'OUT_RETURNED')}
     irr = {k: np.zeros(nm) for k in ('received', 'requirement', 'applied')}
     viol = {'withdrawn_gt_demand': 0, 'consumed_gt_withdrawn': 0, 'sum_ne_withdrawn': 0, 'sum_with_rem_ne_withdrawn': 0}
-    worst = {k: 0.0 for k in viol}; wb_err = 0.0; missing = {}
+    worst = {k: 0.0 for k in viol}; missing = {}
     for t in range(nm):
         m = {k: read(monthly, k, t) for k in list(sect) + list(tot) + ['OUT_WI_REM_SECT']}
         for k, a in m.items():               # active cells without a value (in any sector): counted before use
@@ -113,7 +135,8 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
         for k in tot:
             tot[k] += np.nan_to_num(m[k])
         for k, v in (('received', 'OUT_RECEIVED'), ('requirement', 'OUT_REQUIREMENT'), ('applied', 'OUT_APPLIED')):
-            irr[k][t] = km3(np.nan_to_num(read(monthly, v, t)), area)
+            if irrigation:
+                irr[k][t] = km3(np.nan_to_num(read(monthly, v, t)), area)
         wd, de, co = m['OUT_WITHDRAWN'], m['OUT_DEMAND'], m['OUT_CONSUMED']
         s = sum(np.nansum(m[k], axis=0) for k in WI)
         s_rem = sum(np.nansum(m[k], axis=0) for k in ('OUT_WI_GW_SECT', 'OUT_WI_SURF_SECT', 'OUT_WI_REM_SECT', 'OUT_WI_DAM_SECT'))
@@ -123,7 +146,6 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
         for key, a in (('sum_ne_withdrawn', s), ('sum_with_rem_ne_withdrawn', s_rem)):
             d = np.abs(a - wd)[mask]; tol = ABS_TOL + REL_TOL * np.abs(wd[mask])
             viol[key] += int(np.nansum(d > tol)); worst[key] = max(worst[key], float(np.nanmax(d, initial=0)))
-        wb_err = max(wb_err, float(np.nanmax(np.abs(read(monthly, 'OUT_WATER_ERROR', t))[mask], initial=0)))
     out['budget'] = {'cell_months_checked': int(mask.sum()) * nm, 'violations': viol, 'largest_excess_mm': worst,
                      'tolerance': f'{ABS_TOL} mm + {REL_TOL} x value',
                      'missing_values': missing,
@@ -137,11 +159,12 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
                                'note': 'non-renewable water not yet repaid; OUT_BASEFLOW and qtot include the repaid '
                                        'part, which does not reach the river'}
     wi = sum(sect[k] for k in WI); de = sect['OUT_DE_GW_SECT'] + sect['OUT_DE_SURF_SECT']
-    out['irrigation'] = {'withdrawal_km3': km3(wi[4], area), 'groundwater_km3': km3(sect['OUT_WI_GW_SECT'][4], area),
-                         'received_km3': float(irr['received'].sum()), 'applied_km3': float(irr['applied'].sum()),
-                         'requirement_monthly_mean_km3': float(irr['requirement'].sum()),
-                         'demand_sum_km3_not_a_volume': km3(de[4], area),
-                         'cells_with_withdrawal': int(((wi[4] > 0) & mask).sum())}
+    if irrigation:
+        out['irrigation'] = {'withdrawal_km3': km3(wi[4], area), 'groundwater_km3': km3(sect['OUT_WI_GW_SECT'][4], area),
+                             'received_km3': float(irr['received'].sum()), 'applied_km3': float(irr['applied'].sum()),
+                             'requirement_monthly_mean_km3': float(irr['requirement'].sum()),
+                             'demand_sum_km3_not_a_volume': km3(de[4], area),
+                             'cells_with_withdrawal': int(((wi[4] > 0) & mask).sum())}
     out['totals'] = {k: km3(v, area) for k, v in tot.items()}
     by_source = {}
     for sec, i in SECTORS.items():
@@ -167,12 +190,7 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
                                   'withdrawal_km3': km3(wi[i], area),
                                   'consumption_estimate_km3': float(series[sector]['consumption_estimate'].sum()),
                                   'cells_with_demand': int(((de[i] > 0) & mask).sum())}
-    wb, f = run_figures.water_balance(year, monthly, mask, area, lat, figs)
-    wb['max_abs_monthly_mean_water_error_mm'] = wb_err
-    out['water_balance'] = wb; figs_made.append(f)
-    out['figures'] = figs_made
-    daily.close(); monthly.close()
-    return out, st_daily
+    return out, figs_made
 
 
 # ------------------------------------------------------------------------------------------------ GRDC
@@ -328,6 +346,7 @@ def main():
     with open(f'{rd}/{first}/config/resolved.yaml') as fh:
         res = yaml.safe_load(fh)
     params = res['parameters']
+    plugins = {k: v['enabled'] for k, v in res['campaign']['plugins'].items()}
     qc = f'{W}/qc/{man["run_dir"]}' + (f'/chunks/{a.chunk}' if a.chunk else '')
     figs = f'{qc}/figures'; os.makedirs(figs, exist_ok=True); os.makedirs(f'{qc}/reports', exist_ok=True)
     with nc.Dataset(f'{W}/{params["domain"]["path"]}') as d:
@@ -357,7 +376,7 @@ def main():
             st_daily.append(station_daily(ydirs[y], y, cells))
     else:
         for y in years:
-            results[y], d = check_year(y, ydirs[y], mask, area, lat, lon, own, figs, view, cells, prov, qc)
+            results[y], d = check_year(y, ydirs[y], mask, area, lat, lon, own, figs, view, cells, prov, qc, plugins)
             st_daily.append(d)
     st_daily = np.concatenate(st_daily)
     grdc_summary, grdc_figs = {}, []
@@ -373,7 +392,8 @@ def main():
               'code_commit': commit, 'years': results, 'grdc': grdc_summary | {'figures': grdc_figs},
               **({'chunk_checks': chunk_status} if whole_chunked else {}),
               'state_files': [{'path': os.path.relpath(s, rd), 'size_bytes': os.path.getsize(s)} for s in state]}
-    statuses = [v[k]['status'] for v in results.values() for k in ('coverage', 'budget')] + list(chunk_status.values())
+    statuses = [v[k]['status'] for v in results.values() for k in ('coverage', 'budget') if k in v] + \
+        list(chunk_status.values())
     report['status'] = 'passed' if all(s == 'passed' for s in statuses) and state else 'failed'
     with open(f'{qc}/reports/check.json', 'w') as fh:
         json.dump(report, fh, indent=1, default=float)
@@ -382,7 +402,7 @@ def main():
                    'checked_at': now, 'checked_by': report['checked_by'],
                    **({'chunk_checks': chunk_status} if whole_chunked else {}),
                    'note': 'sanity checks of a smoke run, not acceptance of a production run'}, fh, indent=1)
-    print(json.dumps({y: {k: v[k] for k in ('coverage', 'qtot', 'budget', 'withdrawal_by_sector_km3')}
+    print(json.dumps({y: {k: v[k] for k in ('coverage', 'qtot', 'budget', 'withdrawal_by_sector_km3') if k in v}
                       for y, v in results.items()}, indent=1, default=float))
     print(json.dumps({k: v for k, v in grdc_summary.items() if k != 'largest'}, indent=1, default=float))
     if chunk_status:

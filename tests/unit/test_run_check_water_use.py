@@ -74,7 +74,8 @@ class WaterUseMissingTest(unittest.TestCase):
                 mock.patch.object(run_figures, 'water_balance', return_value=({}, 'wb.png')):
             out, _ = check_run.check_year(YEAR, self.rd, MASK, self.area, np.arange(2.0), np.arange(3.0),
                                           np.zeros(MASK.shape, bool), self.qc + '/figures', self.view,
-                                          (np.array([0]), np.array([0])), {'title': 'test'}, self.qc)
+                                          (np.array([0]), np.array([0])), {'title': 'test'}, self.qc,
+                                          {'water_use': True, 'irrigation': True})
         return out
 
     def derived_withdrawal(self):
