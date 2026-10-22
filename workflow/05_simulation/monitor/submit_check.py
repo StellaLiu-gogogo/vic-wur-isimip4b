@@ -5,8 +5,11 @@ logs/05_simulation/<job-name>_<slurm-job-id>/ (job.sbatch, job.yaml, scheduler o
 For a chunked run, --chunk ID checks one chunk (its years and end state); without --chunk the check of a chunked run
 covers the whole run (GRDC comparison of all years, every chunk check passed).
 
+With --spinup it submits the convergence test of a spin-up block (check_spinup.py, D19) instead.
+
 Usage: submit_check.py --run-dir runs/<campaign-id>/<run-id> [--chunk ID] [--time 04:00:00] [--mem 64G]
        [--partition main] [--dependency <slurm-job-id>]   (start only when that job has completed successfully)
+       submit_check.py --spinup --run-dir runs/<campaign-id>/<run-id> [--dependency <slurm-job-id>]
 """
 import argparse, datetime, os, subprocess, sys
 
@@ -15,6 +18,7 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
 TEMPLATE = os.path.join(HERE, 'check_run.sbatch')
+SPINUP_TEMPLATE = os.path.join(HERE, 'check_spinup.sbatch')
 
 
 def main():
@@ -25,8 +29,9 @@ def main():
     ap.add_argument('--partition', default='main')
     ap.add_argument('--dependency', default=None)
     ap.add_argument('--chunk', default=None)
+    ap.add_argument('--spinup', action='store_true', help='the convergence test of a spin-up block (check_spinup.py)')
     a = ap.parse_args()
-    submit(a.run_dir, a.time, a.mem, a.partition, a.dependency, a.chunk)
+    submit(a.run_dir, a.time, a.mem, a.partition, a.dependency, a.chunk, a.spinup)
 
 
 def job_name(rd):
@@ -37,18 +42,21 @@ def job_name(rd):
     return f'run-check-{os.path.basename(os.path.dirname(rd))}-{label}'
 
 
-def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=None, chunk=None):
+def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=None, chunk=None, spinup=False):
     """Render, submit on hold, write the job record, release; returns the job id."""
     W = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
     rd = os.path.abspath(run_dir if os.path.isabs(run_dir) else os.path.join(W, run_dir))
     rel = os.path.relpath(rd, W)
-    name = job_name(rd) + (f'-chunk-{chunk}' if chunk else '')
+    if spinup and chunk:
+        raise SystemExit('the convergence test covers the whole spin-up block, not one chunk')
+    name = (job_name(rd).replace('run-check-', 'spinup-check-', 1) if spinup else job_name(rd)) + \
+        (f'-chunk-{chunk}' if chunk else '')
     commit = subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
     dirty = bool(subprocess.run(['git', '-C', REPO, 'status', '--porcelain'], capture_output=True, text=True).stdout.strip())
     conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
         os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
     stage_logs = f'{W}/logs/05_simulation'
-    text = open(TEMPLATE).read()
+    text = open(SPINUP_TEMPLATE if spinup else TEMPLATE).read()
     for k, v in {'JOB_NAME': name, 'PARTITION': partition, 'TIME': time, 'MEM': mem, 'STAGE_LOGS': stage_logs,
                  'CONDA_BASE': conda_base, 'WORKDIR': W, 'REPO': REPO, 'RUN_DIR': rd,
                  'CHECK_OPTIONS': f' --chunk {chunk}' if chunk else ''}.items():
@@ -67,7 +75,8 @@ def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=Non
         fh.write(text)
     record = {'slurm_job_id': int(job_id), 'job_name': name,
               'rendered_by': 'workflow/05_simulation/monitor/submit_check.py',
-              'template': 'workflow/05_simulation/monitor/check_run.sbatch', 'code_commit': commit, 'code_dirty': dirty,
+              'template': 'workflow/05_simulation/monitor/' + ('check_spinup.sbatch' if spinup else 'check_run.sbatch'),
+              'code_commit': commit, 'code_dirty': dirty,
               'submitted_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
               'resources': {'partition': partition, 'time': time, 'cpus_per_task': 1, 'mem': mem},
               'dependency': dependency,

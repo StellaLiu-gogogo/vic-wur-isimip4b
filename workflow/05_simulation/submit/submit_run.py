@@ -85,11 +85,17 @@ def submit(run_dir, dependency=None, chunk=None):
 def submit_run(run_dir, dependency=None, check=True, from_chunk=0):
     """Submit a run (with its check), or the chunks of a chunked run from index from_chunk on, each waiting for the
     previous one, with a check per chunk and the check of the whole run after the last chunk. Returns the job id of
-    the run or of its last chunk (what a child run waits for). A spin-up gets no run check: it writes only the monthly
-    convergence variables (D19), not the daily and monthly outputs monitor/check_run.py reads."""
+    the run or of its last chunk (what a child run waits for). A spin-up gets the convergence test of D19
+    (monitor/check_spinup.py) after its last job instead of the run checks: it writes only the monthly convergence
+    variables, not the daily and monthly outputs monitor/check_run.py reads."""
     m = rm.load(run_dir)
     if str(m.get('segment_id') or '').endswith('_spinup'):
-        check = False
+        job = dependency
+        for c in (m.get('chunks') or [{'id': None}])[from_chunk:]:
+            job = submit(run_dir, job, chunk=c['id'])
+        if check:
+            sc.submit(run_dir, dependency=job, spinup=True)
+        return job
     chunks = m.get('chunks') or []
     if not chunks:
         job = submit(run_dir, dependency)
@@ -196,10 +202,11 @@ def main():
     except (rr.RenderError, rc.CampaignError) as e:
         raise SystemExit(f'render stopped: {e}')
     jobs = {}
-    for r, d in zip(todo, dirs):
-        parent = r['segment']['parent']
+    for d in dirs:      # the renderer may leave runs out or render the next spin-up block: follow what it rendered
+        m = rm.load(d)
+        parent = (m.get('parent') or {}).get('segment_id')
         # the check jobs start only when their run (chunk) job has completed successfully
-        jobs[r['segment_id']] = submit_run(d, dependency=jobs.get(parent), check=not a.no_check)
+        jobs[m['segment_id']] = submit_run(d, dependency=jobs.get(parent), check=not a.no_check)
 
 
 if __name__ == '__main__':

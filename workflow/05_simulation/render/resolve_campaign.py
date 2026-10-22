@@ -21,7 +21,9 @@ Rules (docs/glossary.md, "Segment", "Segment ID", "Run"; protocol 02.experiments
                      spin-up when the pre-industrial period is not simulated; future <- historical. A segment
                      shared by several experiments must get the same parent from each of them.
   segment ID         <gcm>_<climate>_<soc>_<sens>_<period>; run ID = segment ID, plus `__<label>` for a run of a
-                     non-production campaign restricted to part of a segment (campaign `restriction`).
+                     non-production campaign restricted to part of a segment (campaign `restriction`), or
+                     `__block-<n>` for continuation block n of a spin-up (block_run_id; decided at render time from
+                     the completed blocks and their convergence tests, render_run.py).
 
 Usage: resolve_campaign.py --campaign configs/campaigns/smoke.yaml [--label smoke2015] [--json]
 """
@@ -232,6 +234,34 @@ def _spinup_years(spin, years, next_period):
     if n is None:
         return (None, first - 1)
     return (first - int(n), first - 1)
+
+
+def block_run_id(segment_id, block):
+    """Run ID of block `block` of a production spin-up segment (D19, D20; docs/directory-contracts.md `runs/`): the
+    segment ID for the first block, `<segment-id>__block-<n>` for every continuation block."""
+    return segment_id if block == 1 else f'{segment_id}__block-{block}'
+
+
+def block_years(spin, start_year, end_year, block):
+    """(first, last) year of block `block` of a spin-up segment start_year-end_year (D20 decision 3): the first block is
+    the segment (spinup.length_years years before the chain start); every continuation block is labelled as the last
+    spinup.block_years years before the chain start, so that every block's end state is dated the chain start."""
+    if block == 1:
+        return start_year, end_year
+    n = spin.get('block_years')
+    if not (isinstance(n, int) and 1 <= n <= end_year - start_year + 1):
+        raise CampaignError(f'spin-up block {block} needs spinup.block_years (a whole number of years, at most the '
+                            f'spin-up length)')
+    return end_year - n + 1, end_year
+
+
+def max_blocks(spin):
+    """spinup.max_blocks: the largest number of blocks of one spin-up segment before the renderer stops and the user
+    decides (a whole number >= 1)."""
+    n = spin.get('max_blocks')
+    if not (isinstance(n, int) and n >= 1):
+        raise CampaignError('a spin-up continued in blocks needs spinup.max_blocks (a whole number >= 1)')
+    return n
 
 
 def _add(segments, seg, parent, exp):

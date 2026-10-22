@@ -159,14 +159,16 @@ class ChunkSubmitTest(unittest.TestCase):
             sr.submit_run('rd', check=True, from_chunk=1)
         self.assertEqual(calls, [('2016-2016', None), ('2017-2017', 'j')])
 
-    def test_spinup_gets_no_run_check(self):
-        checks = []
-        m = {**chunked_manifest(), 'segment_id': f'ec-earth3-esm-1-1_picontrol_1850soc_default_spinup'}
+    def test_spinup_gets_the_convergence_test(self):
+        runs, checks = [], []
+        m = {**chunked_manifest(), 'segment_id': 'ec-earth3-esm-1-1_picontrol_1850soc_default_spinup'}
         with mock.patch.object(sr.rm, 'load', return_value=m), \
-                mock.patch.object(sr, 'submit', return_value='j'), \
+                mock.patch.object(sr, 'submit', side_effect=lambda rd, d=None, chunk=None: runs.append((chunk, d)) or chunk), \
                 mock.patch.object(sr.sc, 'submit', side_effect=lambda *a, **k: checks.append(k)):
-            sr.submit_run('rd', check=True)
-        self.assertEqual(checks, [])
+            last = sr.submit_run('rd', dependency='7', check=True)
+        self.assertEqual(runs, [('2015-2015', '7'), ('2016-2016', '2015-2015'), ('2017-2017', '2016-2016')])
+        self.assertEqual(checks, [{'dependency': '2017-2017', 'spinup': True}])   # once, after the last chunk
+        self.assertEqual(last, '2017-2017')
 
 
 class CompareRunsTest(unittest.TestCase):

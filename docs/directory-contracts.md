@@ -956,7 +956,11 @@ runs/
   Runs of non-production campaigns (smoke, debug, trial) that cover only part
   of a segment's domain or period append a label: `<segment-id>__<label>`,
   e.g. `ec-earth3-esm-1-1_historical_histsoc_default_historical__rhine-3yr`.
-  Production runs never carry a label.
+  Production runs never carry a label. The one exception are the blocks of a
+  spin-up segment (D19, D20; user, 2026-10-17): the first block's run ID is the
+  segment ID, every continuation block appends `__block-<n>` (n = 2, 3, …),
+  e.g. `ec-earth3-esm-1-1_picontrol_1850soc_default_spinup__block-2`; the
+  suffix `block-<n>` is used for nothing else.
 
 `config/` must preserve the resolved campaign and segment configuration, the
 exact VIC configuration, and the exact Slurm job used for the run.

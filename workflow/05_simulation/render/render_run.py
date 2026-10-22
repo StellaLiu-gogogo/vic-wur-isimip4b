@@ -339,8 +339,14 @@ def enabled_plugins(plugins):
 
 
 def check_same_plugins(run_dir, campaign, run_id):
-    """D19 warm-start rule (c): the earlier run had the same plugins switched on (its config/resolved.yaml)."""
+    """D19 warm-start rule (c): the earlier run had the same plugins switched on (its config/resolved.yaml; for a
+    chunked run the one of its first chunk, chunks/<start>-<end>/config/, which records the same campaign)."""
     p = os.path.join(run_dir, 'config', 'resolved.yaml')
+    mp = os.path.join(run_dir, 'run_manifest.json')
+    if not os.path.isfile(p) and os.path.isfile(mp):
+        chunks = manifest_of(run_dir).get('chunks') or []
+        if chunks:
+            p = os.path.join(run_dir, chunks[0]['dir'], 'config', 'resolved.yaml')
     if not os.path.isfile(p):
         raise RenderError(f'{run_id}: the earlier run {run_dir} has no config/resolved.yaml; its plugins are unknown')
     have = enabled_plugins((read_yaml(p).get('campaign') or {}).get('plugins') or {})
@@ -638,6 +644,70 @@ def run_end_state(base, prun, resources):
     return f'{rd}/' + end_state_rel(prun['start_year'], prun['end_year'], run_chunk_years(prun, resources))
 
 
+# ------------------------------------------------------------------------------------------------ spin-up blocks
+SPINUP_CHECKED_BY = 'workflow/05_simulation/monitor/check_spinup.py'
+
+
+def manifest_of(run_dir):
+    with open(os.path.join(run_dir, 'run_manifest.json')) as fh:
+        return json.load(fh)
+
+
+def end_state_of(run_dir):
+    """Absolute end-state path of a rendered run (its manifest's end_state; states/ in manifests before chunks)."""
+    m = manifest_of(run_dir)
+    return f'{run_dir}/' + m.get('end_state', f'states/state.{int(m["period"]["end"][:4]) + 1:04d}0101_00000.nc')
+
+
+def spinup_check(W, run_dir):
+    """Summary of the convergence test of a spin-up block (monitor/check_spinup.py), None when it has not run."""
+    p = f'{W}/qc/{os.path.relpath(run_dir, W)}/summary.json'
+    if not os.path.isfile(p):
+        return None
+    with open(p) as fh:
+        s = json.load(fh)
+    return s if s.get('checked_by') == SPINUP_CHECKED_BY else None
+
+
+def spinup_blocks(base, segment_id):
+    """[(block, run_dir)] of the blocks of a spin-up segment rendered so far, block 1 first."""
+    out, n = [], 1
+    while os.path.exists(f'{base}/{rc.block_run_id(segment_id, n)}'):
+        out.append((n, f'{base}/{rc.block_run_id(segment_id, n)}')); n += 1
+    return out
+
+
+def spinup_next(W, base, campaign, segment_id):
+    """What the spin-up segment needs (D19 spin-up rule 3, D20 decision 3): ('render', 1, None) when no block exists;
+    ('render', k + 1, dir of block k) when block k has completed and failed its convergence test; ('converged', k, dir)
+    when block k passed it. Stops when block k has not completed, its test has not run (or ran from code that was not
+    committed, in a production campaign), or spinup.max_blocks blocks did not converge."""
+    blocks = spinup_blocks(base, segment_id)
+    if not blocks:
+        return 'render', 1, None
+    k, bdir = blocks[-1]
+    sys.path.insert(0, os.path.join(HERE, '..', 'submit'))
+    import run_manifest as rm
+    m = manifest_of(bdir)
+    if not rm.is_completed(m):
+        raise RenderError(f'{segment_id}: block {k} ({os.path.basename(bdir)}) has not completed (status '
+                          f'{m.get("status")}); wait for it or retry it (submit_run.py --retry)')
+    s = spinup_check(W, bdir)
+    if s is None:
+        raise RenderError(f'{segment_id}: the convergence test of block {k} has not run '
+                          f'(monitor/submit_check.py --spinup --run-dir {os.path.relpath(bdir, W)})')
+    if campaign['production'] and s.get('code_dirty') is not False:
+        raise RenderError(f'{segment_id}: the convergence test of block {k} ran from code that was not committed')
+    if s.get('status') == 'passed':
+        return 'converged', k, bdir
+    if s.get('status') != 'failed':
+        raise RenderError(f'{segment_id}: the convergence test of block {k} has status {s.get("status")}')
+    if k + 1 > rc.max_blocks(campaign['spinup']):
+        raise RenderError(f'{segment_id}: not converged after {k} blocks (spinup.max_blocks); the user decides how to '
+                          'go on (D19)')
+    return 'render', k + 1, bdir
+
+
 # ------------------------------------------------------------------------------------------------ render
 def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
     W = W or rc.workdir()
@@ -669,8 +739,32 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
                                                                 f'{W}/{params["domain"]["path"]}'))
     base = f'{W}/scratch/{campaign["campaign_id"]}' if scratch else f'{W}/runs/{campaign["campaign_id"]}'
     rendered = []
+    blocks_on = not campaign.get('restriction')     # spin-up blocks: campaigns without a restriction (D19, D20)
+    spin_rendered, left_out = set(), set()
     for run in runs:
         seg = run['segment']
+        parent = seg['parent']
+        prev_block = spin_parent = None
+        if blocks_on and seg['period'] == 'spinup':
+            action, n, bdir = spinup_next(W, base, campaign, run['segment_id'])
+            if action == 'converged':
+                print(f'{run["segment_id"]}: block {n} passed the convergence test; no further block')
+                continue
+            if n > 1:
+                y0, y1 = rc.block_years(campaign['spinup'], run['start_year'], run['end_year'], n)
+                run = dict(run, run_id=rc.block_run_id(run['segment_id'], n), start_year=y0, end_year=y1)
+                prev_block = (n - 1, bdir)
+            run = dict(run, spinup_block=n)
+        if parent in left_out:
+            print(f'{run["run_id"]}: not rendered, its parent {parent} is not rendered yet'); left_out.add(run['segment_id'])
+            continue
+        if blocks_on and parent in in_campaign and by_segment[parent]['segment']['period'] == 'spinup':
+            # a child of a spin-up starts only from the block that passed the convergence test
+            done = None if parent in spin_rendered else spinup_next(W, base, campaign, parent)
+            if not done or done[0] != 'converged':
+                print(f'{run["run_id"]}: not rendered, the spin-up {parent} has not converged yet')
+                left_out.add(run['segment_id']); continue
+            spin_parent = done[2]
         rdir = f'{base}/{run["run_id"]}'
         if os.path.exists(rdir):
             raise RenderError(f'{rdir} exists; a run directory is never rendered again (retry: submit_run.py --retry)')
@@ -682,20 +776,33 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         if campaign['plugins']['landuse']['enabled']:
             check_landuse_tiles(W, rparams, units, campaign['dhf_forcing']['units'][seg['soc']])
         dams_on = campaign['plugins']['dams']['enabled']
-        parent = seg['parent']
         init_state = None; parent_state = {}; init_how = 'cold_start'; warm = False
         init = campaign['initialisation']
-        if parent and parent in in_campaign and not campaign.get('restriction'):
-            init_state = run_end_state(base, by_segment[parent], resources)
-            init_how = 'state of the parent run'
+        if prev_block:
+            # a continuation block starts from the end state of the previous block of the same segment (D20)
+            k, bdir = prev_block
+            init_state = end_state_of(bdir)
+            init_how = f'end state of spin-up block {k} ({os.path.basename(bdir)})'
+            parent_state = {**parent_run_state(bdir, init_state, run['run_id']), 'previous_block': k}
+            if dams_on:
+                pm = manifest_of(bdir)
+                check_dams_from(f'{W}/{pm["inputs"]["parameters"]["dams"]["path"]}', int(pm['period']['end'][:4]),
+                                f'{W}/{rparams["dams"]["path"]}', run['start_year'], init_state, run['run_id'],
+                                f'the previous block {os.path.basename(bdir)}')
+        elif parent and parent in in_campaign and not campaign.get('restriction'):
+            pdir = spin_parent or f'{base}/{parent}'
+            init_state = end_state_of(spin_parent) if spin_parent else run_end_state(base, by_segment[parent], resources)
+            init_how = 'state of the parent run' + (f' (spin-up block {os.path.basename(spin_parent)}, converged)'
+                                                    if spin_parent else '')
             # a parent rendered in this call has no state yet: the job binds it (run_manifest.py verify-inputs)
-            parent_state = {'run_id': parent, 'attempt': None, 'state_sha256': None} if parent in in_call else \
-                parent_run_state(f'{base}/{parent}', init_state, run['run_id'])
+            parent_state = {'run_id': parent, 'attempt': None, 'state_sha256': None} if parent in in_call and \
+                not spin_parent else parent_run_state(pdir, init_state, run['run_id'])
             if dams_on:
                 prun = by_segment[parent]
                 pfile = f'{W}/{run_parameters(params, prun["segment"]["soc"])["dams"]["path"]}'
                 check_dams_from(pfile, prun['end_year'], f'{W}/{rparams["dams"]["path"]}', run['start_year'],
-                                None if parent in in_call else init_state, run['run_id'], f'the parent run {parent}')
+                                None if parent in in_call and not spin_parent else init_state, run['run_id'],
+                                f'the parent run {parent}')
         elif init['without_parent'] == 'state_of_run':
             src = init.get('state_of_run') or {}
             if not (src.get('run_dir', '').startswith('runs/') and src.get('state') and str(src.get('reason', '')).strip()):
@@ -724,7 +831,8 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         chunked = len(plan) > 1
         spinup = seg['period'] == 'spinup'
         streams_text, streams = output_streams(campaign, None, run['run_id'] if spinup else None)
-        parent_rec = {'segment_id': None if warm else parent, **({'protocol_parent_segment': parent} if warm else {}),
+        parent_rec = {'segment_id': None if warm or prev_block else parent,
+                      **({'protocol_parent_segment': parent} if warm else {}),
                       'init_state': init_state and os.path.relpath(init_state, W),
                       'initialisation': init_how, **parent_state}
         files, expected, chunks, hours_total = {}, [], [], 0
@@ -810,6 +918,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
                               'init_state': c_init and os.path.relpath(c_init, W), 'initialisation': c_how},
                     'chunk_years': cyears} if chunked else {}),
                 'segment': seg, 'climate_input_alias': alias, 'dhf_unit': usoc,
+                **({'spinup_block': run['spinup_block']} if 'spinup_block' in run else {}),
                 'experiments_using_segment': seg['experiments'],
                 # a warm start comes from an earlier run (run_id, run_dir), not from the protocol parent segment
                 'parent': parent_rec,
@@ -839,6 +948,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         manifest = {
             'schema': 'isimip4b-run-manifest-1', 'campaign_id': campaign['campaign_id'], 'run_id': run['run_id'],
             'segment_id': run['segment_id'], 'label': run['label'], 'production': campaign['production'],
+            **({'spinup_block': run['spinup_block']} if 'spinup_block' in run else {}),
             'status': 'rendered', 'run_dir': os.path.relpath(rdir, W),
             'period': {'start': f'{run["start_year"]}-01-01', 'end': f'{run["end_year"]}-12-31'},
             'parent': parent_rec,
@@ -863,6 +973,8 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         manifest['inputs_fingerprint'] = rm.inputs_fingerprint(manifest)
         rm.save(rdir, manifest)
         rendered.append(rdir)
+        if seg['period'] == 'spinup':
+            spin_rendered.add(run['segment_id'])
         print(f'rendered {rdir} ({len(links)} forcing links, {len(plan)} chunk(s), {hours_total} h wall time, '
               f'{resources["ntasks"]} tasks)')
     return rendered

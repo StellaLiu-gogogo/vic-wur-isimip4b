@@ -596,5 +596,160 @@ class SpinupOutputTest(RenderHarness):
             self.render(SPIN)
 
 
+class SpinupBlockTest(RenderHarness):
+    """D19 spin-up rule 3, D20 decision 3: a spin-up segment continued in blocks until its convergence test passes;
+    run IDs <segment-id>, <segment-id>__block-<n> (user 2026-10-17)."""
+
+    def setUp(self):
+        super().setUp()
+        self.segments = {SPIN: segment('picontrol', '1850soc', 'spinup', (1551, 1600), None),
+                         PRE: segment('picontrol', '1850soc', 'pre-industrial', (1601, 1849), SPIN)}
+        self.campaign['output']['spinup'] = {'monthly': list(SPINUP_VARS)}
+        self.campaign['spinup'] = {'length_years': 50, 'block_years': 25, 'max_blocks': 3,
+                                   'climate_cycle': [1601, 1650]}
+        self.base = os.path.join(self.W, 'runs', 'smoke')
+
+    def finish(self, run_id, status='failed', dirty=False, state=True):
+        """Mark a rendered block completed with its end state and a convergence-test summary."""
+        rd = os.path.join(self.base, run_id)
+        m = self.manifest(run_id)
+        m['status'] = 'completed'; m['attempts'] = [{'attempt': 1, 'status': 'completed'}]
+        with open(os.path.join(rd, 'run_manifest.json'), 'w') as fh:
+            json.dump(m, fh)
+        if state:
+            write_state(os.path.join(rd, m['end_state']), [1, 0, 0, 0])     # in 1600 only dam 0 (year 0) operates
+        if status:
+            q = os.path.join(self.W, 'qc', 'runs', 'smoke', run_id); os.makedirs(q, exist_ok=True)
+            with open(os.path.join(q, 'summary.json'), 'w') as fh:
+                json.dump({'status': status, 'checked_by': rr.SPINUP_CHECKED_BY, 'code_dirty': dirty}, fh)
+
+    def test_block_ids_and_years(self):
+        import resolve_campaign as rc
+        self.assertEqual(rc.block_run_id(SPIN, 1), SPIN)
+        self.assertEqual(rc.block_run_id(SPIN, 3), SPIN + '__block-3')
+        self.assertEqual(rc.block_years(self.campaign['spinup'], 1551, 1600, 1), (1551, 1600))
+        self.assertEqual(rc.block_years(self.campaign['spinup'], 1551, 1600, 2), (1576, 1600))
+        self.assertEqual(rc.block_years({'block_years': 25}, 1800, 1849, 4), (1825, 1849))
+        with self.assertRaises(rc.CampaignError):
+            rc.block_years({}, 1551, 1600, 2)
+        with self.assertRaises(rc.CampaignError):
+            rc.max_blocks({'max_blocks': 0})
+
+    def test_first_block_then_continuation(self):
+        self.render(SPIN)
+        self.assertEqual(self.manifest(SPIN)['spinup_block'], 1)
+        self.assertEqual(self.manifest(SPIN)['period'], {'start': '1551-01-01', 'end': '1600-12-31'})
+        with self.assertRaises(rr.RenderError):                              # block 1 has not completed
+            self.render(SPIN)
+        self.finish(SPIN, status=None)
+        with self.assertRaises(rr.RenderError):                              # its convergence test has not run
+            self.render(SPIN)
+        self.finish(SPIN, status='failed')
+        self.render(SPIN)
+        b2 = SPIN + '__block-2'
+        m = self.manifest(b2)
+        self.assertEqual((m['spinup_block'], m['period']['start'], m['end_state']),
+                         (2, '1576-01-01', 'states/state.16010101_00000.nc'))
+        self.assertEqual(m['parent']['previous_block'], 1)
+        self.assertIsNone(m['parent']['segment_id'])
+        self.assertEqual(m['parent']['init_state'], f'runs/smoke/{SPIN}/states/state.16010101_00000.nc')
+        self.assertEqual(m['parent']['run_id'], SPIN)
+
+    def test_dam_active_in_state_but_not_in_block_stops(self):
+        self.render(SPIN); self.finish(SPIN, status='failed')
+        m = self.manifest(SPIN)
+        write_state(os.path.join(self.base, SPIN, m['end_state']), [1, 1, 0, 0])   # dam 1 is built in 1800
+        with self.assertRaises(rr.RenderError):
+            self.render(SPIN)
+
+    def test_max_blocks_stops(self):
+        self.campaign['spinup']['max_blocks'] = 1
+        self.render(SPIN); self.finish(SPIN, status='failed')
+        with self.assertRaises(rr.RenderError):
+            self.render(SPIN)
+
+    def test_production_needs_committed_test(self):
+        self.campaign['production'] = True
+        self.render(SPIN); self.finish(SPIN, status='failed', dirty=True)
+        with self.assertRaises(rr.RenderError):
+            self.render(SPIN)
+
+    def test_child_waits_for_convergence(self):
+        self.render()                                                        # block 1; the child is left out
+        self.assertTrue(os.path.exists(os.path.join(self.base, SPIN)))
+        self.assertFalse(os.path.exists(os.path.join(self.base, PRE)))
+        self.finish(SPIN, status='failed'); self.render()                    # block 2; the child is left out
+        self.assertFalse(os.path.exists(os.path.join(self.base, PRE)))
+        self.finish(SPIN + '__block-2', status='passed')
+        self.render()                                                        # converged: only the child renders
+        self.assertFalse(os.path.exists(os.path.join(self.base, SPIN + '__block-3')))
+        p = self.manifest(PRE)['parent']
+        self.assertEqual(p['segment_id'], SPIN)
+        self.assertEqual(p['init_state'], f'runs/smoke/{SPIN}__block-2/states/state.16010101_00000.nc')
+        self.assertEqual(p['run_id'], SPIN + '__block-2')
+
+    def test_restricted_campaign_has_no_blocks(self):
+        self.campaign['restriction'] = {'periods': ['spinup'], 'runs': {'t': {'years': [1591, 1600]}}}
+        self.segments = {SPIN: segment('picontrol', '1850soc', 'spinup', (1591, 1600), None)}
+        rr.render(SMOKE, 't', None, scratch=False, W=self.W)
+        self.assertNotIn('spinup_block', self.manifest(SPIN + '__t'))
+
+
+class ChunkedWarmStartTest(unittest.TestCase):
+    """D19 rule (c) for an earlier run split in chunks: its plugins come from its first chunk's resolved.yaml."""
+
+    def test_plugins_of_chunked_run(self):
+        with tempfile.TemporaryDirectory() as W:
+            rd = os.path.join(W, 'run'); cd = os.path.join(rd, 'chunks', '1551-1570', 'config'); os.makedirs(cd)
+            with open(os.path.join(rd, 'run_manifest.json'), 'w') as fh:
+                json.dump({'chunks': [{'id': '1551-1570', 'dir': 'chunks/1551-1570'}]}, fh)
+            c = smoke()
+            with open(os.path.join(cd, 'resolved.yaml'), 'w') as fh:
+                yaml.safe_dump({'campaign': {'plugins': c['plugins']}}, fh)
+            rr.check_same_plugins(rd, c, 'r')
+            c['plugins']['dams']['enabled'] = False
+            with self.assertRaises(rr.RenderError):
+                rr.check_same_plugins(rd, c, 'r')
+
+
+class ConvergenceRuleTest(unittest.TestCase):
+    """D19 convergence rule (user 2026-10-22): |trend per year| <= 0.1 x SD of the detrended annual values."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(REPO, 'workflow', '05_simulation', 'monitor'))
+        import check_spinup
+        self.cs = check_spinup
+
+    def test_flat_noisy_series_passes(self):
+        y = [10.0, 10.5, 9.6, 10.2, 9.9, 10.4, 9.7, 10.1, 10.0, 9.8]
+        r = self.cs.trend_test(y)
+        self.assertTrue(r['passed']); self.assertLess(r['ratio'], 0.1)
+
+    def test_drift_fails(self):
+        y = [10.0 + 0.3 * i + (0.1 if i % 2 else -0.1) for i in range(10)]
+        r = self.cs.trend_test(y)
+        self.assertFalse(r['passed']); self.assertAlmostEqual(r['slope_per_year'], 0.3, delta=0.02)
+
+    def test_constant_and_missing(self):
+        self.assertTrue(self.cs.trend_test([5.0] * 10)['passed'])
+        self.assertFalse(self.cs.trend_test([1.0 * i for i in range(10)])['passed'])   # a straight rising line
+        self.assertFalse(self.cs.trend_test([1.0] * 9 + [float('nan')])['passed'])
+
+    def test_largest_basins(self):
+        import numpy as np
+        import netCDF4 as nc
+        # 1 x 6 strip: cells 0-2 drain to outlet 2, cells 3-5 to outlet 5, whose basin has more area
+        mask = np.ones((1, 6), bool); area = np.array([[1e6, 1e6, 1e6, 1e6, 3e6, 1e6]])
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, 'r.nc')
+            with nc.Dataset(p, 'w') as r:
+                r.createDimension('lat', 1); r.createDimension('lon', 6)
+                r.createVariable('downstream_id', 'i4', ('lat', 'lon'))[:] = [[0, 1, 2, 3, 4, 5]]
+                r.createVariable('downstream', 'i4', ('lat', 'lon'))[:] = [[1, 2, 2, 4, 5, 5]]
+            label, recs = self.cs.largest_basins(p, mask, area, np.array([0.0]), np.arange(6.0), n=2)
+        self.assertEqual(label.tolist(), [[1, 1, 1, 0, 0, 0]])
+        self.assertEqual([r['upstream_area_km2'] for r in recs], [5.0, 3.0])
+
+
 if __name__ == '__main__':
     unittest.main()

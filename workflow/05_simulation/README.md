@@ -152,7 +152,8 @@ earlier run's `config/resolved.yaml`); (d) every dam active in the state (`STATE
 can operate by the end of the earlier run operates in the run's dam file at the start year, because VIC never
 switches a dam off. The dam checks (`check_dams_from`) apply also to a run that starts from its parent in the
 campaign (parent and child may use the dam files of different DHF scenarios), with the state when the parent has
-completed. With the dams plugin off the dam checks are skipped. A spin-up started this way repeats the convergence
+completed. With the dams plugin off the dam checks are skipped. The earlier run may be chunked: its plugins are read
+from the `config/resolved.yaml` of its first chunk. A spin-up started this way repeats the convergence
 test. The record is `docs/decisions/D19-dams-and-initial-states.md`. Example: the warm start of
 `smoke-nonrenewable` (2011 from the 2021-01-01 state of the smoke run) is now refused: 269 dams active in the state
 do not operate in 2011.
@@ -212,7 +213,7 @@ over the steps O3, O5 and O6 of task O). Steps and their state:
 | P1 | climate `esm-picontrol` 1601–1610 for ec-earth3-esm-1-1 (existing producer) | done 2026-10-17 (job 43339587, 70 files passed, commit `bb8cd76`); 1611–1650 later (D03) |
 | P2 | climate producer: spin-up start years copied from the cycle year (`--start-years`, `--cycle-window`), verifier check `start_year` (`workflow/04_forcing/climate/README.md`); start year 1591 of the natural-run spin-up | code `a86aaf9`; code-equivalence entry `start-years-climate` (user, 2026-10-20); start year 1591 added to the units (user, 2026-10-20) |
 | P3a | renderer: climate start years in the cycle rule, spin-up output (`output.spinup`), no run check for spin-ups | code `e3ec0f3` |
-| P3b | production spin-ups: continuation blocks (run ID `<segment-id>__block-<n>`, user 2026-10-17), convergence test of D19, warm start from a chunked run | open |
+| P3b | production spin-ups: continuation blocks (run ID `<segment-id>__block-<n>`, user 2026-10-17), convergence test of D19 (rules: user, 2026-10-22), warm start from a chunked run | code written |
 | P4 | natural-run spin-up of task L: campaign `natural-spinup` (1591–1600, cycle 1601–1610, `1850soc` land use, routing and land use only) | campaign written; waits for P2 and the land-use start year 1591 (task O, O4) |
 
 **Spin-up output (D19 spin-up rule 3, user 2026-10-17).** A spin-up writes only the monthly variables listed under
@@ -223,13 +224,37 @@ water equivalent; the annual values are formed by the convergence test. The rend
 `output.spinup`, when it lists a stream other than `monthly`, or when it asks for a variable of a plugin that is off
 (VIC would drop it with a warning only). A campaign of spin-ups alone needs no ISIMIP output selection; the protocol
 coverage and stream checks apply to the other runs. `submit_run.py` submits no run check (`check_run.py` reads the daily
-and monthly ISIMIP outputs) after a spin-up; the convergence test (P3b) will be its check.
+and monthly ISIMIP outputs) after a spin-up but the convergence test (below).
+
+**Spin-up blocks (D19 spin-up rule 3, D20 decision 3; campaigns without a restriction).** The campaign sets
+`spinup.length_years` (first block, e.g. 50), `spinup.block_years` (continuation blocks, e.g. 25) and
+`spinup.max_blocks` (e.g. 8). A spin-up segment is run block by block, each block its own run: block 1 has the
+segment ID and covers the segment years (1551–1600 or 1800–1849); block n ≥ 2 has the run ID
+`<segment-id>__block-<n>` (`docs/directory-contracts.md`, `runs/`), the years of the last `block_years` before the
+chain start (1576–1600 or 1825–1849) and starts from the end state of block n − 1 (`parent.previous_block` in its
+manifest; the D19 dam checks apply). Each call of the renderer (`submit_run.py --campaign`) looks at the blocks on
+disk (`render_run.spinup_next`): no block → block 1 (cold start or `initialisation.state_of_run`); the last block
+completed and its convergence test `failed` → the next block; `passed` → no block, and the children of the
+spin-up (pre-industrial, or the `2021soc` historical segments) start from that block's end state; the last block not
+completed, its test missing (or, in a production campaign, run from code that was not committed), or
+`max_blocks` reached → the render stops with the reason. Children of a spin-up that has not converged, and their
+children, are left out of the call with a note. Each next block is submitted by hand (user, 2026-10-22).
+
+**Convergence test (`monitor/check_spinup.py`, D19; rules chosen by the user on 2026-10-22).** Submitted by
+`submit_run.py` after the last job of every spin-up block (`submit_check.py --spinup`, job `spinup-check-...`). Over
+the last 10 annual values of the block, for soil moisture of layers 2 and 3 (global and the 20 largest river basins of
+the routing network), December snow water equivalent without the perennial-snow cells (monthly snow water equivalent
+never below 1 mm in those 10 years; they stand in for the glacier cells of D18), river storage, reservoir storage
+(dams on) and, for `2021soc`, irrigation withdrawal: the least-squares trend per year must not exceed 0.1 times the
+standard deviation of the detrended values. Results in `qc/runs/<campaign>/<run-id>/` (`summary.json`,
+`reports/convergence.json`, `reports/convergence_annual.csv`, `figures/convergence_{global,basins}.png`); from a
+repository that is not clean they go to `scratch/spinup-check/uncommitted/` and the block has no test.
 
 ## Submit (`submit/`)
 
 | File | Role |
 |---|---|
-| `submit_run.py` | renders the runs of a campaign (label) and submits each job on hold (a spin-up without the run check), records the attempt, releases it (the run directory is locked meanwhile, so a second submission of the same run stops, and a manifest write never drops a recorded attempt); a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files`; the new job file is checked like a render (resources modules = build `runtime_modules`, MPI tasks ≤ the decomposition groups recorded in `resolved.yaml`) |
+| `submit_run.py` | renders the runs of a campaign (label), or the next block of a spin-up, and submits each job on hold (a spin-up with the convergence test instead of the run check), records the attempt, releases it (the run directory is locked meanwhile, so a second submission of the same run stops, and a manifest write never drops a recorded attempt); a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files`; the new job file is checked like a render (resources modules = build `runtime_modules`, MPI tasks ≤ the decomposition groups recorded in `resolved.yaml`) |
 | `run_manifest.py` | `verify-inputs` (job step before VIC: checksums of parameters, forcing files, executable and parent state file; every forcing unit still accepted; every forcing-view link points to its recorded source) and `complete` (job step after VIC, also on failure; every OUTVAR of `vic_global.txt` must be in the output files of its stream, since VIC drops an unknown OUTVAR with only a warning; exit status 1 when the attempt failed) |
 
 ```bash
@@ -257,6 +282,7 @@ VIC starts.
 | `run_figures.py` | the derived file `reports/water_use_by_sector_<year>.nc` (monthly withdrawal per sector municipal, manufacturing, irrigation and its sources groundwater, surface, dam, remote, nonrenewable; VIC demand and estimated consumption for municipal and manufacturing; VIC-WUR writes the sources per sector but no sector total) and the figures of water use by sector and source, source shares, sector maps, distributions of withdrawal/demand and of remote and groundwater shares, and the water balance |
 | `grdc.py` | GRDC daily export (`raw/external/grdc/export-2024-11`, `manifests/inputs/grdc.yaml`): station files, upstream area along the routing network, station-to-cell mapping (closest upstream area within 3 cells, area error ≤ 30 %), monthly means (≥ 20 valid days) and climatology (≥ 5 years per month) |
 | `compare_runs.py`, `compare_runs.sbatch` | compares the output (every variable, time step and active cell) and the end states of two completed runs over their common years, chunked or not (`--submit`: Slurm job with job record under `logs/05_simulation/`); report `qc/<run>/reports/compare_<other run-id>.json`, status passed when bitwise identical, warning with the size of the differences otherwise; used for campaign `chunk-test` (a chunked run against the same run in one job) |
+| `check_spinup.py`, `check_spinup.sbatch` | convergence test of a spin-up block (D19; see "Spin-up runs (task P)"), submitted with `submit_check.py --spinup` |
 | `check_run.sbatch`, `submit_check.py` | Slurm job of the check (one core, about 7 min and 13 GB for one year), job record under `logs/05_simulation/<job-name>_<slurm-job-id>/`; `submit_run.py` submits it after every run job, to start when the run has succeeded; job name `run-check-<campaign>-<label>`, or the run ID with hyphens for a production run; the job ends FAILED when the check fails (exit status 1) |
 
 Output in `qc/runs/<campaign>/<run-id>/`: `summary.json`, `reports/check.json`, `reports/grdc_stations.csv`,

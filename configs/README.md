@@ -32,7 +32,7 @@ Keys of a campaign file (checked by `workflow/05_simulation/render/resolve_campa
 | `sensitivity_equivalence` | sens scenario → `{same_as, reason}` (e.g. `2021co2` → `default`) |
 | `restriction` | non-production only: `periods` and `runs: {<label>: {years: [start, end]}}`; a run may set `chunk_years` (test of chunked runs, campaign `chunk-test`) |
 | `initialisation` | `without_parent`: `cold_start` (no INIT_STATE) or `state_of_run` (the end state of an earlier, completed run: `state_of_run` with `run_dir` under `runs/`, `state` inside it, and `reason`); `state_at_end` |
-| `spinup` | `length_years` and `climate_cycle` `[first, last]` (null when the campaign simulates no spin-up) |
+| `spinup` | `length_years` (first block) and `climate_cycle` `[first, last]` (null when the campaign simulates no spin-up); for a campaign without a restriction also `block_years` (continuation blocks) and `max_blocks` (D19, D20; `workflow/05_simulation/README.md`, "Spin-up blocks") |
 | `dhf_forcing` | `units` (segment soc scenario → land-use and water-use unit) and `constant` (scenarios constant in time) |
 | `plugins` | switches and settings of routing, irrigation, dams (operation constants), water use (sectors, withdrawal options, `nonrenewable_limit_mm`: limit of the non-renewable deficit in mm, null for none), land use, EFR, WOFOST |
 | `output` | format, compression, file frequency, streams, aggregation overrides, `isimip` (protocol variable → VIC outputs, frequency, streams, rule), `diagnostics`, `not_provided` (with reasons; together with `isimip` it must cover every protocol variable of the sector; not needed by a campaign of spin-ups alone), `spinup` (`monthly`: the VIC outputs a spin-up writes, D19; required when the campaign renders a spin-up) |

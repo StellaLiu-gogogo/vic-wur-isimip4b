@@ -698,6 +698,9 @@ def check_run_id(report: Report, rel: str, name: str) -> None:
     for key, valid in checks:
         if m.group(key) not in valid:
             report.error(rel, f"unknown {key} '{m.group(key)}' in run ID")
+    label = m.group("label") or ""
+    if re.fullmatch(r"block-\d+", label) and (m.group("period") != "spinup" or int(label[6:]) < 2):
+        report.error(rel, "the suffix __block-<n> (n >= 2) is only for continuation blocks of a spin-up segment")
 
 
 def check_experiment_id(report: Report, rel: str, name: str) -> None:

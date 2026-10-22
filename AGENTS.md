@@ -196,7 +196,8 @@ command, executable checksum, and test result.
 Each run must have a stable run identifier and an isolated directory that
 follows the canonical run layout. The run ID is the segment ID defined in
 `docs/glossary.md`, with a `__<label>` suffix only for non-production runs
-that cover part of a segment. The run must preserve the resolved configuration, exact VIC configuration, exact Slurm job, logs, states, raw
+that cover part of a segment, or `__block-<n>` for continuation block n of a
+spin-up segment. The run must preserve the resolved configuration, exact VIC configuration, exact Slurm job, logs, states, raw
 output, and run manifest.
 
 A directory name is not evidence of successful quality control. Use explicit

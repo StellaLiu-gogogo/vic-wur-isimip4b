@@ -231,7 +231,9 @@ earlier accepted production campaign, with a justification (see
 One execution record of one segment within one campaign. The run ID equals the
 segment ID; the campaign provides the rest of the identity. Runs of
 non-production campaigns that cover only part of a segment's domain or period
-append a label, `<segment-id>__<label>` (see `directory-contracts.md`). A scheduler retry
+append a label, `<segment-id>__<label>` (see `directory-contracts.md`). A spin-up segment
+that is continued in blocks until it converges (D19, D20) has one run per block: the first
+block's run ID is the segment ID, continuation block n has `<segment-id>__block-<n>`. A scheduler retry
 with identical inputs is an additional attempt of the same run, recorded in the
 run manifest.
 
