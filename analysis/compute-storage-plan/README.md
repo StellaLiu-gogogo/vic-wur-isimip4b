@@ -18,8 +18,12 @@ years (allowed direction: analysis reads workflow, never the reverse).
 
 ## Status
 
-open (report written 2026-10-05, updated 2026-10-06 with the completed smoke
-run 2011–2020 and its store drift; D02 and D03 are with the user).
+closed (user, 2026-10-22; report written 2026-10-05, updated 2026-10-06 with the completed smoke
+run 2011–2020 and its store drift). D02 and D03 were decided on 2026-10-22
+(`docs/decisions/D02-compute-scope.md`, `docs/decisions/D03-output-storage.md`);
+the user chose a different scope and storage rule than the recommendation
+below (EC-Earth3-ESM-1-1 only, all 5′ output kept, three extra daily
+variables).
 
 ## Inputs (read-only, relative to the workdir)
 

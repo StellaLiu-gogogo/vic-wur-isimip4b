@@ -8,7 +8,7 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-10-11.
+Last reviewed: 2026-10-22.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
@@ -18,7 +18,8 @@ as accepted forcing while D01 is open (user, 2026-09-30), and extended this
 to the years 1850–2010 of the same units (user, 2026-10-11; natural run
 1850–2021 of task L for the dam service maps, D19), and to the
 EC-Earth3-ESM-1-1 `esm-picontrol` climate units of the spin-ups with their
-D20 start years (user, 2026-10-17; task P). The same holds
+D20 start years (user, 2026-10-17; task P), including the years 1611–1650
+and 1800–1849 (user, 2026-10-22; D19 amendment of 2026-10-22). The same holds
 for the land-use forcing units of all five soc scenarios (`histsoc`,
 `1850soc`, `2021soc`, `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`): they do not
 depend on the VIC commit and may be accepted while D01 is open (user,
@@ -56,8 +57,8 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | ID | Decision | Due stage | Trigger | Owner | Status |
 |---|---|---|---|---|---|
 | D01 | Which VIC-WUR commit is frozen for production | 03_parameters | | user | open (provisional: branch `fix-restart-luapply-snow-state`, head `39e21ff5` on 2026-09-29, recorded in `model/vic.lock.yaml` with `freeze_status: provisional`) |
-| D02 | Compute scope: which GCMs, experiments, and priorities fit the available compute, and whether to apply for more | 05_simulation | | user | open |
-| D03 | Storage plan for 5′ model output: where it lives during a campaign and when it is deleted after postprocessing | 05_simulation | | user | open |
+| D02 | Compute scope: which GCMs, experiments, and priorities fit the available compute, and whether to apply for more | 05_simulation | | user | decided 2026-10-22 ([D02-compute-scope.md](D02-compute-scope.md)): EC-Earth3-ESM-1-1 only (UKESM1-3-LL by amendment when its inputs arrive); all experiments except the two `extrasoc` ones (D06); 1st-priority segments first; no resource request to the Anunna admins for now |
+| D03 | Storage plan for 5′ model output: where it lives during a campaign and when it is deleted after postprocessing | 05_simulation | | user | decided 2026-10-22 ([D03-output-storage.md](D03-output-storage.md)): option (a), every run keeps all its 5′ output, nothing deleted after postprocessing; daily `qtot`, `dis` in every reported segment and also `OUT_SOIL_MOIST`, `OUT_EVAP`, `OUT_WITHDRAWN` in the historical and future segments; no rolling climate forcing |
 | D04 | Land use: single-child rule for fallback parents, `rice_rainfed`, ISIMIP paddy area, `*_bf` variables, Köppen period for parameter backfill | 03_parameters | | user | decided 2026-09-30 ([D04-landuse-harmonization.md](D04-landuse-harmonization.md)) |
 | D05 | Non-irrigation water use: how to proceed while the ISIMIP4b dataset is not released | 04_forcing | | user, sector coordinators | decided 2026-10-02, amended 2026-10-03 (SSP series used raw, one producer task D2) ([D05-non-irrigation-water-use.md](D05-non-irrigation-water-use.md)): option A, ISIMIP3a/3b water-abstraction series downscaled with ISIMIP4b population |
 | D06 | Composition of the `extrasoc` sensitivity experiments (which additional direct human forcings) | 05_simulation | | user, sector coordinators | open |
@@ -73,8 +74,8 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | D16 | Elevation correction of downward longwave radiation (`lwdown`) in the climate forcing, consistent with the lapse-rate correction of `tair` | 04_forcing | | user | decided 2026-10-01 ([D16-lwdown-elevation-correction.md](D16-lwdown-elevation-correction.md)): option A, ratio method of Cosgrove et al. (2003) as in WATCH/WFDE5 |
 | D17 | Potential irrigation (`pirrww`, `pirrwwgw`, `pirruse`, `pirrusegw`): whether to report it and, if so, from additional runs with `POTENTIAL_IRRIGATION TRUE` | 08_delivery | | user | open |
 | D18 | Snow accumulating every year on high-mountain and glacier cells in the smoke run (about 21 times faster than in the WFDE5-driven natural run on the same cells): whether the climate forcing's elevation correction, the precipitation, or the model's snow treatment on such cells needs a change | - | none: parked; reviewed when the user has time, does not block any stage | user | open |
-| D19 | Dams and initial states per experiment: which dams the dam parameters contain (the GDW selection rule DOR ≥ 10 % leaves out large run-of-river reservoirs such as Three Gorges and Itaipu) and which of them (construction years) each DHF scenario uses (`1850soc`, `2021soc`, `histsoc`, SSP units; dams with construction year 0), and how runs are spun up and warm-started (spin-up DHF and dams, date of an initial state against the run start, reuse of another run's end state) | 05_simulation | | user | decided 2026-10-11, amended 2026-10-16 (dam-list comparison, task L choices) ([D19-dams-and-initial-states.md](D19-dams-and-initial-states.md)): ISIMIP4b dams (plus SSP future hydropower dams) located with GDW and snapped again on the parameter-set routing; one dam list, construction years per DHF scenario; two spin-ups per GCM with a convergence test; warm starts only for spin-ups and non-production runs, on 1 January, under conditions checked by the renderer |
-| D20 | First-year files of runs that start outside a forcing unit's years: the land-use and water-use units of `1850soc` and `2021soc` (`2021soc` historical from 1850, `1850soc` pre-industrial from 1601 and future from 2022) and the spin-up climate, which VIC checks for the start year | 05_simulation | | user | decided 2026-10-11, amended 2026-10-17 (start year 1591 of the natural-run spin-up, renderer cycle rule for climate start years) ([D20-first-year-files.md](D20-first-year-files.md)): option A, the units' producers write the start years as extension years (constant field re-stamped; climate copied from the cycle year); spin-up continuation blocks labelled as the last 25 years before the chain start |
+| D19 | Dams and initial states per experiment: which dams the dam parameters contain (the GDW selection rule DOR ≥ 10 % leaves out large run-of-river reservoirs such as Three Gorges and Itaipu) and which of them (construction years) each DHF scenario uses (`1850soc`, `2021soc`, `histsoc`, SSP units; dams with construction year 0), and how runs are spun up and warm-started (spin-up DHF and dams, date of an initial state against the run start, reuse of another run's end state) | 05_simulation | | user | decided 2026-10-11, amended 2026-10-16 (dam-list comparison, task L choices) and 2026-10-22 (`2021soc` spin-up cycles `picontrol` 1800–1849; `picontrol` production) ([D19-dams-and-initial-states.md](D19-dams-and-initial-states.md)): ISIMIP4b dams (plus SSP future hydropower dams) located with GDW and snapped again on the parameter-set routing; one dam list, construction years per DHF scenario; two spin-ups per GCM with a convergence test; warm starts only for spin-ups and non-production runs, on 1 January, under conditions checked by the renderer |
+| D20 | First-year files of runs that start outside a forcing unit's years: the land-use and water-use units of `1850soc` and `2021soc` (`2021soc` historical from 1850, `1850soc` pre-industrial from 1601 and future from 2022) and the spin-up climate, which VIC checks for the start year | 05_simulation | | user | decided 2026-10-11, amended 2026-10-17 (start year 1591 of the natural-run spin-up, renderer cycle rule for climate start years) and 2026-10-22 (no climate start years for the `2021soc` chain) ([D20-first-year-files.md](D20-first-year-files.md)): option A, the units' producers write the start years as extension years (constant field re-stamped; climate copied from the cycle year); spin-up continuation blocks labelled as the last 25 years before the chain start |
 
 ## Context
 
@@ -88,7 +89,8 @@ generated.
 estimated the cost of the core experiment set per GCM. That estimate was made
 against a Snellius budget, whereas this project runs on Anunna only; the
 Anunna allocation available to the project has not been established. The
-campaign definitions depend on this decision.
+campaign definitions depend on this decision. Decided 2026-10-22 from the
+evidence of the analysis `compute-storage-plan`; see the record.
 
 **D03 — Output storage.** The same audit and the land-use scoping estimated
 several TB of 5′ output per GCM. Raw model output is not backed up (see
@@ -96,7 +98,9 @@ several TB of 5′ output per GCM. Raw model output is not backed up (see
 2026-09-29. If the decision allows deleting raw output after postprocessing,
 the run layout in `directory-contracts.md` and the run-preservation rule in
 `AGENTS.md` must be updated in the same change, because both currently
-require a run to keep its raw output.
+require a run to keep its raw output. Decided 2026-10-22: every run keeps
+all its output (no contract change), with three extra daily variables in
+the historical and future segments; see the record.
 
 **D04 — Land-use harmonization.** Open points listed in
 `VICWUR_ISIMIP4b_annual_landuse_harmonization_plan_15crops_2026-09-23.md`

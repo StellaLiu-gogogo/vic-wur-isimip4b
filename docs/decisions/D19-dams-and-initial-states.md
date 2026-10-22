@@ -1,7 +1,8 @@
 # D19 — Dams and initial states per experiment
 
 Status: **decided 2026-10-11** by the user (decisions taken 2026-10-09 to 2026-10-11); amended 2026-10-16
-(dam-list comparison, implementation choices of task L; see "Amendment 2026-10-16").
+(dam-list comparison, implementation choices of task L; see "Amendment 2026-10-16") and 2026-10-22 (climate cycle
+per spin-up chain, `picontrol` production; see "Amendment 2026-10-22").
 Due stage: `05_simulation`.
 
 ## Context
@@ -150,7 +151,8 @@ in the same order; only `year` differs:
    dams, ending on 1850-01-01; it starts the two `2021soc` historical segments.
    The year labels are the years before 1601 and 1850, so that each end state is
    dated the start of the next segment (the first year needs D20).
-2. Climate cycle: `picontrol` 1601–1650 (`spinup.climate_cycle`).
+2. Climate cycle: `picontrol` 1601–1650 (`spinup.climate_cycle`); amended
+   2026-10-22: 1800–1849 for the `2021soc` chain.
 3. Length: 50 years, then blocks of 25 years continued from the spin-up's own
    end state until the convergence test passes. Test: over the last 10 years the
    trend of the annual values is below 0.1 interannual standard deviations for
@@ -242,3 +244,37 @@ Decided by the user during task L (implementation of this record):
   any record supplies, else no supply if any record has a known purpose, else
   unknown), as the records combined by hand.
 
+
+## Amendment 2026-10-22
+
+Decided by the user on 2026-10-22, together with D02 and D03:
+
+- **Spin-up rule 2 (climate cycle) per chain.** The `1850soc` spin-up keeps the
+  `picontrol` cycle 1601–1650. The `2021soc` spin-up cycles the real `picontrol`
+  years 1800–1849, the years of its own labels: its first block (1800–1849) and
+  every 25-year continuation block (1825–1849) read the `picontrol` year of the
+  same number, so the chain needs no climate start-year copies. Reason: the
+  pre-industrial segment needs the real `picontrol` years 1800–1849 in the
+  climate unit `esm-picontrol`, so copies of 1650 and 1625 under the names 1800
+  and 1825 (D20) cannot be stored in that unit; the years 1800–1849 are part of
+  the unit for the pre-industrial segment anyway, so the choice adds no climate
+  storage at the end, it only moves their production forward. Both chains use
+  `picontrol` climate; they differ in the window only.
+- **Production of the `picontrol` climate.** Task P may produce now, as accepted
+  forcing of the unit `forcing/climate/ec-earth3-esm-1-1/esm-picontrol` (under
+  the D01 allowance of 2026-10-17): the years 1611–1650 (about 520 GB), the
+  start years 1551 and 1576 of the `1850soc` chain as copies of their cycle
+  years 1601 and 1628 in the window 1601–1650 (about 26 GB), and the years
+  1800–1849 for the `2021soc` chain (about 650 GB). The years 1601–1610 and the
+  start year 1591 (copy of 1601 in the window 1601–1610, natural-run spin-up of
+  task L) exist and were accepted.
+
+Consequences:
+
+- `05_simulation`: the campaign key `spinup.climate_cycle` is one window for the
+  whole campaign; a production campaign needs one window per spin-up chain
+  (`1850soc`: 1601–1650, `2021soc`: 1800–1849), and the renderer reads the
+  window of the run's chain. Implementation belongs to task P.
+- D20: the climate start years 1800 and 1825 are no longer needed; see the D20
+  amendment of 2026-10-22. The climate producer's refusal to write a start year
+  that the input contains stays.

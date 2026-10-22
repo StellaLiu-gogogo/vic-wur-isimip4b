@@ -1,6 +1,6 @@
 # D20 — First-year files of runs that start outside a forcing unit's years
 
-Status: **decided 2026-10-11** by the user (option A); amended 2026-10-17 (start year 1591, renderer cycle rule; see "Amendment 2026-10-17").
+Status: **decided 2026-10-11** by the user (option A); amended 2026-10-17 (start year 1591, renderer cycle rule; see "Amendment 2026-10-17") and 2026-10-22 (no climate start years for the `2021soc` chain; see "Amendment 2026-10-22").
 Due stage: `05_simulation`.
 
 ## Context
@@ -186,3 +186,18 @@ Recorded in task P (spin-up runs), which took over the climate steps of task O (
   therefore writes a start year only for a year the input does not contain. How the `2021soc` chain gets its climate
   (for example the real `picontrol` years 1800–1849 as its cycle window) is left to the user; it does not affect the
   `1850soc` chain or the natural-run spin-up.
+
+## Amendment 2026-10-22
+
+The open item "Start years inside the input's years" of the amendment of 2026-10-17 is decided (user, 2026-10-22,
+D19 amendment of 2026-10-22): the `2021soc` spin-up chain cycles the real `picontrol` years 1800–1849, so its blocks
+(1800–1849, 1825–1849) read the climate year of their own label and need no climate start years. The climate row of
+the table in "Evidence" becomes:
+
+| Unit | Missing start years | Run |
+|---|---|---|
+| `climate/<gcm>/esm-picontrol` | 1551, 1576 | `1850soc` spin-up (50-year block, 25-year blocks) |
+
+The land-use and water-use start years of the `2021soc` chain (1800, 1825) are unchanged. The climate start years
+cost about 26 GB per GCM instead of about 55 GB. The climate producer keeps refusing a start year that the input
+contains.
