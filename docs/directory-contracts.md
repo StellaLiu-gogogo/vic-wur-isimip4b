@@ -428,8 +428,10 @@ Create component directories only when implementation exists:
 ```
 
 Each component directory may contain its canonical generation and validation
-code, small mappings, Slurm templates, tests, and README. Do not add a language
-layer such as `python/` or `shell/`. `bundle/` assembles the image-driver
+code, small mappings, Slurm templates, tests, and README. A component that is
+adopted, not generated, may have a directory with its validation code only;
+its README states that the component is adopted and has no producer here. Do
+not add a language layer such as `python/` or `shell/`. `bundle/` assembles the image-driver
 parameter file of the `bundle` component from other components.
 
 #### `workflow/04_forcing/`
