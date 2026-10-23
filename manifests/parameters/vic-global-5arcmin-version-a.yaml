@@ -21,7 +21,14 @@ components:
         size_bytes: 87147802
         md5: 8a50b807b83db364a3db0d23e1ed3849
     verification: md5 of the copy equals md5 of the source (2026-09-29)
-    qc_status: not_checked
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-a/domain
+    qc_checked_by: workflow/03_parameters/domain/verify_domain.py (commit fedf44d, 2026-10-23T22:37Z)
+    qc_slurm_job: logs/03_parameters/adopted-parameter-qc-vic-global-5arcmin-version-a_43424001
+    qc_notes: >-
+      2 188 551 active cells; grid equal to all 24 forcing units; area is the
+      WGS84 ellipsoidal cell area (max relative deviation 3.9e-7); frac 1 on
+      every active cell.
   bundle:
     description: >-
       Assembled VIC image-driver parameter file (soil SoilGrids2 continuous
@@ -190,7 +197,24 @@ components:
       dtypes match the reader at VIC 39e21ff5 (rout_start.c, rout_init.c);
       lat and lon equal the domain file exactly; active_mask equals the domain
       mask and every downstream id is an active cell.
-    qc_status: not_checked
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-a/routing
+    qc_checked_by: workflow/03_parameters/routing/verify_routing.py (commit fedf44d, 2026-10-23T22:37Z)
+    qc_slurm_job: logs/03_parameters/adopted-parameter-qc-vic-global-5arcmin-version-a_43424001
+    notes: >-
+      Reviewed outlet (user, 2026-10-24, task R): the Yangtze ends at
+      31.958N 120.208E near Jiangyin, about 160 km from the coast, because the
+      HydroSHEDS 30 arc-second network treats the estuary below Jiangyin as
+      sea; the estuary cells, land in the VIC mask, are separate outlets. The
+      same convention ends the Parana at the head of the Rio de la Plata.
+      Relevant for the dis outlet mapping of D07. The variable cell_area is a
+      spherical cell area (up to 0.87 % from the domain area); VIC does not
+      read it.
+    qc_notes: >-
+      Routing file only (the decomposition entry is not covered). 79 461
+      outlets, no loops, longest path 871 cells, all links to a neighbour (6
+      across the dateline); GRDC area error Obidos -0.1 %, Kinshasa +3.9 %,
+      Vicksburg -1.1 %, Datong -1.4 %.
   decomposition:
     component: routing
     description: >-
@@ -251,7 +275,15 @@ components:
       README (bf46766f...) is stale; variables match the reader at VIC
       39e21ff5 (irr_start.c, irr_init.c); lat and lon equal the domain file
       exactly.
-    qc_status: not_checked
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-a/irrigation
+    qc_checked_by: workflow/03_parameters/irrigation/verify_irrigation.py (commit fedf44d, 2026-10-23T22:37Z)
+    qc_slurm_job: logs/03_parameters/adopted-parameter-qc-vic-global-5arcmin-version-a_43424001
+    qc_notes: >-
+      veg_class [14, 15], paddy [0, 1] (VIC sets the groundwater fraction of
+      class 15 to 0); efficiency 0.23-0.72 and groundwater_fraction 0-1 on
+      every active cell, no fill; no irrigation_offset, so runs need
+      OFFSET_IRRIGATION FALSE.
   dams:
     description: >-
       Dam plugin parameters (DAMS_PARAMETERS), candidate T3_extended with the
@@ -343,4 +375,13 @@ components:
       (vic_global_5min_file_decomposition_wateruse_v1.0.0_20260817.nc); the
       campaign uses the later decomposition that also covers dams (component
       routing, entry decomposition).
-    qc_status: not_checked
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-a/water_use
+    qc_checked_by: workflow/03_parameters/water_use/verify_water_use.py (commit fedf44d, 2026-10-23T22:37Z)
+    qc_slurm_job: logs/03_parameters/adopted-parameter-qc-vic-global-5arcmin-version-a_43424001
+    qc_notes: >-
+      2 498 451 links resolved, Nreceiving equal to the counted demanders on
+      every cell (max 446), the routing order with water use has no loop;
+      2 489 462 search links within 26.2 km (limit 50 km, 2 cells), 8 989 delta
+      links (supplier = own outlet, up to 330 km; the source QA counts 8 934).
+      The file has no fraction variable: fraction check not applicable.
