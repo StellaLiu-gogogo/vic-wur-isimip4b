@@ -273,6 +273,9 @@ def verify_inputs(run_dir, job_id, workdir, processes, chunk_id=None):
     bad += [problem] if problem else []
     cstate, problem = previous_chunk_state(m, chunk_id, run_dir) if not first else (None, None)
     bad += [problem] if problem else []
+    # read the manifest again before writing: the checksums take minutes, and the submission of the later chunks of a
+    # chunked run records their attempts meanwhile (natural-run, job 43419363, 2026-10-23: the write was refused)
+    m = load(run_dir); a = attempt(m, job_id)
     a['input_verification'] = {'files': len(res), 'mismatches': bad, 'passed': not bad, 'checked_at': utcnow(),
                                'seconds': round((datetime.datetime.now() - t0).total_seconds(), 1)}
     if pstate:

@@ -272,6 +272,19 @@ class InputCheckTest(unittest.TestCase):
             rm.verify_inputs(self.rd, 102, self.W, 2)
         self.assertFalse(rm.load(self.rd)['attempts'][1]['input_verification']['passed'])
 
+    def test_attempt_added_during_verification_is_kept(self):
+        """The submission of later chunks records their attempts while the first job verifies its inputs: the write
+        of the verification keeps them instead of being refused (natural-run, job 43419363)."""
+        later = {'attempt': 2, 'slurm_job_id': 102, 'submitted_at': '2026-10-07T00:00:01Z', 'status': 'submitted'}
+
+        def submitted_meanwhile(*args):
+            m = rm.load(self.rd); m['attempts'].append(dict(later)); rm.save(self.rd, m)
+            return []
+        with mock.patch.object(rm, 'link_mismatches', side_effect=submitted_meanwhile):
+            v = self.verify()
+        self.assertTrue(v['passed'], v)
+        self.assertEqual(rm.load(self.rd)['attempts'][1], later)
+
     def test_parent_not_completed_fails(self):
         m = rm.load(self.rd)
         m['parent']['state_sha256'] = None; m['parent']['attempt'] = None
