@@ -176,7 +176,13 @@ a chunk of a run on a constant DHF unit (`1850soc`, `2021soc`) therefore needs t
 year (D20 extension years) or the render stops. `submit_run.py` submits one job per chunk, each waiting for the
 previous one (`afterok`), with a check of each chunk and the check of the whole run after the last chunk and every chunk check (`afterany`: it reads their status);
 `--retry` resubmits from the first chunk whose latest attempt did not complete. The manifest's `chunks` and the
-`chunk` of every attempt record the bookkeeping; the run is `completed` when every chunk is.
+`chunk` of every attempt record the bookkeeping; the run is `completed` when every chunk is. **Test (campaign
+`chunk-test`, task L4b, 2026-10-22; runs 43407082 and 43407183/43407187, comparison job 43414516):** 2015-2016 in one
+job and in two one-year chunks gave bitwise identical daily output, monthly output and end state (all 48 state
+variables), except the diagnostic `OUT_WATER_ERROR` of 2016 (differences up to 5.8e-11 mm against values up to
+0.3 mm: the storage at the start of a chunk is recomputed from the state); report
+`qc/runs/chunk-test/<continuous run>/reports/compare_<chunked run>.json`. The first whole-run check (job 43407189)
+started beside the last chunk check and read its status before it was written, which led to the `afterany` wait above.
 
 **Initial state.** Parent relations come from the whole campaign, whatever `--run-id` selects. A run whose
 parent segment is a run of the campaign (and the campaign has no `restriction`) starts from the parent's end
