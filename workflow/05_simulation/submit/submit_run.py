@@ -15,9 +15,9 @@ in the run manifest, then release the job.
              config/job.attempt-<n>.sbatch and both are recorded in the manifest (job_files).
 
 A chunked run (resources chunk_years, render_run.py) is submitted as one job per chunk, each waiting for the
-previous one (afterok), with a check of each chunk and, after the last chunk, the check of the whole run; --retry
-resubmits from the first chunk whose latest attempt did not complete (with --rerender-job, the job files of those
-chunks are rendered again).
+previous one (afterok), with a check of each chunk and, after the last chunk and the chunk checks, the check of the
+whole run; --retry resubmits from the first chunk whose latest attempt did not complete (with --rerender-job, the job
+files of those chunks are rendered again).
 
 The job verifies the input checksums before VIC starts and completes the manifest after VIC ends
 (run_manifest.py). After each run job a check job is submitted that starts when the run has succeeded
@@ -102,13 +102,13 @@ def submit_run(run_dir, dependency=None, check=True, from_chunk=0):
         if check:
             sc.submit(run_dir, dependency=job)
         return job
-    job = dependency
+    job = dependency; chunk_checks = []
     for c in chunks[from_chunk:]:
         job = submit(run_dir, job, chunk=c['id'])
         if check:
-            sc.submit(run_dir, dependency=job, chunk=c['id'])
-    if check:
-        sc.submit(run_dir, dependency=job)
+            chunk_checks.append(sc.submit(run_dir, dependency=job, chunk=c['id']))
+    if check:          # the whole-run check reads the status of every chunk check: it waits for them to end
+        sc.submit(run_dir, dependency=job, after_checks=chunk_checks)
     return job
 
 

@@ -42,8 +42,11 @@ def job_name(rd):
     return f'run-check-{os.path.basename(os.path.dirname(rd))}-{label}'
 
 
-def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=None, chunk=None, spinup=False):
-    """Render, submit on hold, write the job record, release; returns the job id."""
+def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=None, chunk=None, spinup=False,
+           after_checks=()):
+    """Render, submit on hold, write the job record, release; returns the job id. The check starts when the job
+    `dependency` has succeeded and every job of `after_checks` has ended (the chunk checks that the check of a whole
+    chunked run reads)."""
     W = os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
     rd = os.path.abspath(run_dir if os.path.isabs(run_dir) else os.path.join(W, run_dir))
     rel = os.path.relpath(rd, W)
@@ -64,7 +67,9 @@ def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=Non
     if '{{' in text:
         raise SystemExit('unrendered placeholder in the job template')
     os.makedirs(stage_logs, exist_ok=True)
-    cmd = ['sbatch', '--parsable', '--hold'] + ([f'--dependency=afterok:{dependency}'] if dependency else [])
+    after = ([f'afterok:{dependency}'] if dependency else []) + \
+        ([f'afterany:{":".join(after_checks)}'] if after_checks else [])
+    cmd = ['sbatch', '--parsable', '--hold'] + ([f'--dependency={",".join(after)}'] if after else [])
     r = subprocess.run(cmd, input=text, capture_output=True, text=True)
     if r.returncode != 0:
         raise SystemExit(f'sbatch failed: {r.stderr}')
@@ -79,7 +84,7 @@ def submit(run_dir, time='04:00:00', mem='64G', partition='main', dependency=Non
               'code_commit': commit, 'code_dirty': dirty,
               'submitted_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
               'resources': {'partition': partition, 'time': time, 'cpus_per_task': 1, 'mem': mem},
-              'dependency': dependency,
+              'dependency': dependency, **({'after_checks': list(after_checks)} if after_checks else {}),
               'inputs': [rel], 'outputs': [f'qc/{rel}' + (f'/chunks/{chunk}' if chunk else '')],
               **({'chunk': chunk} if chunk else {})}
     with open(f'{job_dir}/job.yaml', 'w') as fh:

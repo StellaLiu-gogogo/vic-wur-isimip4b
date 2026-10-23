@@ -174,7 +174,7 @@ time; the run's end state is the last chunk's (`end_state` in the manifest; a ch
 chunk starts on 1 January and its first year must be an identity link in every forcing family, as for a run:
 a chunk of a run on a constant DHF unit (`1850soc`, `2021soc`) therefore needs the unit's file of the chunk's start
 year (D20 extension years) or the render stops. `submit_run.py` submits one job per chunk, each waiting for the
-previous one (`afterok`), with a check of each chunk and the check of the whole run after the last chunk;
+previous one (`afterok`), with a check of each chunk and the check of the whole run after the last chunk and every chunk check (`afterany`: it reads their status);
 `--retry` resubmits from the first chunk whose latest attempt did not complete. The manifest's `chunks` and the
 `chunk` of every attempt record the bookkeeping; the run is `completed` when every chunk is.
 

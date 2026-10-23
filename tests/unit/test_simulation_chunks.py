@@ -138,8 +138,8 @@ class ChunkSubmitTest(unittest.TestCase):
         def fake_submit(run_dir, dependency=None, chunk=None):
             j = str(next(jobs)); calls.append(('run', chunk, dependency, j)); return j
 
-        def fake_check(run_dir, dependency=None, chunk=None):
-            calls.append(('check', chunk, dependency))
+        def fake_check(run_dir, dependency=None, chunk=None, after_checks=()):
+            j = f'c{len(calls)}'; calls.append(('check', chunk, dependency, list(after_checks))); return j
         with mock.patch.object(sr.rm, 'load', return_value=chunked_manifest()), \
                 mock.patch.object(sr, 'submit', side_effect=fake_submit), \
                 mock.patch.object(sr.sc, 'submit', side_effect=fake_check):
@@ -147,8 +147,10 @@ class ChunkSubmitTest(unittest.TestCase):
         runs = [c for c in calls if c[0] == 'run']
         self.assertEqual([(c[1], c[2]) for c in runs], [('2015-2015', '7'), ('2016-2016', '1'), ('2017-2017', '2')])
         checks = [c for c in calls if c[0] == 'check']
-        self.assertEqual(checks, [('check', '2015-2015', '1'), ('check', '2016-2016', '2'), ('check', '2017-2017', '3'),
-                                  ('check', None, '3')])
+        # the whole-run check waits for the last chunk and for every chunk check, whose status it reads (chunk-test:
+        # the whole-run check 43407189 started before the last chunk check and found it not_checked)
+        self.assertEqual(checks, [('check', '2015-2015', '1', []), ('check', '2016-2016', '2', []),
+                                  ('check', '2017-2017', '3', []), ('check', None, '3', ['c1', 'c3', 'c5'])])
         self.assertEqual(last, '3')
 
     def test_retry_from_chunk(self):
