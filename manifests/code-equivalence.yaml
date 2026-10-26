@@ -267,3 +267,25 @@ equivalences:
       carry the scratch label; both verifier reports passed, differing only in checked_at, the file SHA-256 and the
       verifier commit and tree.
     approved: user, 2026-10-20
+  - id: lwdown-range-climate
+    producer: workflow/04_forcing/climate/downscale_climate.py
+    method_version: '1.1'
+    from:
+      workflow/04_forcing/climate: f3c4b9a397637a714cca9fd8b0f6c2df2590f181
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    to:
+      workflow/04_forcing/climate: bf115993a04bfeeef6217d19a5ea0ba300277ab4
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    change: >-
+      task P5: the verifier's physical range of lwdown is 30-650 W m-2 instead of 30-600. The ISIMIP4b rlds is capped
+      at 600 W m-2 and the D16 ratio raises it in cells below the 0.5 degree reference height, so esm-scen7-vl 2039
+      (1 cell-day, 600.5) and 2075 (13 cell-days, up to 602.3 W m-2, near 10N 0E in February) failed the range check.
+      Only verify_forcing.py changed; producer, submit script, job template and method unchanged.
+    evidence: >-
+      Scratch test on 2026-10-25, ec-earth3-esm-1-1 esm-scen7-vl lwdown 2039, same inputs and commit base 913ee83:
+      before = worktree of 913ee83 (Slurm job 43432151), after = the change (job 43432152), comparison job 43432159
+      (scratch/spinup-runs/compare-p5-lwdown.log): every variable and every global attribute except code_commit,
+      code_dirty and created_at identical; provenance.yaml differs only in code_dirty, files[].sha256, qc and the
+      paths that carry the scratch label; the verifier report failed before (range: 1 value above 600) and passed
+      after, all other checks equal.
+    approved: user, 2026-10-25

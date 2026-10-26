@@ -8,7 +8,8 @@ For every file <variable>_<gcm>_<alias>_<year>.nc of a unit (or the years given)
   time        calendar proleptic_gregorian, units days since <year>-01-01 00:00:00, values 0 .. n-1 with
               n = 365 or 366
   mask        every day: finite values on exactly the active domain cells, _FillValue elsewhere
-  range       physical bounds per variable on active cells
+  range       physical bounds per variable on active cells (lwdown 30-650 W m-2: the input rlds is capped at 600
+              and the elevation correction of D16 may raise it above that)
   mean        land-area-weighted mean over the active cells (domain `area`) versus the 0.5 degree input,
               whose cells are weighted by the area of their active 5' cells, every day:
                 prec                    |relative difference| <= 1e-6 (conservative remapping)
@@ -68,7 +69,9 @@ SPEC = {   # units, sources, physical range, mean check (kind, tolerance)
     'psurf':  ('kPa', ('ps',), (30, 110), ('rel', 5e-3)),
     'vp':     ('kPa', ('huss', 'ps'), (0, 8), ('rel', 2e-2)),
     'swdown': ('W m-2', ('rsds',), (0, 600), ('rel', 5e-3)),
-    'lwdown': ('W m-2', ('rlds',), (30, 600), ('abs', 0.5)),
+    # 650, not 600: the ISIMIP4b rlds is capped at 600 W m-2 and the D16 ratio raises it in cells below the 0.5 degree
+    # reference height (esm-scen7-vl 2039 and 2075: up to 602.3 W m-2 near 10N 0E in February; user, 2026-10-25)
+    'lwdown': ('W m-2', ('rlds',), (30, 650), ('abs', 0.5)),
     'wind':   ('m s-1', ('sfcwind',), (0, 60), ('rel', 5e-3)),
 }
 SAMPLE_TOL = 1e-3
