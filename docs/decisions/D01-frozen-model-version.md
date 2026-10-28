@@ -74,7 +74,12 @@ it. `model/vic.lock.yaml` records `freeze_status: frozen`.
 - **Runs.** The smoke and natural runs used the frozen commit with a
   candidate build. They stay non-production runs.
 - The note "D01 is provisional" in the stage READMEs is replaced by a
-  reference to this record.
+  reference to this record, except in `workflow/04_forcing/climate/`,
+  `landuse/` and `water_use/`. The verifier reports and the unit-extension
+  check of these families are bound to the Git tree of their directory, so a
+  README edit there would mark every earlier report as `not_checked`. Their
+  README notes are updated with the next code change in those directories
+  (user, 2026-10-28).
 
 ## Amendment 2026-10-28: production build
 

@@ -101,6 +101,6 @@ clean at that commit when the job starts.
 D04 (decided 2026-09-30, `docs/decisions/D04-landuse-harmonization.md`) is
 implemented here: single child for every fallback parent, `rice_rainfed` in
 class 12, `*_bf` merged into the rainfed and irrigated sums, ISIMIP paddy
-area accepted. D01 (model commit) is decided (2026-10-28); the land-use units do
-not depend on it (accepted while it was open, user 2026-10-01; see
+area accepted. D01 (model commit) is provisional; the land-use units do not
+depend on it and may be accepted while it is open (user, 2026-10-01; see
 `docs/decisions/open-decisions.md`).
