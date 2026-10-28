@@ -1,6 +1,6 @@
 # D01 — Frozen VIC-WUR model version
 
-Status: **decided 2026-10-28** by the user.
+Status: **decided 2026-10-28** by the user; amended the same day (production build, see "Amendment 2026-10-28").
 Due stage: `03_parameters`.
 
 ## Context
@@ -75,3 +75,24 @@ it. `model/vic.lock.yaml` records `freeze_status: frozen`.
   candidate build. They stay non-production runs.
 - The note "D01 is provisional" in the stage READMEs is replaced by a
   reference to this record.
+
+## Amendment 2026-10-28: production build
+
+Decided by the user on 2026-10-28, after the record above. The existing build
+`builds/vic/39e21ff5015d01d9bc20407a8f50006831417aff/` (2026-09-30, status
+`built`) is recorded as the production build of the frozen commit. It is not
+recompiled. Reason: it was built from the same commit, with the same module
+bucket and runtime modules, and the smoke and natural runs used this
+executable (its sha256 is in their run manifests).
+
+The build manifest records:
+
+- the change of `build_kind` from `candidate` to `production`;
+- the date and the user's decision;
+- that the VIC test suite was not run (status `built`).
+
+How the change is made and recorded (rules in
+`workflow/05_simulation/build/README.md`, the `builds/` contract text if
+needed, and the manifest fields) is implemented by task S. The change in
+`builds/` needs the user's authorisation of the exact file change before it is
+made.
