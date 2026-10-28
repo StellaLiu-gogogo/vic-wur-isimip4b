@@ -936,6 +936,14 @@ builds/
 The build manifest must record the full model commit, build environment, build
 command, executable checksum, and test status.
 
+A candidate build (made while the lock was provisional) becomes the production
+build of the same commit only by
+`workflow/05_simulation/build/promote_build.py`, after the user's decision and
+authorisation: the executable is not rebuilt or changed, the manifest as it was
+is kept in `logs/build_manifest.candidate.json`, and `build_manifest.json`
+records `build_kind: production` and a `promotion` record. Nothing else in the
+build directory changes.
+
 ### `runs/`
 
 Canonical layout:

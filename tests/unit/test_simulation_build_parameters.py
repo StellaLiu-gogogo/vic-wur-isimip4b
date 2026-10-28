@@ -58,10 +58,10 @@ class Synthetic(unittest.TestCase):
     def lock(self, commit, freeze_status):
         dump_yaml(os.path.join(self.R, 'model', 'vic.lock.yaml'), {'commit': commit, 'freeze_status': freeze_status})
 
-    def build(self, commit, status, modules, model_commit=None):
+    def build(self, commit, status, modules, model_commit=None, build_kind='candidate'):
         bdir = os.path.join(self.W, 'builds', 'vic', commit); os.makedirs(bdir, exist_ok=True)
         with open(os.path.join(bdir, 'build_manifest.json'), 'w') as fh:
-            json.dump({'model': {'model_commit': model_commit or commit}, 'status': status, 'build_kind': 'candidate',
+            json.dump({'model': {'model_commit': model_commit or commit}, 'status': status, 'build_kind': build_kind,
                        'executable': {'path': 'bin/vic_image.exe', 'sha256': 'e' * 64, 'vic_git_tag': 'tag'},
                        'runtime_modules': modules}, fh)
 
@@ -117,7 +117,19 @@ class CheckBuildTest(Synthetic):
         with self.assertRaisesRegex(rr.RenderError, 'frozen model lock'):
             rr.check_build(self.W, self.campaign, self.resources)
         self.lock(COMMIT, 'frozen')
+        self.build(COMMIT, 'built', MODULES, build_kind='production')
         self.assertEqual(rr.check_build(self.W, self.campaign, self.resources)['freeze_status'], 'frozen')
+
+    def test_production_needs_production_build(self):
+        # D01 amendment 2026-10-28: a production campaign runs only a production build (build_vic.sh with a frozen
+        # lock, or a candidate build promoted by promote_build.py); a non-production campaign may use a candidate
+        self.lock(COMMIT, 'frozen')
+        self.assertEqual(rr.check_build(self.W, self.campaign, self.resources)['build_kind'], 'candidate')
+        self.campaign['production'] = True
+        with self.assertRaisesRegex(rr.RenderError, 'needs a production build'):
+            rr.check_build(self.W, self.campaign, self.resources)
+        self.build(COMMIT, 'built', MODULES, build_kind='production')
+        self.assertEqual(rr.check_build(self.W, self.campaign, self.resources)['build_kind'], 'production')
 
 
 class ParameterFilesTest(Synthetic):

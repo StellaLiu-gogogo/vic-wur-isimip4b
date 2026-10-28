@@ -531,6 +531,57 @@ class SpinupForcingPlanTest(unittest.TestCase):
         with self.assertRaises(rr.RenderError):
             rr.forcing_plan(self.W, self.c, self.run, 'esm-picontrol')
 
+    def test_window_of_the_chain(self):
+        # D19 amendment 2026-10-22: a window per spin-up DHF scenario; the 1850soc chain reads its own window
+        self.c['spinup']['climate_cycle'] = {'1850soc': [1601, 1610], '2021soc': [1800, 1849]}
+        _, _, mapping = rr.forcing_plan(self.W, self.c, self.run, 'esm-picontrol')
+        self.assertEqual(mapping['climate/tair'][1599]['source'],
+                         f'forcing/climate/{G}/esm-picontrol/tair/tair_{G}_esm-picontrol_1609.nc')
+        self.c['spinup']['climate_cycle'] = {'2021soc': [1800, 1849]}
+        with self.assertRaisesRegex(rr.RenderError, 'spinup.climate_cycle.1850soc'):
+            rr.forcing_plan(self.W, self.c, self.run, 'esm-picontrol')
+
+
+class SpinupWindowOwnYearsTest(unittest.TestCase):
+    """The 2021soc chain cycles the real picontrol years 1800-1849 (D19, D20 amendments 2026-10-22): its first block
+    1800-1849 and a continuation block 1825-1849 link every year to the same year, without climate start years."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.W = self.tmp.name
+        # the unit also holds the 1850soc start years 1551 and 1576, made for the window 1601-1650
+        years = [1551, 1576] + list(range(1601, 1651)) + list(range(1800, 1850))
+        for var in rr.CLIMATE_VARIABLES:
+            fake_unit(self.W, f'climate/{G}/esm-picontrol/{var}', [f'{var}_{G}_esm-picontrol_{y}.nc' for y in years],
+                      extra={'start_years': {1551: 1601, 1576: 1628},
+                             'cycle_windows': {1551: [1601, 1650], 1576: [1601, 1650]}})
+        fake_unit(self.W, 'landuse/2021soc', [f'coverage_2021soc_{y}.nc' for y in (1800, 1825, 2022, 2023, 2024)])
+        fake_unit(self.W, 'landuse/1850soc', [f'coverage_1850soc_{y}.nc' for y in (1551, 1576, 1850, 1851, 1852)])
+        self.c = smoke()
+        self.c['spinup'] = {'length_years': 50, 'climate_cycle': {'1850soc': [1601, 1650], '2021soc': [1800, 1849]}}
+        self.c['plugins']['water_use']['enabled'] = False
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def plan(self, soc, y0, y1):
+        run = {'run_id': 's', 'start_year': y0, 'end_year': y1, 'segment': {'gcm': G, 'soc': soc, 'period': 'spinup'}}
+        _, _, mapping = rr.forcing_plan(self.W, self.c, run, 'esm-picontrol')
+        rr.check_start_year(run, mapping)
+        return mapping['climate/tair']
+
+    def test_2021soc_blocks_identity(self):
+        for y0 in (1800, 1825):
+            m = self.plan('2021soc', y0, 1849)
+            self.assertTrue(all(v['rule'] == 'identity' for v in m.values()))
+            self.assertEqual(m[1849]['source'], f'forcing/climate/{G}/esm-picontrol/tair/tair_{G}_esm-picontrol_1849.nc')
+
+    def test_1850soc_blocks_cycle(self):
+        m = self.plan('1850soc', 1551, 1600)
+        self.assertEqual(m[1551]['rule'], 'identity')                    # start year made for this window
+        self.assertEqual(m[1553]['source'], f'forcing/climate/{G}/esm-picontrol/tair/tair_{G}_esm-picontrol_1603.nc')
+        m = self.plan('1850soc', 1576, 1600)
+        self.assertEqual(m[1576]['rule'], 'identity')
+
 
 SPIN = f'{G}_picontrol_1850soc_default_spinup'
 SPINUP_VARS = ['OUT_SOIL_MOIST', 'OUT_SWE', 'OUT_SNOW_CANOPY', 'OUT_STREAM_MOIST']
@@ -594,6 +645,59 @@ class SpinupOutputTest(RenderHarness):
         self.campaign['output']['spinup']['monthly'].append('OUT_GDAM_STORAGE')
         with self.assertRaises(rr.RenderError):
             self.render(SPIN)
+
+
+D03_DAILY = ['OUT_SOIL_MOIST', 'OUT_EVAP', 'OUT_WITHDRAWN']
+
+
+class PeriodOutputTest(RenderHarness):
+    """D03 decision 2: output.period_outputs adds OUT_SOIL_MOIST, OUT_EVAP and OUT_WITHDRAWN to the daily stream of the
+    historical and future segments only; the pre-industrial segment and the spin-ups do not write them daily."""
+
+    def setUp(self):
+        super().setUp()
+        self.segments[PRE] = segment('picontrol', '1850soc', 'pre-industrial', (1601, 1849), None)
+        self.segments[SPIN] = segment('picontrol', '1850soc', 'spinup', (1551, 1600), None)
+        self.campaign['output']['spinup'] = {'monthly': list(SPINUP_VARS)}
+        self.campaign['output']['period_outputs'] = {'daily': {'historical': list(D03_DAILY),
+                                                               'future': list(D03_DAILY)}}
+
+    def outvars(self, run_id, stream):
+        with open(os.path.join(self.W, 'runs', 'smoke', run_id, 'config', 'vic_global.txt')) as fh:
+            text = fh.read()
+        blocks = {b.split('\n', 1)[0].strip(): b for b in text.split('OUTFILE')[1:]}
+        return [l.split()[1] for l in blocks.get(stream, '').splitlines() if l.startswith('OUTVAR')]
+
+    def test_daily_by_period(self):
+        del self.segments[SPIN]
+        self.render()                                                      # pre-industrial, historical, future
+        for rid in (HIST, FUT):
+            self.assertEqual(self.outvars(rid, 'daily'), ['OUT_RUNOFF', 'OUT_BASEFLOW', 'OUT_DISCHARGE'] + D03_DAILY)
+        self.assertEqual(self.outvars(PRE, 'daily'), ['OUT_RUNOFF', 'OUT_BASEFLOW', 'OUT_DISCHARGE'])
+        # the monthly stream is the same in every period
+        self.assertEqual(self.outvars(HIST, 'monthly'), self.outvars(PRE, 'monthly'))
+        with open(os.path.join(self.W, 'runs', 'smoke', HIST, 'config', 'vic_global.txt')) as fh:
+            daily = fh.read().split('OUTFILE                 monthly')[0]
+        self.assertIn('OUTVAR                  OUT_SOIL_MOIST  * * * AGG_TYPE_AVG', daily)
+        self.assertEqual(self.manifest(HIST)['expected_outputs'][:2],
+                         ['output/daily.1850-01-01.nc', 'output/monthly.1850-01.nc'])
+
+    def test_spinup_unchanged(self):
+        self.render(SPIN)
+        self.assertEqual(self.outvars(SPIN, 'monthly'), SPINUP_VARS)
+        self.assertEqual(self.outvars(SPIN, 'daily'), [])
+
+    def test_bad_entries_stop(self):
+        for po in ({'hourly': {'historical': ['OUT_EVAP']}}, {'daily': {'spinup': ['OUT_EVAP']}},
+                   {'daily': {'historical': []}}, {'daily': []}):
+            self.campaign['output']['period_outputs'] = po
+            with self.assertRaises(rr.RenderError):
+                rr.period_outputs(self.campaign)
+
+    def test_variable_of_plugin_off_stops(self):
+        self.campaign['plugins']['water_use']['enabled'] = False
+        with self.assertRaisesRegex(rr.RenderError, 'OUT_WITHDRAWN'):
+            self.render(HIST)
 
 
 class SpinupBlockTest(RenderHarness):

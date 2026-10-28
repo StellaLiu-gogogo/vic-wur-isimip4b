@@ -24,6 +24,14 @@ Rules (docs/glossary.md, "Segment", "Segment ID", "Run"; protocol 02.experiments
                      non-production campaign restricted to part of a segment (campaign `restriction`), or
                      `__block-<n>` for continuation block n of a spin-up (block_run_id; decided at render time from
                      the completed blocks and their convergence tests, render_run.py).
+  climate window     spinup.climate_cycle: one window [first, last] for every spin-up chain, or a map spin-up DHF
+                     scenario -> window (D19 amendment 2026-10-22: 1850soc 1601-1650, 2021soc 1800-1849); a map must
+                     name exactly the DHF scenarios of the campaign's spin-ups (climate_window).
+  run order          without run_order: spin-ups, pre-industrial, historical, future, then segment ID. With run_order
+                     `longest-chain-then-priority` (D02 decision 3): the segments of the longest chain (in model years)
+                     first, then by the best priority of the experiments using a segment (1st before 2nd), then by the
+                     model years left from the segment's start to the end of its longest chain (order_segments).
+                     Parents always come before their children; the renderer and submit_run.py follow this order.
 
 Usage: resolve_campaign.py --campaign configs/campaigns/smoke.yaml [--label smoke2015] [--json]
 """
@@ -40,8 +48,10 @@ IDENTICAL = re.compile(r'Identical to the similar \*\*([^*]+)\*\* run', re.I)
 SPINUP_DHF = re.compile(r'Does not have to be simulated, spin-up should be based on the (\d{4}) DHF', re.I)
 CAMPAIGN_KEYS = {'campaign_id', 'production', 'description', 'model', 'parameter_set', 'protocol', 'gcms',
                  'experiments', 'exclusions', 'sensitivity_equivalence', 'restriction', 'initialisation', 'spinup',
-                 'dhf_forcing', 'plugins', 'output', 'resources', 'open_decisions'}
-CAMPAIGN_REQUIRED = CAMPAIGN_KEYS - {'description', 'restriction', 'spinup', 'open_decisions', 'exclusions'}
+                 'dhf_forcing', 'plugins', 'output', 'resources', 'open_decisions', 'run_order'}
+CAMPAIGN_REQUIRED = CAMPAIGN_KEYS - {'description', 'restriction', 'spinup', 'open_decisions', 'exclusions', 'run_order'}
+RUN_ORDERS = (None, 'longest-chain-then-priority')
+PRIORITY_RANK = {'1st priority': 1, '2nd priority': 2}
 
 
 class CampaignError(ValueError):
@@ -82,6 +92,8 @@ def load_campaign(path):
     if c['production'] and c.get('restriction'):
         raise CampaignError('a production campaign cannot carry a restriction (runs of production campaigns never '
                             'carry a label, docs/directory-contracts.md `runs/`)')
+    if c.get('run_order') not in RUN_ORDERS:
+        raise CampaignError(f'run_order {c.get("run_order")!r} is not one of {[o for o in RUN_ORDERS if o]}')
     return c
 
 
@@ -218,7 +230,10 @@ def resolve(campaign, protocol_dir):
                 parent = _add(segments, Segment(gcm, *comp, p, *years[p]), parent, e)
                 chain.append(parent)
             chains[(gcm, e['specifier'])] = chain
+    check_climate_windows(spin, segments)
     ordered = dict(sorted(segments.items(), key=lambda kv: (kv[1].gcm, ORDER[kv[1].period], kv[0])))
+    if campaign.get('run_order') == 'longest-chain-then-priority':
+        ordered = order_segments(ordered, {e['specifier']: e.get('priority') for e in pool})
     return ordered, chains
 
 
@@ -234,6 +249,73 @@ def _spinup_years(spin, years, next_period):
     if n is None:
         return (None, first - 1)
     return (first - int(n), first - 1)
+
+
+def climate_window(spin, soc):
+    """[first, last] of the picontrol climate cycle of a spin-up with DHF scenario `soc` (D19 spin-up rule 2, amended
+    2026-10-22): spinup.climate_cycle is one window for every spin-up chain, or a map spin-up DHF scenario -> window."""
+    w = (spin or {}).get('climate_cycle'); where = 'spinup.climate_cycle'
+    if isinstance(w, dict):
+        w = w.get(soc); where += f'.{soc}'
+    if not w:
+        raise CampaignError(f'a spin-up with {soc} needs the campaign key {where}')
+    if not (isinstance(w, (list, tuple)) and len(w) == 2 and all(isinstance(v, int) for v in w) and w[0] <= w[1]):
+        raise CampaignError(f'{where} must be [first, last] (whole years, first <= last), not {w!r}')
+    return [int(w[0]), int(w[1])]
+
+
+def check_climate_windows(spin, segments):
+    """A map spinup.climate_cycle names exactly the DHF scenarios of the campaign's spin-up segments, so that no chain
+    is left without its window and no window is written for a chain the campaign does not have."""
+    w = (spin or {}).get('climate_cycle')
+    if not isinstance(w, dict):
+        return
+    have = {s.soc for s in segments.values() if s.period == 'spinup'}
+    if set(w) != have:
+        raise CampaignError(f'spinup.climate_cycle names the scenarios {sorted(w)}, the campaign\'s spin-ups have '
+                            f'{sorted(have)}')
+    for soc in w:
+        climate_window(spin, soc)
+
+
+def order_segments(segments, priorities):
+    """Segments in the order `longest-chain-then-priority` (D02 decision 3), per GCM: the segments of the longest chain
+    (model years from a spin-up to a future segment) first, then by the best priority of the experiments that use a
+    segment, then by the model years left from its start to the end of its longest chain, then by segment ID. A
+    parent always comes before its children (checked)."""
+    children = {k: [] for k in segments}
+    for k, s in segments.items():
+        if s.parent:
+            children[s.parent].append(k)
+    left = {}
+
+    def years_left(k):
+        if k not in left:
+            s = segments[k]
+            if s.start_year is None:
+                raise CampaignError(f'{k}: run_order needs the spin-up length (spinup.length_years)')
+            left[k] = s.end_year - s.start_year + 1 + max((years_left(c) for c in children[k]), default=0)
+        return left[k]
+
+    def rank(k):
+        p = [priorities.get(e) for e in segments[k].experiments]
+        if any(v not in PRIORITY_RANK for v in p):
+            raise CampaignError(f'{k}: run_order needs the protocol priority of {segments[k].experiments} ({p})')
+        return min(PRIORITY_RANK[v] for v in p)
+
+    longest = set()
+    for gcm in {s.gcm for s in segments.values()}:
+        step = lambda ks: min(ks, key=lambda k: (-years_left(k), rank(k), k))   # noqa: E731
+        k = step([k for k, s in segments.items() if s.gcm == gcm and not s.parent])
+        while k:
+            longest.add(k)
+            k = step(children[k]) if children[k] else None
+    order = sorted(segments, key=lambda k: (k not in longest, rank(k), -years_left(k), ORDER[segments[k].period], k))
+    pos = {k: i for i, k in enumerate(order)}
+    bad = [k for k in order if segments[k].parent and pos[segments[k].parent] > pos[k]]
+    if bad:
+        raise CampaignError(f'run_order puts {bad} before their parents')
+    return {k: segments[k] for k in order}
 
 
 def block_run_id(segment_id, block):
@@ -329,8 +411,11 @@ def main():
         print(json.dumps({'segments': [asdict(s) | {'id': k} for k, s in segs.items()],
                           'runs': runs(c, segs, a.label)}, indent=1))
         return
+    total = 0
     for k, s in segs.items():
-        print(f'{k:62s} {s.start_year}-{s.end_year}  parent {s.parent}  ({len(s.experiments)} experiments)')
+        n = s.end_year - s.start_year + 1 if s.start_year is not None else 0; total += n
+        print(f'{k:64s} {s.start_year}-{s.end_year} {n:4d} years  parent {s.parent}  ({len(s.experiments)} experiments)')
+    print(f'{len(segs)} segments, {total} model years' + (f', order {c["run_order"]}' if c.get('run_order') else ''))
     print()
     for r in runs(c, segs, a.label):
         print(f'run {r["run_id"]}  {r["start_year"]}-{r["end_year"]}')

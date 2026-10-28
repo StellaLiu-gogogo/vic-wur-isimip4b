@@ -45,7 +45,11 @@ jobs that run the executable must load the same modules (manifest key
 `runtime_modules`). The build of 2026-09-30 was made from the provisional
 lock and is a candidate build; its status is `built` (the VIC test suite
 cannot run here, see `build/README.md`). Since D01 (2026-10-28) the lock is
-frozen and the script gives a production build of the same commit.
+frozen and the script gives a production build of the same commit. The user
+decided that the existing build, unchanged, becomes the production build
+(D01 amendment 2026-10-28): `build/promote_build.py` checks it and records
+the change in its manifest without recompiling (`build/README.md`). A
+production campaign renders only with a production build.
 
 ## Configuration
 
@@ -89,6 +93,14 @@ the default segments. For the 18 `water_global` experiments and one GCM this giv
 parents). A non-production campaign may restrict runs to some periods and years with a label: run ID
 `<segment-id>__<label>`.
 
+**Run order.** Without `run_order` the runs come as spin-ups, pre-industrial, historical, future, then by segment ID.
+With `run_order: longest-chain-then-priority` (D02 decision 3) the resolver puts first the segments of the longest
+chain in model years (for D02: 1850soc spin-up → pre-industrial → `histsoc` historical → future, 550 years; the
+`histsoc` historical segment wins the tie of the four historical children of the pre-industrial segment by priority),
+then the other segments by the best protocol priority of the experiments that use them (1st before 2nd), then by the
+model years left from a segment's start to the end of its longest chain (`order_segments`). A parent always comes
+before its children (checked). The renderer and `submit_run.py` render and submit in this order.
+
 **Climate input alias.** The campaign states per GCM whether its DKRZ input is `concentration-driven` or
 `emission-driven`; the alias is taken from `specifier_alias` of `definitions/climate_scenario.yaml`
 (emission-driven aliases start with `esm-`: `historical` → `esm-hist` for EC-Earth3-ESM-1-1).
@@ -105,7 +117,7 @@ accepted units; units are never modified or copied. Rules (`forcing_years.py`):
 |---|---|---|
 | identity | the unit has the year | the same year |
 | constant | the DHF scenario is listed in the campaign's `dhf_forcing.constant` (`1850soc`, `2021soc`) and the unit lacks the year | the first year of the unit with the same number of days (365/366): VIC reads daily records within the year and the water-use demand is mm/day of its calendar year |
-| cycle | spin-up climate | `a + (Y − a) mod L` in the campaign's window `[a, b]`; when the day count differs, the next year of the window with the same count (a year that maps to itself is recorded as identity, and so is a start year of the unit recorded as a copy of its cycle year for the same window, D20 amendment 2026-10-17; a start year made for another window stops the render) |
+| cycle | spin-up climate | `a + (Y − a) mod L` in the window `[a, b]` of the run's spin-up chain (`spinup.climate_cycle`: one window, or one per spin-up DHF scenario, D19 amendment 2026-10-22); when the day count differs, the next year of the window with the same count (a year that maps to itself is recorded as identity, and so is a start year of the unit recorded as a copy of its cycle year for the same window, D20 amendment 2026-10-17; a start year made for another window stops the render) |
 
 `2021soc-from-histsoc` uses the `2021soc` unit (`dhf_forcing.units`). The view and the `PLUGIN_FORCE_TYPE` lines of
 the VIC file cover only the plugins that are on: VIC opens the start-year file of every `PLUGIN_FORCE_TYPE` line,
@@ -194,13 +206,14 @@ run must already have completed with its end state, whose run, attempt and sha25
 `initialisation.without_parent`.
 
 **Checks before rendering.** Model commit of the campaign = `model/vic.lock.yaml` = build manifest; build
-status `built` or `tested`; resources modules = `runtime_modules` of the build; every parameter file in the
+status `built` or `tested`; for a production campaign a frozen lock and `build_kind: production`; resources modules = `runtime_modules` of the build; every parameter file in the
 parameter manifest; every forcing unit accepted (`code_dirty: false`, `qc.status: passed`) and made on the
 campaign's domain file and, for climate, with its elevation (the sha256 recorded in the unit's `provenance.yaml`
 equal to that of the domain file and of the natural bundle the parameter file was assembled from); the campaign's
 output selection covers every protocol variable of the sector (mapped or listed as not provided); the output
 streams are `daily` (`NDAYS 1`) and `monthly` (`NMONTHS 1`) with `history_frequency: NYEARS 1`, the only
-files the expected outputs and `check_run.py` know (other stream configurations stop the render); with
+files the expected outputs and `check_run.py` know (other stream configurations stop the render); the
+`output.period_outputs` of a run's period (below); with
 `plugins.water_use.nonrenewable_withdrawal` the monthly output contains `OUT_NONREN_DEFICIT` (the routing plugin
 repays the deficit from the baseflow that enters the river, but `OUT_BASEFLOW` keeps it, `rout_run.c`); with the
 land-use plugin, the QC of the vegetation component behind the parameter file (bundle `provenance.yaml`,
@@ -220,7 +233,7 @@ over the steps O3, O5 and O6 of task O). Steps and their state:
 | P1 | climate `esm-picontrol` 1601–1610 for ec-earth3-esm-1-1 (existing producer) | done 2026-10-17 (job 43339587, 70 files passed, commit `bb8cd76`); the other years in P5 |
 | P2 | climate producer: spin-up start years copied from the cycle year (`--start-years`, `--cycle-window`), verifier check `start_year` (`workflow/04_forcing/climate/README.md`); start year 1591 of the natural-run spin-up | code `a86aaf9`; code-equivalence entry `start-years-climate` (user, 2026-10-20); start year 1591 added to the units (user, 2026-10-20) |
 | P3a | renderer: climate start years in the cycle rule, spin-up output (`output.spinup`), no run check for spin-ups | code `e3ec0f3` |
-| P3b | production spin-ups: continuation blocks (run ID `<segment-id>__block-<n>`, user 2026-10-17), convergence test of D19 (rules: user, 2026-10-22), warm start from a chunked run | code `30d4ff6`; tried on the natural-run spin-up (not converged after 10 years, as expected). Open: one climate window per spin-up chain (D19 amendment of 2026-10-22: `2021soc` cycles 1800–1849) |
+| P3b | production spin-ups: continuation blocks (run ID `<segment-id>__block-<n>`, user 2026-10-17), convergence test of D19 (rules: user, 2026-10-22), warm start from a chunked run | code `30d4ff6`; tried on the natural-run spin-up (not converged after 10 years, as expected). One climate window per spin-up chain (D19 amendment of 2026-10-22: `2021soc` cycles 1800–1849): done in task S |
 | P4 | natural-run spin-up of task L: campaign `natural-spinup` (1591–1600, cycle 1601–1610, `1850soc` land use, routing and land use only) | done 2026-10-22 (job 43374681, 8.2 h, 45 min per model year; renderer fix `9bdd46a`); its end state starts the natural run of task Q |
 | P5 | climate for the production campaign of D02 (released by the user in batches, 2026-10-22 and 2026-10-25): `esm-picontrol` 1611–1650, start years 1551 and 1576, 1800–1849, 1651–1799, 1850–2100; `esm-scen7-vl` and `esm-scen7-h` 2022–2100 | `esm-picontrol` 1551–1849 and both futures passed (jobs 43423709, 43424190, 43424270, 43427422, 43426662, 43431185); lwdown range of the verifier raised to 650 W m-2 (`20a59d4`, code-equivalence entry `lwdown-range-climate`); `esm-picontrol` 1850–2100 running (job 43440164, 2026-10-28) |
 
@@ -233,6 +246,13 @@ water equivalent; the annual values are formed by the convergence test. The rend
 (VIC would drop it with a warning only). A campaign of spin-ups alone needs no ISIMIP output selection; the protocol
 coverage and stream checks apply to the other runs. `submit_run.py` submits no run check (`check_run.py` reads the daily
 and monthly ISIMIP outputs) after a spin-up but the convergence test (below).
+
+**Climate window per chain (D19 amendment 2026-10-22, task S).** `spinup.climate_cycle` is one window `[first, last]`
+for every spin-up chain (campaign `natural-spinup`: `[1601, 1610]`) or a map spin-up DHF scenario → window (production:
+`1850soc: [1601, 1650]`, `2021soc: [1800, 1849]`); a map must name exactly the DHF scenarios of the campaign's spin-ups
+(`resolve_campaign.climate_window`, `check_climate_windows`), and the renderer links the climate of a spin-up run with
+the window of its scenario. With the window 1800–1849 the `2021soc` blocks 1800–1849 and 1825–1849 link every year to
+the `picontrol` year of the same number (identity), so no climate start years are needed (D20 amendment 2026-10-22).
 
 **Spin-up blocks (D19 spin-up rule 3, D20 decision 3; campaigns without a restriction).** The campaign sets
 `spinup.length_years` (first block, e.g. 50), `spinup.block_years` (continuation blocks, e.g. 25) and
@@ -257,6 +277,44 @@ never below 1 mm in those 10 years; they stand in for the glacier cells of D18),
 standard deviation of the detrended values. Results in `qc/runs/<campaign>/<run-id>/` (`summary.json`,
 `reports/convergence.json`, `reports/convergence_annual.csv`, `figures/convergence_{global,basins}.png`); from a
 repository that is not clean they go to `scratch/spinup-check/uncommitted/` and the block has no test.
+
+**Outputs by period (D03 decision 2, task S).** `output.period_outputs` (`{stream: {period: [OUTVAR]}}`) adds VIC
+outputs to a stream of the runs of the named periods only (`pre-industrial`, `historical`, `future`; spin-ups write
+`output.spinup` only). The production campaign adds `OUT_SOIL_MOIST`, `OUT_EVAP` and `OUT_WITHDRAWN` to the daily stream
+of the historical and future segments (1850–2100, every climate scenario, `picontrol` included); the pre-industrial
+segment writes daily only `qtot` and `dis` (`OUT_RUNOFF`, `OUT_BASEFLOW`, `OUT_DISCHARGE`), and the monthly stream is
+the same in every period. The file names and the expected outputs do not change; `run_manifest.py complete` checks
+every OUTVAR of the run's VIC file in its stream. The renderer stops when a stream is not one of `output.streams`, a
+period is unknown, a list is empty or a variable belongs to a plugin that is off.
+
+## Production campaign (task S)
+
+Classification: workflow (user, 2026-10-28). Campaign `water-global-ec-earth3-esm-1-1`
+(`configs/campaigns/water-global-ec-earth3-esm-1-1.yaml`, `production: true`): D02 scope, every `water_global`
+experiment except the two `extrasoc` ones (D06), 16 experiments, 22 segments, 2408 model years with the two 50-year
+spin-ups; `run_order: longest-chain-then-priority`; both spin-ups cold starts (user, 2026-10-28), 25-year continuation
+blocks up to 8 blocks, climate window per chain; routing, irrigation, dams, water use with non-renewable withdrawal
+(user, 2026-10-28: without it the groundwater demand cannot be met; no limit on the deficit) and land use; output as
+D03 with `OUT_NONREN_DEFICIT` monthly, also in the spin-ups (not part of the convergence test). Dry run of the resolver
+(2026-10-28; nothing rendered, nothing submitted):
+
+```bash
+python3 workflow/05_simulation/render/resolve_campaign.py --campaign configs/campaigns/water-global-ec-earth3-esm-1-1.yaml
+```
+
+The render stops until the build is promoted to the production build (`build/promote_build.py`, D01 amendment
+2026-10-28) and the production parameter set exists: `parameters/production/vic-global-5arcmin-version-a/` with the
+D19 dam files `dams/vic_global_5min_dam_parameters_isimip4b_{histsoc,1850soc,2021soc}.nc` of task L. The rebuilt FILE
+decomposition of D19 has no producer yet; the campaign names the adopted decomposition file until it exists.
+`configs/resources/vic-global-5arcmin.yaml` still plans 3.0 h per model year (D02 measured 1.14 h, about 1.4 h with the
+D03 daily outputs); it is not changed by task S.
+
+| Step | Content | State |
+|---|---|---|
+| S1 | one climate window per spin-up chain (resolver, renderer) | done |
+| S2 | outputs by period (`output.period_outputs`, D03) | done |
+| S3 | production campaign file, run order, resolver dry run | done (not rendered) |
+| S4 | production build: `build/promote_build.py`, production campaigns need `build_kind: production` | code done; the promotion of `builds/vic/39e21ff5…/` waits for the user's authorisation |
 
 ## Natural run (task Q)
 
@@ -332,7 +390,8 @@ catchment of at least 10 000 km2; daily series of the same dates are drawn for v
 | `attempts[]` | `chunk` (chunked runs), `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches, `parent_state`, for a later chunk `chunk_state`: the previous chunk's end state and its sha256), `output_variables` (per stream: requested OUTVARs and the missing ones), `started_at`, `ended_at`, `vic_exit_code`, `scheduler` (sacct rows: state, exit code, elapsed, MaxRSS, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `status`, `failure_reason` |
 
 Tests: `tests/unit/test_simulation_resolve.py`, `tests/unit/test_simulation_render.py`,
-`tests/unit/test_simulation_submit.py`, `tests/unit/test_run_check_water_use.py`.
+`tests/unit/test_simulation_submit.py`, `tests/unit/test_run_check_water_use.py`,
+`tests/unit/test_simulation_promote_build.py`.
 
 ## Allowed content
 

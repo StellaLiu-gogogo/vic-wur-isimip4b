@@ -266,5 +266,103 @@ class ProtocolCommitTest(unittest.TestCase):
                 rc.resolve(campaign(), self.snapshot(d, None))
 
 
+class ClimateWindowTest(unittest.TestCase):
+    """spinup.climate_cycle: one window for every spin-up chain, or one per spin-up DHF scenario (D19 amendment
+    2026-10-22: 1850soc 1601-1650, 2021soc 1800-1849)."""
+
+    def test_one_window_for_every_chain(self):
+        spin = {'climate_cycle': [1601, 1610]}
+        self.assertEqual(rc.climate_window(spin, '1850soc'), [1601, 1610])
+        self.assertEqual(rc.climate_window(spin, '2021soc'), [1601, 1610])
+
+    def test_window_per_chain(self):
+        spin = {'climate_cycle': {'1850soc': [1601, 1650], '2021soc': [1800, 1849]}}
+        self.assertEqual(rc.climate_window(spin, '1850soc'), [1601, 1650])
+        self.assertEqual(rc.climate_window(spin, '2021soc'), [1800, 1849])
+        with self.assertRaisesRegex(rc.CampaignError, 'spinup.climate_cycle.histsoc'):
+            rc.climate_window(spin, 'histsoc')
+
+    def test_bad_windows_stop(self):
+        for w in (None, [1601], [1650, 1601], ['1601', '1650'], {'1850soc': None}):
+            with self.assertRaises(rc.CampaignError):
+                rc.climate_window({'climate_cycle': w}, '1850soc')
+
+    def test_map_must_name_the_spinup_scenarios(self):
+        segs = {'a': rc.Segment(G, 'picontrol', '1850soc', 'default', 'spinup', 1551, 1600),
+                'b': rc.Segment(G, 'picontrol', '2021soc', 'default', 'spinup', 1800, 1849),
+                'c': rc.Segment(G, 'picontrol', '1850soc', 'default', 'pre-industrial', 1601, 1849)}
+        rc.check_climate_windows({'climate_cycle': {'1850soc': [1601, 1650], '2021soc': [1800, 1849]}}, segs)
+        rc.check_climate_windows({'climate_cycle': [1601, 1650]}, segs)
+        with self.assertRaisesRegex(rc.CampaignError, 'spin-ups have'):
+            rc.check_climate_windows({'climate_cycle': {'1850soc': [1601, 1650]}}, segs)
+        with self.assertRaisesRegex(rc.CampaignError, 'spin-ups have'):
+            rc.check_climate_windows({'climate_cycle': {'1850soc': [1601, 1650], '2021soc': [1800, 1849],
+                                                        'histsoc': [1601, 1650]}}, segs)
+
+
+EXTRASOC = [{'experiment': 'vl_ssp1vlsoc-noadapt_extrasoc', 'reason': 'D06 open'},
+            {'experiment': 'h_ssp3hsoc-noadapt_extrasoc', 'reason': 'D06 open'}]
+
+
+@unittest.skipUnless(os.path.isdir(PROTOCOL), 'pinned protocol not available ($ISIMIP4B_WORKDIR)')
+class RunOrderTest(unittest.TestCase):
+    """run_order longest-chain-then-priority (D02 decision 3) on the D02 scope: 16 experiments, 22 segments."""
+
+    def resolve(self, **kw):
+        return rc.resolve(campaign(exclusions=EXTRASOC, spinup={'length_years': 50}, **kw), PROTOCOL)[0]
+
+    def test_scope_of_d02(self):
+        segs = self.resolve()
+        self.assertEqual(len(segs), 22)
+        self.assertEqual(sum(s.end_year - s.start_year + 1 for s in segs.values()), 2408)
+
+    def test_order(self):
+        segs = self.resolve(run_order='longest-chain-then-priority')
+        order = [k[len(G) + 1:] for k in segs]
+        # the longest chain (550 model years) first; the histsoc historical segment wins the tie of the four
+        # historical children of the pre-industrial segment by priority, h before vl by segment ID
+        self.assertEqual(order[:4], ['picontrol_1850soc_default_spinup', 'picontrol_1850soc_default_pre-industrial',
+                                     'historical_histsoc_default_historical', 'h_2021soc-from-histsoc_default_future'])
+        exps = {e['specifier']: e['priority'] for e in rc.load_protocol(PROTOCOL, 'ISIMIP4b')[0]}
+        rank = [min(rc.PRIORITY_RANK[exps[e]] for e in s.experiments) for s in segs.values()]
+        # after the longest chain, every 1st-priority segment comes before every 2nd-priority-only segment
+        self.assertEqual(rank[4:], sorted(rank[4:]))
+        self.assertEqual(sum(r == 2 for r in rank), 5)                  # the 1850soc historical and future segments
+        self.assertEqual(order[4], 'picontrol_2021soc_default_spinup')   # the longest 1st-priority chain left
+        pos = {k: i for i, k in enumerate(segs)}
+        for k, s in segs.items():
+            if s.parent:
+                self.assertLess(pos[s.parent], pos[k])
+        self.assertEqual(set(segs), set(self.resolve()))                  # the order changes nothing else
+
+    def test_production_campaign_file(self):
+        # configs/campaigns/water-global-ec-earth3-esm-1-1.yaml: the D02 scope in the D02 order, one window per chain
+        c = rc.load_campaign(os.path.join(HERE, '..', '..', 'configs', 'campaigns', 'water-global-ec-earth3-esm-1-1.yaml'))
+        segs, chains = rc.resolve(c, PROTOCOL)
+        self.assertEqual((len(chains), len(segs)), (16, 22))
+        self.assertEqual(sum(s.end_year - s.start_year + 1 for s in segs.values()), 2408)
+        self.assertEqual(list(segs), list(self.resolve(run_order='longest-chain-then-priority')))
+        self.assertEqual([rc.climate_window(c['spinup'], soc) for soc in ('1850soc', '2021soc')],
+                         [[1601, 1650], [1800, 1849]])
+        self.assertEqual([(r['start_year'], r['end_year']) for r in rc.runs(c, segs)][:2], [(1551, 1600), (1601, 1849)])
+
+    def test_unknown_order_stops(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, 'x.yaml')
+            with open(p, 'w') as fh:
+                import yaml
+                c = campaign(campaign_id='x', run_order='priority')
+                c.update({k: {} for k in rc.CAMPAIGN_REQUIRED if k not in c})
+                c['production'] = True
+                yaml.safe_dump(c, fh)
+            with self.assertRaisesRegex(rc.CampaignError, 'run_order'):
+                rc.load_campaign(p)
+
+    def test_order_needs_spinup_length(self):
+        with self.assertRaisesRegex(rc.CampaignError, 'spinup.length_years'):
+            rc.resolve(campaign(exclusions=EXTRASOC, spinup={'length_years': None},
+                                run_order='longest-chain-then-priority'), PROTOCOL)
+
+
 if __name__ == '__main__':
     unittest.main()

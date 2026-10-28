@@ -17,7 +17,7 @@ A campaign definition does not list segments. The workflow derives segments, the
 
 Each production campaign must be self-contained enough to review without relying on hidden scientific defaults.
 
-Keys of a campaign file (checked by `workflow/05_simulation/render/resolve_campaign.py`; `configs/campaigns/smoke.yaml` is an example):
+Keys of a campaign file (checked by `workflow/05_simulation/render/resolve_campaign.py`; `configs/campaigns/smoke.yaml` is an example, `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml` the production campaign of D02):
 
 | Key | Content |
 |---|---|
@@ -31,11 +31,12 @@ Keys of a campaign file (checked by `workflow/05_simulation/render/resolve_campa
 | `exclusions` | list of `{experiment, reason}` |
 | `sensitivity_equivalence` | sens scenario → `{same_as, reason}` (e.g. `2021co2` → `default`) |
 | `restriction` | non-production only: `periods` and `runs: {<label>: {years: [start, end]}}`; a run may set `chunk_years` (test of chunked runs, campaign `chunk-test`) |
+| `run_order` | optional: `longest-chain-then-priority` renders and submits the segments of the longest chain first, then by protocol priority (D02 decision 3; `workflow/05_simulation/README.md`, "Run order"); absent: spin-ups, pre-industrial, historical, future |
 | `initialisation` | `without_parent`: `cold_start` (no INIT_STATE) or `state_of_run` (the end state of an earlier, completed run: `state_of_run` with `run_dir` under `runs/`, `state` inside it, and `reason`); `state_at_end` |
-| `spinup` | `length_years` (first block) and `climate_cycle` `[first, last]` (null when the campaign simulates no spin-up); for a campaign without a restriction also `block_years` (continuation blocks) and `max_blocks` (D19, D20; `workflow/05_simulation/README.md`, "Spin-up blocks") |
+| `spinup` | `length_years` (first block) and `climate_cycle`: `[first, last]` for every spin-up chain, or a map spin-up DHF scenario → `[first, last]` naming exactly the scenarios of the campaign's spin-ups (D19 amendment 2026-10-22; null when the campaign simulates no spin-up); for a campaign without a restriction also `block_years` (continuation blocks) and `max_blocks` (D19, D20; `workflow/05_simulation/README.md`, "Spin-up blocks") |
 | `dhf_forcing` | `units` (segment soc scenario → land-use and water-use unit) and `constant` (scenarios constant in time) |
 | `plugins` | switches and settings of routing, irrigation, dams (operation constants), water use (sectors, withdrawal options, `nonrenewable_limit_mm`: limit of the non-renewable deficit in mm, null for none), land use, EFR, WOFOST |
-| `output` | format, compression, file frequency, streams, aggregation overrides, `isimip` (protocol variable → VIC outputs, frequency, streams, rule), `diagnostics`, `not_provided` (with reasons; together with `isimip` it must cover every protocol variable of the sector; not needed by a campaign of spin-ups alone), `spinup` (`monthly`: the VIC outputs a spin-up writes, D19; required when the campaign renders a spin-up) |
+| `output` | format, compression, file frequency, streams, aggregation overrides, `isimip` (protocol variable → VIC outputs, frequency, streams, rule), `diagnostics`, `not_provided` (with reasons; together with `isimip` it must cover every protocol variable of the sector; not needed by a campaign of spin-ups alone), `spinup` (`monthly`: the VIC outputs a spin-up writes, D19; required when the campaign renders a spin-up), `period_outputs` (`{stream: {period: [VIC outputs]}}`: outputs added to a stream only in the runs of the named periods `pre-industrial`, `historical`, `future`, e.g. the D03 daily outputs of the historical and future segments) |
 | `resources` | path of the resource file |
 | `open_decisions` | the open decisions the campaign runs under |
 

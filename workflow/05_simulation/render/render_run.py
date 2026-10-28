@@ -3,7 +3,8 @@
 
 For each run (resolve_campaign.py) the renderer
   1. checks the model build (builds/vic/<commit>/build_manifest.json: commit of the campaign and of
-     model/vic.lock.yaml, build status, runtime modules equal to the resources; the executable sha256 is recorded
+     model/vic.lock.yaml, build status, runtime modules equal to the resources, build_kind production for a
+     production campaign; the executable sha256 is recorded
      here and checked by the job), the parameter files (present, md5 recorded in manifests/parameters/<set>.yaml;
      the md5 is checked by the job) and every forcing unit it reads (accepted: code_dirty false and qc.status
      passed; made on the campaign's domain and, for climate, elevation);
@@ -113,6 +114,10 @@ def check_build(W, campaign, resources):
                           f'{bm["runtime_modules"]}')
     if campaign.get('production') and lock.get('freeze_status') != 'frozen':
         raise RenderError('a production campaign needs a frozen model lock (D01)')
+    if campaign.get('production') and bm.get('build_kind') != 'production':
+        raise RenderError(f'a production campaign needs a production build; {bdir} is a {bm.get("build_kind")} build '
+                          '(build/README.md: build_vic.sh with a frozen lock, or promote_build.py, D01 amendment '
+                          '2026-10-28)')
     return {'commit': commit, 'freeze_status': lock.get('freeze_status'), 'build': os.path.relpath(bdir, W),
             'build_status': bm['status'], 'build_kind': bm.get('build_kind'),
             'executable': os.path.relpath(exe, W), 'executable_sha256': bm['executable']['sha256'],
@@ -282,9 +287,11 @@ def forcing_plan(W, campaign, run, alias):
         rel = f'climate/{gcm}/{climate_alias}/{var}'
         pat = f'{var}_{gcm}_{climate_alias}_' + '{year}.nc'
         if spinup:
-            win = (campaign.get('spinup') or {}).get('climate_cycle')
-            if not win:
-                raise RenderError(f'{run["run_id"]}: a spin-up needs the campaign key spinup.climate_cycle')
+            # the window of the run's spin-up chain (D19 amendment 2026-10-22: one window per spin-up DHF scenario)
+            try:
+                win = rc.climate_window(campaign.get('spinup'), seg['soc'])
+            except rc.CampaignError as e:
+                raise RenderError(f'{run["run_id"]}: {e}')
             # a start year of the unit made for this window is used as itself (D20, forcing_years.map_cycle)
             add_unit(rel, f'climate/{var}', f'climate/{var}', pat, lambda uy, pv, w=win: fy.map_cycle(
                 years, w, uy, pv.get('start_years'), pv.get('cycle_windows')))
@@ -558,20 +565,52 @@ def spinup_output(campaign, run_id):
     return {s: list(dict.fromkeys(o[s])) for s in SPINUP_STREAMS}
 
 
-def output_streams(campaign, result_dir, spinup_run=None):
+# Outputs that depend on the period of the segment (D03 decision 2): output.period_outputs {stream: {period: [OUTVAR]}}
+# adds VIC outputs to a stream of the runs of these periods only (e.g. daily OUT_SOIL_MOIST, OUT_EVAP, OUT_WITHDRAWN in
+# the historical and future segments); spin-ups write output.spinup only.
+PERIOD_OUTPUT_PERIODS = ('pre-industrial', 'historical', 'future')
+
+
+def period_outputs(campaign):
+    """{stream: {period: [OUTVAR]}} of output.period_outputs ({} when absent); stops when a stream is not one of
+    output.streams, a period is not a reported period, a list is empty, or a variable belongs to a plugin that is off."""
+    o = campaign['output']; po = o.get('period_outputs') or {}
+    out = {}
+    for stream, by_period in po.items():
+        if stream not in o['streams']:
+            raise RenderError(f'output.period_outputs names the stream {stream}, which is not in output.streams '
+                              f'{sorted(o["streams"])}')
+        if not isinstance(by_period, dict) or not by_period:
+            raise RenderError(f'output.period_outputs.{stream} must map periods to VIC outputs')
+        for period, names in by_period.items():
+            if period not in PERIOD_OUTPUT_PERIODS:
+                raise RenderError(f'output.period_outputs.{stream}: {period} is not one of {list(PERIOD_OUTPUT_PERIODS)}')
+            if not (isinstance(names, list) and names and all(isinstance(n, str) for n in names)):
+                raise RenderError(f'output.period_outputs.{stream}.{period} must be a list of VIC outputs')
+            off = [n for plugin, prefixes in PLUGIN_OUTPUTS if not campaign['plugins'][plugin]['enabled']
+                   for n in names if n.startswith(prefixes)]
+            if off:
+                raise RenderError(f'output.period_outputs.{stream}.{period} asks for {sorted(off)} of plugins that are off')
+        out[stream] = {p: list(dict.fromkeys(n)) for p, n in by_period.items()}
+    return out
+
+
+def output_streams(campaign, result_dir, spinup_run=None, period=None):
     """OUTFILE blocks of the VIC file and {stream: frequency}; for a spin-up run (spinup_run: its run ID) the monthly
-    convergence variables of output.spinup only."""
+    convergence variables of output.spinup only; for another run the ISIMIP and diagnostic outputs of every stream and
+    the output.period_outputs of the run's period."""
     o = campaign['output']; agg = o.get('aggregation', {})
     if spinup_run:
         chosen = spinup_output(campaign, spinup_run); freqs = SPINUP_STREAMS
     else:
-        chosen = {}; freqs = o['streams']
+        chosen = {}; freqs = o['streams']; extra = period_outputs(campaign)
         for stream in o['streams']:
             names = []
             for var in o['isimip'].values():
                 if stream in var['streams']:
                     names += [n for n in var['vic'] if n not in names]
             names += [n for n in o.get('diagnostics', {}).get(stream, []) if n not in names]
+            names += [n for n in extra.get(stream, {}).get(period, []) if n not in names]
             chosen[stream] = names
     lines = []
     for stream, names in chosen.items():
@@ -732,6 +771,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         nvars = check_outputs_cover_protocol(campaign, protocol_dir)
         check_output_files(campaign)
     check_nonrenewable_output(campaign)
+    period_outputs(campaign)
     model = check_build(W, campaign, resources)
     params = parameter_files(W, campaign)
     _, _, aliases = rc.load_protocol(protocol_dir, campaign['protocol']['simulation_round'])
@@ -830,7 +870,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         plan = chunk_plan(run['start_year'], run['end_year'], cyears)
         chunked = len(plan) > 1
         spinup = seg['period'] == 'spinup'
-        streams_text, streams = output_streams(campaign, None, run['run_id'] if spinup else None)
+        streams_text, streams = output_streams(campaign, None, run['run_id'] if spinup else None, seg['period'])
         parent_rec = {'segment_id': None if warm or prev_block else parent,
                       **({'protocol_parent_segment': parent} if warm else {}),
                       'init_state': init_state and os.path.relpath(init_state, W),

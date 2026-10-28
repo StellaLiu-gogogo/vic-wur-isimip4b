@@ -10,6 +10,7 @@ read by the run stage and must be rebuilt to reproduce any simulation.
 | File | Role |
 |---|---|
 | `build_vic.sh` | producer: checkout at the locked commit, module setup, `make`, checks, `build_manifest.json` |
+| `promote_build.py` | records an existing candidate build of the frozen commit as the production build, without recompiling (D01 amendment 2026-10-28) |
 
 ## What the script does
 
@@ -68,6 +69,33 @@ files on `/lustre` took 7 minutes on 2026-09-30. If the repository is not
 clean the result stays in scratch with `code_dirty: true` (rule 14): commit
 first, then build, so that the manifest records the workflow commit.
 
+## Promotion of a candidate build (`promote_build.py`)
+
+A candidate build made before the lock was frozen can become the production build of the same commit without
+recompiling, when the user decides so (D01 amendment 2026-10-28 for `39e21ff5`). The script checks that
+`model/vic.lock.yaml` is frozen at the build's commit, that the manifest is a candidate build with status `built` or
+`tested`, not promoted before, whose checkout was at that commit, and that the executable still has the recorded
+sha256 and size. It then
+
+1. keeps the manifest as it was, byte for byte, in `logs/build_manifest.candidate.json` (never overwritten);
+2. rewrites `build_manifest.json` with `build_kind: production`, `model.freeze_status: frozen`, the kept manifest added
+   to `logs`, and a `promotion` record: time, decision, `authorised_by`, reason, `recompiled: false`, from/to kind and
+   freeze status, the lock, the verified executable sha256 and size, the status kept (`built`: the VIC test suite was
+   not run), the kept manifest's sha256, and the workflow commit of the script.
+
+Everything else stays: status, environment, build command, tests and the build's own `workflow` record. The
+executable is not touched, so runs that recorded its sha256 are unaffected. A promotion needs a clean repository
+(rule 14) and the user's authorisation of the file change in `builds/`:
+
+```bash
+export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
+python3 workflow/05_simulation/build/promote_build.py --authorised "user, 2026-10-28" --dry-run   # checks, prints the change
+python3 workflow/05_simulation/build/promote_build.py --authorised "user, 2026-10-28"
+```
+
+`render_run.py` renders a production campaign only with `build_kind: production`. Tests:
+`tests/unit/test_simulation_promote_build.py`.
+
 ## Running the executable
 
 The 2025 bucket installs one library tree per CPU architecture
@@ -85,6 +113,8 @@ of the same library versions. This applies to the Slurm templates of
 D01 is decided (2026-10-28): the lock is frozen at `39e21ff5`, so the script
 now gives a production build. The build of 2026-09-30 in
 `builds/vic/39e21ff5…/` was made from the provisional lock and is a
-candidate build; replacing it with a production build in the same directory
-needs the user's authorisation (`docs/decisions/D01-frozen-model-version.md`).
+candidate build; the user decided that it becomes the production build
+without recompiling (amendment 2026-10-28 of
+`docs/decisions/D01-frozen-model-version.md`), recorded by `promote_build.py`
+after the user's authorisation of the file change.
 D02, D03 and D06 do not affect the build.
