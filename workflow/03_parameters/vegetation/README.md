@@ -99,5 +99,5 @@ files it reads are among them, so the QC has to be run again (`--verify-only`) a
 ## Decisions
 
 D04 items 1–5 apply (item 5: Köppen–Geiger 1991–2020 for the backfill).
-D08: the domain is unchanged. D01 is provisional: the component is a
-candidate and is promoted to `production/` only after D01 is frozen.
+D08: the domain is unchanged. D01 is decided (2026-10-28): the component
+is a candidate until the parameter set is promoted to `production/`.

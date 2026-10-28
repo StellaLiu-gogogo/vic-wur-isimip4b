@@ -62,5 +62,6 @@ overwrites an existing assembled file. Outside scratch it assembles only from an
 
 ## Decisions
 
-D01 is provisional: the file is a candidate. D04 and D08 apply through the vegetation component and the
+D01 is decided (2026-10-28, VIC `39e21ff5` frozen); the file stays a candidate until the parameter set is promoted to
+`production/`. D04 and D08 apply through the vegetation component and the
 domain.

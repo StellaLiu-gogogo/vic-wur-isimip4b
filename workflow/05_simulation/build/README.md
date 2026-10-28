@@ -82,6 +82,9 @@ of the same library versions. This applies to the Slurm templates of
 
 ## Decisions
 
-D01 is open: the lock is provisional, so every build made from it is a
-candidate build identified by its commit; production runs need a frozen
-lock. D02, D03 and D06 are due at this stage and do not affect the build.
+D01 is decided (2026-10-28): the lock is frozen at `39e21ff5`, so the script
+now gives a production build. The build of 2026-09-30 in
+`builds/vic/39e21ff5…/` was made from the provisional lock and is a
+candidate build; replacing it with a production build in the same directory
+needs the user's authorisation (`docs/decisions/D01-frozen-model-version.md`).
+D02, D03 and D06 do not affect the build.

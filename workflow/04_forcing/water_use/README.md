@@ -141,5 +141,5 @@ take seconds.
 
 ## Decisions
 
-D05 (decided 2026-10-02, amended 2026-10-03) is implemented here. D01 (model commit) is provisional; the
-demand unit follows the plugin at the locked commit `39e21ff5` with one model step per day.
+D05 (decided 2026-10-02, amended 2026-10-03) is implemented here. D01 (model commit) is decided: `39e21ff5`
+is frozen (2026-10-28); the demand unit follows the plugin of that commit with one model step per day.

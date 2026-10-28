@@ -8,27 +8,30 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-10-22.
+Last reviewed: 2026-10-28.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
-D01 does not block the climate forcing units of the smoke campaign: the user
-allowed producing the EC-Earth3-ESM-1-1 `esm-hist` 2011–2020 climate units
-as accepted forcing while D01 is open (user, 2026-09-30), and extended this
-to the years 1850–2010 of the same units (user, 2026-10-11; natural run
-1850–2021 of task L for the dam service maps, D19) and to the year 2021
-(user, 2026-10-22; the same natural run, task Q), and to the
-EC-Earth3-ESM-1-1 `esm-picontrol` climate units of the spin-ups with their
-D20 start years (user, 2026-10-17; task P), including the years 1611–1650
-and 1800–1849 (user, 2026-10-22; D19 amendment of 2026-10-22). The same holds
-for the land-use forcing units of all five soc scenarios (`histsoc`,
-`1850soc`, `2021soc`, `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`): they do not
-depend on the VIC commit and may be accepted while D01 is open (user,
-2026-10-01). The water-use forcing units of the same five soc scenarios may
-also be accepted while D01 is open (user, 2026-10-04); their demand unit
-(mm per model step, mm/day with one model step per day) follows the
-`wateruse` plugin at the provisional commit and must be checked again when
-D01 is decided.
+D01 was decided on 2026-10-28: VIC-WUR `39e21ff5`, the provisional commit,
+is frozen ([D01-frozen-model-version.md](D01-frozen-model-version.md)).
+While D01 was open, the user allowed these forcing units to be accepted:
+
+- the EC-Earth3-ESM-1-1 climate units `esm-hist` 2011–2020 (user,
+  2026-09-30), 1850–2010 (user, 2026-10-11; natural run of task L) and 2021
+  (user, 2026-10-22; natural run, task Q);
+- `esm-picontrol` 1601–1610 and the D20 start years (user, 2026-10-17; task P),
+  1611–1650 and 1800–1849 (user, 2026-10-22; D19 amendment of 2026-10-22),
+  and 1651–1799 and 1850–2100 (user, 2026-10-25; task P5);
+- `esm-scen7-vl` and `esm-scen7-h` 2022–2100 (user, 2026-10-25; task P5);
+- the land-use units of all five soc scenarios (`histsoc`, `1850soc`,
+  `2021soc`, `ssp1vlsoc-noadapt`, `ssp3hsoc-noadapt`; user, 2026-10-01): they
+  do not depend on the VIC commit;
+- the water-use units of the same five scenarios (user, 2026-10-04).
+
+All of them stay valid because the frozen commit is the provisional one. The
+water-use demand unit (mm per model step, mm/day with one model step per
+day) follows the `wateruse` plugin of `39e21ff5`, so the check required
+"when D01 is decided" needs no change.
 
 The smoke campaign (`configs/campaigns/smoke.yaml`, non-production, every output a
 candidate) ran on 2026-10-04/05 under the provisional D01 (VIC `39e21ff5`) with
@@ -57,7 +60,7 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 
 | ID | Decision | Due stage | Trigger | Owner | Status |
 |---|---|---|---|---|---|
-| D01 | Which VIC-WUR commit is frozen for production | 03_parameters | | user | open (provisional: branch `fix-restart-luapply-snow-state`, head `39e21ff5` on 2026-09-29, recorded in `model/vic.lock.yaml` with `freeze_status: provisional`) |
+| D01 | Which VIC-WUR commit is frozen for production | 03_parameters | | user | decided 2026-10-28 ([D01-frozen-model-version.md](D01-frozen-model-version.md)): commit `39e21ff5015d01d9bc20407a8f50006831417aff` (branch `fix-restart-luapply-snow-state`, image driver), `freeze_status: frozen` in `model/vic.lock.yaml`; provisional since 2026-09-29 |
 | D02 | Compute scope: which GCMs, experiments, and priorities fit the available compute, and whether to apply for more | 05_simulation | | user | decided 2026-10-22 ([D02-compute-scope.md](D02-compute-scope.md)): EC-Earth3-ESM-1-1 only (UKESM1-3-LL by amendment when its inputs arrive); all experiments except the two `extrasoc` ones (D06); 1st-priority segments first; no resource request to the Anunna admins for now |
 | D03 | Storage plan for 5′ model output: where it lives during a campaign and when it is deleted after postprocessing | 05_simulation | | user | decided 2026-10-22 ([D03-output-storage.md](D03-output-storage.md)): option (a), every run keeps all its 5′ output, nothing deleted after postprocessing; daily `qtot`, `dis` in every reported segment and also `OUT_SOIL_MOIST`, `OUT_EVAP`, `OUT_WITHDRAWN` in the historical and future segments; no rolling climate forcing |
 | D04 | Land use: single-child rule for fallback parents, `rice_rainfed`, ISIMIP paddy area, `*_bf` variables, Köppen period for parameter backfill | 03_parameters | | user | decided 2026-09-30 ([D04-landuse-harmonization.md](D04-landuse-harmonization.md)) |
@@ -83,7 +86,8 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 **D01 — Frozen model version.** Every production build, run, and cache
 records a model commit. Parameter files must match the input format of that
 commit, so the decision is needed before production parameters are
-generated.
+generated. Decided 2026-10-28: the provisional commit `39e21ff5` is frozen; see
+the record.
 
 **D02 — Compute scope.** The model capability audit (legacy audit area,
 `VICWUR_ISIMIP4b_WaterGlobal_model_capability_audit_v2_2026-09-20.md`)

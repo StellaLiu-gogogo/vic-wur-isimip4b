@@ -171,5 +171,5 @@ python3 workflow/04_forcing/climate/submit_climate_forcing.py --gcm ec-earth3-es
 - D16 (decided 2026-10-01, `docs/decisions/D16-lwdown-elevation-correction.md`):
   `lwdown` ratio correction, method 1.1. No unit was produced with 1.0, so
   all seven units are produced with 1.1.
-- D01 (open) does not block the smoke-campaign climate units (user,
-  2026-09-30).
+- D01: decided 2026-10-28 (VIC `39e21ff5` frozen); the units accepted while
+  it was open are listed in `docs/decisions/open-decisions.md`.

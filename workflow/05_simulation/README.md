@@ -42,9 +42,10 @@ workflow/05_simulation/build/build_vic.sh --scratch  # test run under scratch/
 
 It uses the Anunna module bucket `2025` with `netCDF/4.9.3-gompi-2025a`;
 jobs that run the executable must load the same modules (manifest key
-`runtime_modules`). With a provisional lock (D01 open) the result is a
-candidate build; its status is `built` (the VIC test suite cannot run
-here, see `build/README.md`).
+`runtime_modules`). The build of 2026-09-30 was made from the provisional
+lock and is a candidate build; its status is `built` (the VIC test suite
+cannot run here, see `build/README.md`). Since D01 (2026-10-28) the lock is
+frozen and the script gives a production build of the same commit.
 
 ## Configuration
 
@@ -216,11 +217,12 @@ over the steps O3, O5 and O6 of task O). Steps and their state:
 
 | Step | Content | State |
 |---|---|---|
-| P1 | climate `esm-picontrol` 1601–1610 for ec-earth3-esm-1-1 (existing producer) | done 2026-10-17 (job 43339587, 70 files passed, commit `bb8cd76`); 1611–1650 later (D03) |
+| P1 | climate `esm-picontrol` 1601–1610 for ec-earth3-esm-1-1 (existing producer) | done 2026-10-17 (job 43339587, 70 files passed, commit `bb8cd76`); the other years in P5 |
 | P2 | climate producer: spin-up start years copied from the cycle year (`--start-years`, `--cycle-window`), verifier check `start_year` (`workflow/04_forcing/climate/README.md`); start year 1591 of the natural-run spin-up | code `a86aaf9`; code-equivalence entry `start-years-climate` (user, 2026-10-20); start year 1591 added to the units (user, 2026-10-20) |
 | P3a | renderer: climate start years in the cycle rule, spin-up output (`output.spinup`), no run check for spin-ups | code `e3ec0f3` |
-| P3b | production spin-ups: continuation blocks (run ID `<segment-id>__block-<n>`, user 2026-10-17), convergence test of D19 (rules: user, 2026-10-22), warm start from a chunked run | code written |
-| P4 | natural-run spin-up of task L: campaign `natural-spinup` (1591–1600, cycle 1601–1610, `1850soc` land use, routing and land use only) | campaign written; waits for P2 and the land-use start year 1591 (task O, O4) |
+| P3b | production spin-ups: continuation blocks (run ID `<segment-id>__block-<n>`, user 2026-10-17), convergence test of D19 (rules: user, 2026-10-22), warm start from a chunked run | code `30d4ff6`; tried on the natural-run spin-up (not converged after 10 years, as expected). Open: one climate window per spin-up chain (D19 amendment of 2026-10-22: `2021soc` cycles 1800–1849) |
+| P4 | natural-run spin-up of task L: campaign `natural-spinup` (1591–1600, cycle 1601–1610, `1850soc` land use, routing and land use only) | done 2026-10-22 (job 43374681, 8.2 h, 45 min per model year; renderer fix `9bdd46a`); its end state starts the natural run of task Q |
+| P5 | climate for the production campaign of D02 (released by the user in batches, 2026-10-22 and 2026-10-25): `esm-picontrol` 1611–1650, start years 1551 and 1576, 1800–1849, 1651–1799, 1850–2100; `esm-scen7-vl` and `esm-scen7-h` 2022–2100 | `esm-picontrol` 1551–1849 and both futures passed (jobs 43423709, 43424190, 43424270, 43427422, 43426662, 43431185); lwdown range of the verifier raised to 650 W m-2 (`20a59d4`, code-equivalence entry `lwdown-range-climate`); `esm-picontrol` 1850–2100 running (job 43440164, 2026-10-28) |
 
 **Spin-up output (D19 spin-up rule 3, user 2026-10-17).** A spin-up writes only the monthly variables listed under
 `output.spinup.monthly` of the campaign (one file per year, `output/monthly.<year>-01.nc`): the variables of the

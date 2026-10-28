@@ -62,5 +62,5 @@ when the job starts.
 
 ## Decisions
 
-D01 is open (provisional VIC `39e21ff5`): the reader rules checked here are those of that commit. D08 fixes the
+D01 (decided 2026-10-28, VIC `39e21ff5` frozen): the reader rules checked here are those of that commit. D08 fixes the
 domain and its 2 188 551 active cells.

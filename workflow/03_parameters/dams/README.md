@@ -118,5 +118,5 @@ never overwrites its own files.
 
 ## Decisions
 
-D19 (decided 2026-10-11) and the user's choices of 2026-10-11 recorded above. D01 is provisional: the dam files
-follow the reader of VIC `39e21ff5`. D06 (`extrasoc`) is open.
+D19 (decided 2026-10-11) and the user's choices of 2026-10-11 recorded above. D01 is decided (2026-10-28): the dam files
+follow the reader of the frozen VIC `39e21ff5`. D06 (`extrasoc`) is open.
