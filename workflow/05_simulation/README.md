@@ -47,9 +47,10 @@ lock and is a candidate build; its status is `built` (the VIC test suite
 cannot run here, see `build/README.md`). Since D01 (2026-10-28) the lock is
 frozen and the script gives a production build of the same commit. The user
 decided that the existing build, unchanged, becomes the production build
-(D01 amendment 2026-10-28): `build/promote_build.py` checks it and records
-the change in its manifest without recompiling (`build/README.md`). A
-production campaign renders only with a production build.
+(D01 amendment 2026-10-28): `build/promote_build.py` checked it and recorded
+the change in its manifest without recompiling (`build/README.md`); promoted
+on 2026-10-30 with the user's authorisation, from `a6761b7`. A production
+campaign renders only with a production build.
 
 ## Configuration
 
@@ -323,7 +324,7 @@ D03 daily outputs); it is not changed by task S.
 | S1 | one climate window per spin-up chain (resolver, renderer) | done |
 | S2 | outputs by period (`output.period_outputs`, D03) | done |
 | S3 | production campaign file, run order, resolver dry run | done (not rendered) |
-| S4 | production build: `build/promote_build.py`, production campaigns need `build_kind: production` | code done; the promotion of `builds/vic/39e21ff5…/` waits for the user's authorisation |
+| S4 | production build: `build/promote_build.py`, production campaigns need `build_kind: production` | done: `builds/vic/39e21ff5…/` promoted 2026-10-30 (user's authorisation, from `a6761b7`), not recompiled |
 
 ## Natural run (task Q)
 

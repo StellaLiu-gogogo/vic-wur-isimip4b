@@ -116,5 +116,6 @@ now gives a production build. The build of 2026-09-30 in
 candidate build; the user decided that it becomes the production build
 without recompiling (amendment 2026-10-28 of
 `docs/decisions/D01-frozen-model-version.md`), recorded by `promote_build.py`
-after the user's authorisation of the file change.
+after the user's authorisation of the file change: promoted on 2026-10-30
+(from `a6761b7`; the earlier manifest is `logs/build_manifest.candidate.json`).
 D02, D03 and D06 do not affect the build.
