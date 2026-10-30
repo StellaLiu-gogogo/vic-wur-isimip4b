@@ -668,8 +668,8 @@ def end_state_rel(start_year, end_year, chunk_years):
 
 
 def run_resources(run, resources):
-    """Resources of a run: the campaign's resources file with a restriction run's own ntasks, cpus_per_task and mem
-    (resolve_campaign.run_resources_override; non-production tests)."""
+    """Resources of a run: the campaign's resources file with a restriction run's own ntasks, cpus_per_task, mem and
+    exclusive (resolve_campaign.run_resources_override; non-production tests)."""
     return {**resources, **(run.get('resources_override') or {})}
 
 

@@ -71,10 +71,12 @@ restriction:
       years: [2015, 2016]
       resources: {ntasks: 16, cpus_per_task: 8, mem: 500G}
     # added 2026-10-30 (user): ranks8 and ranks16 differ from 2016-01-01 on; same ranks as ranks8, fewer threads,
-    # to see whether the difference comes from the number of ranks or the number of threads
-    ranks8-threads8-2015-2016:
+    # to see whether the difference comes from the number of ranks or the number of threads. On a shared node
+    # (2026-10-31, user): it only compares values, its timing is not comparable; the first submission of it
+    # (ranks8-threads8-2015-2016, exclusive) waited for a whole node and was cancelled before it started.
+    ranks8-threads8-shared-2015-2016:
       years: [2015, 2016]
-      resources: {ntasks: 8, cpus_per_task: 8, mem: 450G}
+      resources: {ntasks: 8, cpus_per_task: 8, mem: 450G, exclusive: false}
 
 initialisation:
   # a run whose parent segment is not simulated in this campaign starts from the parameter file's initial

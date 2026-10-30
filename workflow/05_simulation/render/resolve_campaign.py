@@ -397,14 +397,15 @@ def runs(campaign, segments, label=None):
     return out
 
 
-# Resources a restriction run of a non-production campaign may set for itself (tests of ranks, threads and memory);
-# everything else comes from the campaign's resources file.
-RUN_RESOURCE_KEYS = ('ntasks', 'cpus_per_task', 'mem')
+# Resources a restriction run of a non-production campaign may set for itself (tests of ranks, threads and memory;
+# exclusive false lets a run that only compares values share a node, user 2026-10-31); everything else comes from the
+# campaign's resources file.
+RUN_RESOURCE_KEYS = ('ntasks', 'cpus_per_task', 'mem', 'exclusive')
 
 
 def run_resources_override(label, value):
     """{key: value} of a restriction run's `resources` ({} when absent); stops on another key, a count that is not a
-    positive integer, or a memory that is not like 450G."""
+    positive integer, a memory that is not like 450G, or an exclusive that is not true or false."""
     if value is None:
         return {}
     if not isinstance(value, dict) or not value:
@@ -417,6 +418,8 @@ def run_resources_override(label, value):
             raise CampaignError(f'restriction run {label}: resources.{k} must be a positive integer')
     if 'mem' in value and not re.fullmatch(r'[1-9][0-9]*[MGT]', str(value['mem'])):
         raise CampaignError(f'restriction run {label}: resources.mem must be like 450G')
+    if 'exclusive' in value and not isinstance(value['exclusive'], bool):
+        raise CampaignError(f'restriction run {label}: resources.exclusive must be true or false')
     return dict(value)
 
 

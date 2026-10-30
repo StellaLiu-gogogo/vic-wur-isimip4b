@@ -206,9 +206,10 @@ if __name__ == '__main__':
 
 
 class RunResourcesTest(tsr.RenderHarness):
-    """A restriction run may set its own ntasks, cpus_per_task and mem (task L5: rank tests); nothing else."""
+    """A restriction run may set its own ntasks, cpus_per_task, mem and exclusive (task L5: rank tests); nothing
+    else."""
 
-    def test_resolver_accepts_only_three_keys(self):
+    def test_resolver_accepts_only_four_keys(self):
         import resolve_campaign as rc
         c = tsr.smoke()
         seg = tsr.segment('historical', 'histsoc', 'historical', (1850, 2021), None)
@@ -218,7 +219,10 @@ class RunResourcesTest(tsr.RenderHarness):
         self.assertEqual(run['resources_override'], {'ntasks': 16, 'cpus_per_task': 8, 'mem': '500G'})
         self.assertEqual(rr.run_resources(run, {'ntasks': 8, 'mem': '700G', 'partition': 'main'}),
                          {'ntasks': 16, 'cpus_per_task': 8, 'mem': '500G', 'partition': 'main'})
-        for bad in ({'partition': 'x'}, {'ntasks': 0}, {'ntasks': True}, {'mem': '500'}, {}):
+        c['restriction']['runs']['smoke2015']['resources'] = {'ntasks': 8, 'cpus_per_task': 8, 'exclusive': False}
+        run = rc.runs(c, {HIST: seg}, 'smoke2015')[0]
+        self.assertFalse(rr.run_resources(run, {'ntasks': 8, 'exclusive': True})['exclusive'])
+        for bad in ({'partition': 'x'}, {'ntasks': 0}, {'ntasks': True}, {'mem': '500'}, {'exclusive': 'no'}, {}):
             c['restriction']['runs']['smoke2015']['resources'] = bad
             with self.subTest(bad=bad), self.assertRaises(rc.CampaignError):
                 rc.runs(c, {HIST: seg}, 'smoke2015')
