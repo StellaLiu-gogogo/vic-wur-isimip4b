@@ -1,15 +1,16 @@
 # Campaign `dam-test`: test of the D19 dam files and of the FILE decomposition built for them (task L5,
 # non-production). The historical segment of h_ssp3hsoc-noadapt_default restricted to 2015-2016 from a cold start
-# (dams register 2015 as their first year of history and operate in 2016), twice with the same configuration and
-# different MPI ranks, threads and memory, to see whether the dams and the water-use links work with the new files
+# (dams register 2015 as their first year of history and operate in 2016), three times with the same configuration
+# and different MPI ranks, threads and memory, to see whether the dams and the water-use links work with the new files
 # and how the run speed and memory change with the number of ranks. Everything else as campaign smoke
 # (nonrenewable withdrawal off, user 2026-10-30), so that 2016 can be compared with the smoke run of 2011-2020.
 campaign_id: dam-test
 production: false
 description: >-
   Test of the D19 dam files (dams_isimip4b) and the decomposition decomposition_isimip4b: the historical segment of
-  h_ssp3hsoc-noadapt_default restricted to 2015-2016, cold start, with 8 ranks x 16 threads and with 16 ranks x 8
-  threads, each with the memory it needs only. Every output is a candidate; the outputs only serve the test.
+  h_ssp3hsoc-noadapt_default restricted to 2015-2016, cold start, with 8 ranks x 16 threads, 16 ranks x 8 threads
+  and 8 ranks x 8 threads, each with the memory it needs only. Every output is a candidate; the outputs only serve
+  the test.
 
 model:
   lock: model/vic.lock.yaml
@@ -56,7 +57,7 @@ sensitivity_equivalence:
     same_as: default
     reason: VIC-WUR has no CO2-dependent process (docs/glossary.md, sensitivity scenario)
 
-# Non-production restriction: the two runs of the test (run ID <segment-id>__<label>). The memory is what the runs
+# Non-production restriction: the runs of the test (run ID <segment-id>__<label>). The memory is what the runs
 # need only (user, 2026-10-30): the smoke run of 2011-2020 with 8 ranks used 394 GB in all (rank 0 72.5 GB, the
 # others 46 GB on average, Slurm MaxRSS/AveRSS of job 43023368); most of a rank's memory goes with its cells, so 16
 # ranks are expected to need about the same.
@@ -69,6 +70,11 @@ restriction:
     ranks16-2015-2016:
       years: [2015, 2016]
       resources: {ntasks: 16, cpus_per_task: 8, mem: 500G}
+    # added 2026-10-30 (user): ranks8 and ranks16 differ from 2016-01-01 on; same ranks as ranks8, fewer threads,
+    # to see whether the difference comes from the number of ranks or the number of threads
+    ranks8-threads8-2015-2016:
+      years: [2015, 2016]
+      resources: {ntasks: 8, cpus_per_task: 8, mem: 450G}
 
 initialisation:
   # a run whose parent segment is not simulated in this campaign starts from the parameter file's initial
