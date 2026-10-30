@@ -331,6 +331,83 @@ components:
       deleted from the set the same day with the user's approval, before any
       run used it.
     qc_status: not_checked
+
+  dams_isimip4b:
+    component: dams
+    description: >-
+      Dam plugin parameters (DAMS_PARAMETERS) of D19, one file per DHF
+      scenario (histsoc, 1850soc, 2021soc), identical except for year: the
+      7 331 ISIMIP4b histsoc dams located with GDW v1.0 (7 285 dams after
+      one-dam-per-cell merges and one dam outside the domain) plus 717 SSP
+      future river-power dams, 8 002 dams in all, snapped on the routing of
+      this set; 1 557 local and 6 445 global; service maps traced on the mean
+      monthly discharge 1992-2021 of the natural run (5 368 dams with a
+      service map, 108 461 service cells; Nservice 0 for 2 634 dams: global
+      dams without a supply purpose and every SSP future dam). year: histsoc
+      the ISIMIP YEAR, SSP future dams 9999; 1850soc 0 for YEAR <= 1850, else
+      9999; 2021soc 0 for historical dams, 9999 for future dams. The dam list
+      and the source table record every dam and every source record.
+      Generated, not adopted.
+    generated_by: workflow/03_parameters/dams/build_dams.py
+    method_version: "1.0"
+    code_commit: c327675bd6f3c5a68cfe9735b5ff8eacdc123765
+    created_at: 2026-10-30T11:26:36Z
+    sources:
+      isimip4b_dams: raw/ISIMIP4b/InputData/socioeconomic/reservoirs_dams/{histsoc/reservoirs-dams_1850_2021.xlsx,ssp1vlsoc-noadapt,ssp3hsoc-noadapt} (manifests/inputs/isimip4b-dkrz-2026-09-21/MD5SUMS)
+      gdw: raw/external/global-dam-watch/1.0/GDW_v1_0_shp/GDW_barriers_v1_0.* (manifests/inputs/global-dam-watch.yaml)
+      domain: domain/vic_global_5min_domain_nogl.nc
+      routing: routing/vic_global_5min_routing.nc
+      discharge_run: runs/natural-run/ec-earth3-esm-1-1_historical_histsoc_default_historical__natural1850-2021 (routing and landuse only; monthly OUT_DISCHARGE 1992-2021)
+      decisions: workflow/03_parameters/dams/dam_decisions.yaml
+    files:
+      - path: dams/vic_global_5min_dam_parameters_isimip4b_histsoc.nc
+        size_bytes: 5355128
+        md5: cd6fea510880fe60b6622c785b176980
+        sha256: 9ca0b5153583983147214b1a633a0834c9b71515fe8d6b2600af85bf360481ee
+      - path: dams/vic_global_5min_dam_parameters_isimip4b_1850soc.nc
+        size_bytes: 5349825
+        md5: 14149f5b69a54034e3494ebe5bb3683b
+        sha256: 2b8f014ed19415d275c66340c043e36fbe3faeb016491ea912090993d7283967
+      - path: dams/vic_global_5min_dam_parameters_isimip4b_2021soc.nc
+        size_bytes: 5348859
+        md5: 8d4b7f2a72362cac25b60af765904716
+        sha256: 564c44f6d472b1e5674e8950ac59f9ebe6443255f6baafcd187c4933adea042b
+      - path: dams/dam_list_isimip4b.csv
+        size_bytes: 2839690
+        md5: fdc0d445e6dc693d001c5f26b4eca056
+        sha256: 3e4b751666fd85340b55b821929f656fa82bafcba72f36f2262619c278fa10f7
+      - path: dams/dam_sources_isimip4b.csv
+        size_bytes: 1518067
+        md5: ec8137b466056828a5be21f858b9dbe2
+        sha256: b281d8edb1aac7572b86c7611ecaed47fce53d4dc3da031f9a6f5765d0186d70
+      - path: dams/review_pairs.csv
+        size_bytes: 25423
+        md5: 3a7f2cb2bf77a5a0bb2c70b4539df260
+        sha256: 8302c7c0cdcbce6cfadea78ed4970752cbc9e21f1d2e608d2c369c60ac4169bb
+      - path: dams/mean_discharge_natural.nc
+        size_bytes: 7768694
+        md5: bc13cc1e09c09036231a95d573cdea0a
+        sha256: 561ec3eb15f8568d5ca625f4b5eec2ffa31438f3a1b54811ad56daa005b72e22
+      - path: dams/provenance.yaml
+    provenance: dams/provenance.yaml
+    slurm_job: logs/03_parameters/dam-component-vic-global-5arcmin-version-a_43519958
+    verification: >-
+      verify_dams.py (2026-10-30), 9 checks passed: variables, dimensions and
+      dtypes the reader of VIC 39e21ff5 expects; the three files hold the
+      same dams (id, type, cell, capacity, service map) and differ only in
+      year as the D19 rules give; one dam per active cell; local and global
+      types from catchment and cell area; each service map retraced from the
+      mean discharge; the review choices recomputed from their evidence; the
+      dam list matches the files; the capacities and dams of the sources are
+      accounted for. A scratch build from the same inputs (job 43518394)
+      gave byte-identical tables.
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-a/dams
+    notes: >-
+      Candidate under D01 (frozen 2026-10-28). The decomposition file of the
+      set (routing, entry decomposition) was built for T3_extended; whether
+      it keeps every service link of these files is checked with the new
+      decomposition (task L3). Files for extrasoc wait for D06.
   water_use:
     description: >-
       Water-use plugin parameters (WATERUSE_PARAMETERS), receiving network:
