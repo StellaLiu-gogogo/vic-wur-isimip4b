@@ -128,14 +128,28 @@ def load_decisions(path=DECISIONS):
     return d
 
 
+def run_config(run):
+    """resolved.yaml of a run: config/ of the run, or of its first chunk for a chunked run (chunks/<start>-<end>/)."""
+    p = f'{run}/config/resolved.yaml'
+    if not os.path.exists(p):
+        chunks = sorted(glob.glob(f'{run}/chunks/*/config/resolved.yaml'))
+        if not chunks:
+            raise SystemExit(f'{run}: no config/resolved.yaml in the run or its chunks')
+        p = chunks[0]
+    with open(p) as fh:
+        return yaml.safe_load(fh) or {}
+
+
 def natural_run(W, run_rel, years, require_natural):
-    """Monthly discharge files of a completed run for `years` and its identity."""
+    """Monthly discharge files of a completed run for `years` and its identity; with require_natural the run must
+    have irrigation, dams and water use switched off (read from its resolved configuration)."""
     run = f'{W}/{run_rel}'
     man = json.load(open(f'{run}/run_manifest.json'))
     if man.get('status') != 'completed':
         raise SystemExit(f'{run_rel}: run status {man.get("status")}, not completed')
-    res = yaml.safe_load(open(f'{run}/config/resolved.yaml')) if os.path.exists(f'{run}/config/resolved.yaml') else {}
-    plugins = (res.get('campaign') or {}).get('plugins') or {}
+    plugins = (run_config(run).get('campaign') or {}).get('plugins') or {}
+    if require_natural and not plugins:
+        raise SystemExit(f'{run_rel}: its resolved configuration names no plugins')
     on = [p for p in NATURAL_OFF if (plugins.get(p) or {}).get('enabled')]
     if require_natural and on:
         raise SystemExit(f'{run_rel}: not a natural run ({", ".join(on)} switched on)')

@@ -324,5 +324,40 @@ class TestReviewRules(unittest.TestCase):
         self.assertEqual(dg.location_fit(g, 1.0, 2.0, np.nan), np.inf)
 
 
+class NaturalRunTest(unittest.TestCase):
+    """build_dams.natural_run on a chunked run: the plugin switches come from the first chunk's resolved.yaml (a
+    chunked run has no config/ of its own) and the monthly files from the chunk that holds each year."""
+
+    def make(self, W, irrigation):
+        import json, yaml
+        run = f'{W}/runs/natural-run/r'
+        for c, years in (('1990-2009', range(1990, 2010)), ('2010-2021', range(2010, 2022))):
+            os.makedirs(f'{run}/chunks/{c}/config'); os.makedirs(f'{run}/chunks/{c}/output')
+            with open(f'{run}/chunks/{c}/config/resolved.yaml', 'w') as fh:
+                yaml.safe_dump({'campaign': {'plugins': {'routing': {'enabled': True}, 'landuse': {'enabled': True},
+                                                         'irrigation': {'enabled': irrigation},
+                                                         'dams': {'enabled': False}, 'water_use': {'enabled': False}}}}, fh)
+            for y in years:
+                open(f'{run}/chunks/{c}/output/monthly.{y}-01.nc', 'w').close()
+        with open(f'{run}/run_manifest.json', 'w') as fh:
+            json.dump({'status': 'completed', 'run_id': 'r', 'campaign_id': 'natural-run'}, fh)
+        return 'runs/natural-run/r'
+
+    def test_chunked_natural_run(self):
+        with tempfile.TemporaryDirectory() as W:
+            rel = self.make(W, irrigation=False)
+            files, info = bd.natural_run(W, rel, [1992, 2021], require_natural=True)
+            self.assertEqual(len(files), 30)
+            self.assertTrue(files[0].endswith('chunks/1990-2009/output/monthly.1992-01.nc'))
+            self.assertTrue(files[-1].endswith('chunks/2010-2021/output/monthly.2021-01.nc'))
+            self.assertCountEqual(info['plugins_on'], ['routing', 'landuse'])
+
+    def test_not_natural_stops(self):
+        with tempfile.TemporaryDirectory() as W:
+            rel = self.make(W, irrigation=True)
+            with self.assertRaises(SystemExit):
+                bd.natural_run(W, rel, [1992, 2021], require_natural=True)
+
+
 if __name__ == '__main__':
     unittest.main()
