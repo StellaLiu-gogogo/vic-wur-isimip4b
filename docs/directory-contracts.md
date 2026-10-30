@@ -1042,6 +1042,12 @@ The first level is therefore one of the workdir top-level directories `raw`,
 `intermediate`, `parameters`, `forcing`, `builds`, `runs`, `postprocessed`, or
 `delivery`.
 
+One exception: the generated FILE decomposition of a parameter set, which lies
+in the `routing` component next to the adopted routing file, is checked in
+`qc/parameters/<status>/<parameter-set-id>/routing/decomposition/`, because
+`qc/parameters/<status>/<parameter-set-id>/routing/` holds the QC of the routing
+file (user, 2026-10-30).
+
 Use explicit statuses including `passed`, `failed`, `warning`, and
 `not_checked`. A path under `qc/` is not proof that checks passed.
 

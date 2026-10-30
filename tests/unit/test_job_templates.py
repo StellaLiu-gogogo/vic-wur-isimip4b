@@ -1,5 +1,5 @@
-"""Unit tests for the Slurm job templates of the producers (03_parameters vegetation, bundle, dams and the adopted
-components' verifiers; 04_forcing climate,
+"""Unit tests for the Slurm job templates of the producers (03_parameters vegetation, bundle, dams, the FILE
+decomposition and the adopted components' verifiers; 04_forcing climate,
 land use and water use): the start of the job, up to the activation of the isimip4b environment, runs under
 `set -euo pipefail` also when conda's activation scripts read variables that are not set (the magics package of the
 environment reads MAGPLUS_HOME), i.e. when the job is submitted from a shell without the environment.
@@ -13,6 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WF = os.path.join(HERE, '..', '..', 'workflow')
 TEMPLATES = ['03_parameters/vegetation/vegetation_component.sbatch', '03_parameters/bundle/bundle.sbatch',
              '03_parameters/dams/dams.sbatch', '03_parameters/domain/adopted_qc.sbatch',
+             '03_parameters/routing/decomposition.sbatch',
              '04_forcing/climate/climate_forcing.sbatch', '04_forcing/landuse/landuse_forcing.sbatch',
              '04_forcing/water_use/water_use_forcing.sbatch']
 CONDA_SH = '''conda() {
