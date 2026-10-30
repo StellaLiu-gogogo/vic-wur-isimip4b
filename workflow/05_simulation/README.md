@@ -309,10 +309,12 @@ D03 with `OUT_NONREN_DEFICIT` monthly, also in the spin-ups (not part of the con
 python3 workflow/05_simulation/render/resolve_campaign.py --campaign configs/campaigns/water-global-ec-earth3-esm-1-1.yaml
 ```
 
-The render stops until the build is promoted to the production build (`build/promote_build.py`, D01 amendment
-2026-10-28) and the production parameter set exists: `parameters/production/vic-global-5arcmin-version-a/` with the
-D19 dam files `dams/vic_global_5min_dam_parameters_isimip4b_{histsoc,1850soc,2021soc}.nc` of task L. The rebuilt FILE
-decomposition of D19 has no producer yet; the campaign names the adopted decomposition file until it exists.
+The render needs the production build and the production parameter set; both exist since 2026-10-30: the build was
+promoted by `build/promote_build.py` (D01 amendment 2026-10-28), and `parameters/production/vic-global-5arcmin-version-a/`
+was promoted by `workflow/03_parameters/promote_parameter_set.py` (task R) with the D19 dam files
+`dams/vic_global_5min_dam_parameters_isimip4b_{histsoc,1850soc,2021soc}.nc` (task L2) and the FILE decomposition
+rebuilt for them, `routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc`
+(`workflow/03_parameters/routing/build_decomposition.py`, task L3), which the campaign names.
 `configs/resources/vic-global-5arcmin.yaml` still plans 3.0 h per model year (D02 measured 1.14 h, about 1.4 h with the
 D03 daily outputs); it is not changed by task S.
 
