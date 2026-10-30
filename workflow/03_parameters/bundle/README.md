@@ -10,7 +10,7 @@ Classification: production workflow code (user, 2026-10-04, task E smoke campaig
 | File | Role |
 |---|---|
 | `assemble_bundle.py` | producer: copies every non-vegetation variable of the natural bundle and every variable of the 16-class vegetation component into one file; writes `bundle/provenance.yaml` |
-| `verify_bundle.py` | independent verification; writes `qc/parameters/<status>/<set>/bundle/{summary.json,reports/verify.json}` and sets `qc.status` in `bundle/provenance.yaml` |
+| `verify_bundle.py` | independent verification; writes `qc/parameters/<status>/<set>/bundle/{summary.json,reports/verify.json,figures/}` and sets `qc.status` in `bundle/provenance.yaml` |
 | `bundle.sbatch` | Slurm template: producer, then verifier, in one job |
 | `submit_bundle.py` | renders and submits the job, job record under `logs/03_parameters/<job-name>_<slurm-job-id>/` |
 
@@ -42,6 +42,28 @@ VIC reads them (VIC checks only order and length, not names); that `run_cell` is
 domain mask; lat/lon equal the domain; vegetation variables bitwise equal to the component and all other
 variables bitwise equal to the natural bundle; `Nveg <= tiles <= Nveg + 1` on every active cell; and that
 `overstory`, stored as double but read by VIC as int, is 0 or 1 on every tile.
+
+Values of the soil and snow-band variables on the active cells (added 2026-10-30, task R; these values come
+bitwise from the natural bundle, so they are the QC of what VIC reads from it):
+
+- `soil` failed when a rule of `vic_init.c` that stops VIC or makes its values invalid is broken: fill or NaN (except in
+  `annual_prec`, which VIC reads but uses in no calculation: its 35 399 fill cells are reported only, user
+  2026-10-30); layer
+  depth below 0.001 m or layer 1 thicker than layer 2; porosity (1 − `bulk_density`/`soil_density`) outside (0, 1);
+  not `Wpwp_FRACT` ≤ `Wcr_FRACT` ≤ `Wfc_FRACT` ≤ 1; wilting point below the residual moisture; for BASEFLOW
+  NIJSSEN2001, `Ws` not below the bottom layer's maximum moisture, converted Ds or Ws outside [0, 1], converted Dsmax
+  or `c` not positive. Warning for implausible values: `Ksat`, `bubble`, `rough`, `snow_rough`, `dp` ≤ 0; `expt` < 3; `quartz` outside [0, 1]; `resid_moist` ≥ porosity; `fs_active` not 0/1; `avg_T` outside
+  −60…40 °C; `infilt` outside (0, 1]; `init_moist` above the maximum moisture. Statistics per variable and layer,
+  the file's gap-fill diagnostics (`gapfill_distance_degrees`, `*_valid_fraction`), `max_moist` (not read by VIC)
+  and the number of cells with `bulk_density` or `soil_density` below 500 kg m⁻³ (VIC also uses both in the soil
+  thermal conductivity) are reported only.
+- `snow_bands` failed when VIC stops: fill or NaN, `AreaFract` < 0 or summing to 0, `Pfactor` < 0 or > 0 on a band
+  without area. Warning when VIC changes values without stopping: `AreaFract` or `Pfactor` not summing to 1 within
+  1e-5 (VIC rescales), or the area-weighted mean band elevation differing from `elev` by more than 1e-5 m (VIC then
+  replaces `elev`, the elevation the climate forcing was downscaled to).
+
+Figures `figures/soil_total_depth.png` and `figures/band_mean_minus_elev.png`. A warning ends the verifier with exit
+status 3 (not an acceptance), as in `workflow/common/qc.py`.
 
 ## Running
 

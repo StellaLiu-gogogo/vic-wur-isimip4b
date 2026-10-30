@@ -1,5 +1,5 @@
 """Unit tests for workflow/03_parameters/bundle/assemble_bundle.py (variable split and bitwise copy on small
-synthetic NetCDF files).
+synthetic NetCDF files) and for the soil and snow-band value checks of verify_bundle.py.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
@@ -119,6 +119,98 @@ class SourcesTest(unittest.TestCase):
             with nc.Dataset(f'{d}/nat.nc') as n:
                 self.assertEqual(ab.source_restrictions(n), {'not_authorized_for_global_production': 'true',
                                                              'product_stage': 'image_driver_smoke_candidate'})
+
+
+VB_SRC = os.path.join(HERE, '..', '..', 'workflow', '03_parameters', 'bundle', 'verify_bundle.py')
+with mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': '/nonexistent'}):
+    spec = importlib.util.spec_from_file_location('verify_bundle', VB_SRC)
+    vb = importlib.util.module_from_spec(spec); spec.loader.exec_module(vb)
+
+
+def soil(n=4):
+    """Valid soil values for n cells (3 layers)."""
+    one = np.ones(n); lay = np.ones((3, n))
+    return {'infilt': 0.2 * one, 'Ds': 0.01 * one, 'Dsmax': 10 * one, 'Ws': 50 * one, 'c': 2 * one,
+            'elev': 100 * one, 'avg_T': 10 * one, 'dp': 4 * one, 'rough': 0.001 * one, 'snow_rough': 0.0005 * one,
+            'annual_prec': 800 * one, 'fs_active': one,
+            'expt': 10 * lay, 'Ksat': 100 * lay, 'init_moist': 50 * lay, 'phi_s': -999 * lay,
+            'depth': np.array([0.1, 0.3, 1.0])[:, None] * lay, 'bubble': 20 * lay, 'quartz': 0.5 * lay,
+            'bulk_density': 1300 * lay, 'soil_density': 2650 * lay, 'Wcr_FRACT': 0.6 * lay, 'Wpwp_FRACT': 0.3 * lay,
+            'resid_moist': 0.02 * lay, 'Wfc_FRACT': 0.8 * lay}
+
+
+class SoilValueTest(unittest.TestCase):
+    def check(self, v):
+        vic, pl, der = vb.soil_checks(v)
+        return vic, pl, vb.status_of(vic, pl)
+
+    def test_valid(self):
+        vic, pl, st = self.check(soil())
+        self.assertEqual(st, 'passed', (vic, pl))
+
+    def test_vic_rules(self):
+        cases = {'depth_below_min': ('depth', (0, 1), 0.0005), 'Wpwp_above_Wcr': ('Wpwp_FRACT', (2, 0), 0.7),
+                 'Wfc_above_1': ('Wfc_FRACT', (1, 3), 1.2), 'porosity_outside_0_1': ('bulk_density', (0, 2), 2700),
+                 'wilting_point_below_residual': ('resid_moist', (2, 1), 0.2),
+                 'Ws_not_below_bottom_max_moist': ('Ws', (1,), 600.0)}
+        for rule, (k, idx, val) in cases.items():
+            with self.subTest(rule=rule):
+                v = soil(); v[k][idx] = val
+                vic, pl, st = self.check(v)
+                self.assertEqual(vic[rule], 1); self.assertEqual(st, 'failed')
+
+    def test_fill_and_layer_order(self):
+        v = soil(); v['Ksat'][1, 0] = np.nan; v['depth'][0, 3] = 0.5
+        vic, _, st = self.check(v)
+        self.assertEqual(vic['fill_or_nan'], {'Ksat': 1}); self.assertEqual(vic['layer1_thicker_than_layer2'], 1)
+        self.assertEqual(st, 'failed')
+
+    def test_annual_prec_reported_only(self):
+        v = soil(); v['annual_prec'][0] = np.nan; v['annual_prec'][1] = -5
+        vic, pl, st = self.check(v)
+        self.assertEqual(st, 'passed', (vic, pl))
+        self.assertEqual(vb.soil_checks(v)[2]['unused'], {'annual_prec': {'fill_or_nan': 1, 'not_positive': 1}})
+
+    def test_plausibility_is_warning(self):
+        v = soil(); v['expt'][0, 0] = 2.5; v['avg_T'][1] = 55; v['init_moist'][0, 2] = 1000
+        vic, pl, st = self.check(v)
+        self.assertEqual((pl['expt_below_3'], pl['avg_T_outside_range'], pl['init_moist_above_max_moist']), (1, 1, 1))
+        self.assertEqual(st, 'warning')
+
+    def test_baseflow_conversion(self):
+        v = soil(1)
+        _, _, der = vb.soil_checks(v)
+        mm = 1.0 * (1 - 1300 / 2650) * 1000
+        dsmax = 10 * (mm - 50) ** 2 + 0.01 * mm
+        self.assertAlmostEqual(der['Dsmax_converted'][0], dsmax)
+        self.assertAlmostEqual(der['Ds_converted'][0], 0.01 * 50 / dsmax)
+        self.assertAlmostEqual(der['Ws_converted'][0], 50 / mm)
+
+
+class BandValueTest(unittest.TestCase):
+    def bands(self):
+        af = np.array([[0.5, 1.0], [0.5, 0.0]]); el = np.array([[90.0, 100.0], [110.0, 0.0]])
+        return af, el, af.copy(), np.array([100.0, 100.0])
+
+    def test_valid(self):
+        vic, silent, diff = vb.band_checks(*self.bands())
+        self.assertEqual(vb.status_of(vic, silent), 'passed', (vic, silent))
+        np.testing.assert_allclose(diff, 0)
+
+    def test_pfactor_without_area_stops(self):
+        af, el, pf, elev = self.bands(); pf[1, 1] = 0.1
+        vic, silent, _ = vb.band_checks(af, el, pf, elev)
+        self.assertEqual(vic['Pfactor_on_band_without_area'], 1)
+        self.assertEqual(vb.status_of(vic, silent), 'failed')
+
+    def test_silent_changes(self):
+        af, el, pf, elev = self.bands(); af[0, 0] = 0.6; elev[1] = 101.0
+        vic, silent, diff = vb.band_checks(af, el, pf, elev)
+        # cell 0: the rescaled band mean moves away from elev; cell 1: elev itself differs
+        self.assertEqual((silent['AreaFract_sum_not_1'], silent['band_mean_elevation_not_elev']), (1, 2))
+        # VIC rescales AreaFract to (0.6, 0.5) / 1.1 before the mean: (54 + 55) / 1.1
+        self.assertAlmostEqual(diff[0], (0.6 * 90 + 0.5 * 110) / 1.1 - 100)
+        self.assertEqual(vb.status_of(vic, silent), 'warning')
 
 
 if __name__ == '__main__':

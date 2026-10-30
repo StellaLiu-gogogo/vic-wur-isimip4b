@@ -73,3 +73,7 @@ manifest records `qc_status` and `qc_evidence` per component.
 
 A parameter set is production-ready only when its sources, workflow commit, configuration, checksum, and quality-control status are recorded in an accepted parameter manifest.
 
+A manifest entry with `promotion: excluded` (and its `promotion_reason`) is not copied to `production/`: a file that
+another entry supersedes, or a source file that VIC does not read and whose values reach VIC through a checked entry.
+Such an entry keeps `qc_status: not_checked`; every other entry needs `qc_status: passed`.
+

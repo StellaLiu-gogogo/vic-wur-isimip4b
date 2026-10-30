@@ -56,6 +56,12 @@ components:
       VIC classes, whereas the land-use forcing (04_forcing/landuse) has 16;
       a run that combines both must resolve this first.
     qc_status: not_checked
+    promotion: excluded
+    promotion_reason: >-
+      source of the assembled image-driver file (its non-vegetation variables,
+      copied bitwise) and of elev, the target elevation of the climate
+      forcing; not read by VIC. The values that reach VIC are checked in
+      bundle_16class_assembled (verify_bundle.py checks soil and snow_bands).
   bundle_16class:
     component: bundle
     description: >-
@@ -86,6 +92,11 @@ components:
       fcanopy = 0 on 7 735 524 class-16 tile-months (VIC MIN_FCANOPY is
       1e-4). Classes 12, 14 and 15 share one LAI/fcanopy/albedo climatology.
     qc_status: not_checked
+    promotion: excluded
+    promotion_reason: >-
+      base of the vegetation component (tiles and vegetation parameters); not
+      read by VIC. Its vegetation reaches VIC through the vegetation component
+      (qc passed) and its soil part is bitwise equal to the natural bundle.
   vegetation:
     description: >-
       16-class vegetation variables (Cv, Nveg, LAI, fcanopy, albedo,
@@ -243,6 +254,10 @@ components:
       exactly; no fill on active cells; 0 routing and 0 water-use links cross
       groups.
     qc_status: not_checked
+    promotion: excluded
+    promotion_reason: >-
+      superseded by decomposition_isimip4b (task L3), which covers the D19
+      dams; not used by production runs.
 
   decomposition_isimip4b:
     component: routing
@@ -381,6 +396,10 @@ components:
       deleted from the set the same day with the user's approval, before any
       run used it.
     qc_status: not_checked
+    promotion: excluded
+    promotion_reason: >-
+      superseded by dams_isimip4b (D19, task L2); kept only for the smoke
+      campaigns.
 
   dams_isimip4b:
     component: dams
