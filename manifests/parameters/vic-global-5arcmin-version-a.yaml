@@ -174,9 +174,18 @@ components:
       domain; 23 vegetation variables bitwise equal to the component and 53
       other variables bitwise equal to the natural bundle; Nveg <= tiles <=
       Nveg + 1 on all 2 188 551 active cells (9 716 093 tiles); overstory 0 or
-      1 on every tile.
+      1 on every tile. verify_bundle.py again with the soil and snow-band value
+      checks (commit 0fd44d6, 2026-10-30, all 7 checks passed): every rule of
+      vic_init.c for soil (depths, porosity 0.37-0.55, Wpwp <= Wcr <= Wfc <= 1,
+      wilting point >= residual moisture, NIJSSEN2001 baseflow conversion) and
+      snow bands (fractions summing to 1, band mean elevation equal to elev
+      within 1.8e-12 m) holds on all 2 188 551 active cells; annual_prec, read
+      but not used by VIC, is fill (-9999) on 35 399 active cells and <= 0 on
+      19 (reported only, user 2026-10-30); 1 997 cells have bulk_density and
+      1 346 soil_density below 500 kg m-3 (reported only).
     qc_status: passed
     qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-a/bundle
+    qc_slurm_job: logs/03_parameters/parameter-bundle-vic-global-5arcmin-version-a-verify_43523548
   routing:
     description: >-
       Routing plugin parameters (ROUTING_PARAMETERS): unit hydrographs
