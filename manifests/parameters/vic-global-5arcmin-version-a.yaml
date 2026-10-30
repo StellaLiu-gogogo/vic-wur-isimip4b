@@ -243,6 +243,56 @@ components:
       exactly; no fill on active cells; 0 routing and 0 water-use links cross
       groups.
     qc_status: not_checked
+
+  decomposition_isimip4b:
+    component: routing
+    description: >-
+      DECOMPOSITION_PARAMETERS of the routing plugin with DECOMPOSITION FILE
+      for the D19 dam files (dams_isimip4b): variable basin (lat, lon), 128
+      groups (values 0-127, largest 69 678 cells, the Amazon basin; smallest
+      3 154). The 79 461 routing basins joined wherever a water-use source
+      link (2 498 451) or a dam service link (108 461) connects them, without
+      a size limit, packed largest first into the group with the fewest
+      cells. The dam service maps never leave their basin; the water-use file
+      was built with its links limited to joined basins of at most 69 678
+      cells (vic_parameter, 15 897 candidate links left out then), so no link
+      of either file is lost and the largest rank holds 365 736 cells with 6
+      ranks, 137 937 with 16 and 69 678 with 32 or more. Generated, not
+      adopted.
+    generated_by: workflow/03_parameters/routing/build_decomposition.py
+    method_version: "1.0"
+    code_commit: f6d850ff5ae680010e31c54915ed5053b1643e40
+    created_at: 2026-10-30T12:55:21Z
+    sources:
+      domain: domain/vic_global_5min_domain_nogl.nc
+      routing: routing/vic_global_5min_routing.nc
+      water_use: water_use/vic_global_5min_wateruse_parameters_receiving-network.nc
+      dams: dams/vic_global_5min_dam_parameters_isimip4b_histsoc.nc (the 1850soc and 2021soc files hold the same service maps)
+    files:
+      - path: routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc
+        size_bytes: 557481
+        md5: 73c70b162e3d88c110b185a1193d386c
+        sha256: b8751f58d374a21195cb4b5746d0dcd091ad86894bc93c2a51027a3bc616d075
+      - path: routing/provenance.yaml
+    provenance: routing/provenance.yaml
+    slurm_job: logs/03_parameters/decomposition-vic-global-5arcmin-version-a_43521423
+    verification: >-
+      verify_decomposition.py (2026-10-30), 6 checks passed: basin is int on
+      (lat, lon) and lat and lon equal the domain; every active cell in a
+      group 0-127, no empty group, fill -1 outside the domain; every cell in
+      the group of its downstream cell; every water-use source in the group of
+      its demander; every serviced cell in the group of its dam in the
+      histsoc, 1850soc and 2021soc dam files; file checksum and input md5
+      against this manifest. A scratch build of the same code before it
+      was committed (job 43521388) gave the same groups.
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-a/routing/decomposition
+    notes: >-
+      For campaigns that use the D19 dam files; the adopted decomposition
+      above stays with the T3_extended dam file of the smoke campaigns (with
+      the D19 dams it keeps every link too, but its largest group is 372 255
+      cells). Run speed and memory against the number of ranks are measured
+      in task L5.
   irrigation:
     description: >-
       Irrigation plugin parameters (IRRIGATION_PARAMETERS): irr_class 2 with
