@@ -667,6 +667,12 @@ def end_state_rel(start_year, end_year, chunk_years):
     return name if len(plan) == 1 else f'chunks/{chunk_id(*plan[-1])}/{name}'
 
 
+def run_resources(run, resources):
+    """Resources of a run: the campaign's resources file with a restriction run's own ntasks, cpus_per_task and mem
+    (resolve_campaign.run_resources_override; non-production tests)."""
+    return {**resources, **(run.get('resources_override') or {})}
+
+
 def run_chunk_years(run, resources):
     """chunk_years of a run: a restriction run's own value (non-production tests), else the resources'."""
     return run.get('chunk_years', resources.get('chunk_years'))
@@ -775,8 +781,9 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
     model = check_build(W, campaign, resources)
     params = parameter_files(W, campaign)
     _, _, aliases = rc.load_protocol(protocol_dir, campaign['protocol']['simulation_round'])
-    dec = check_tasks(resources['ntasks'], decomposition_groups(f'{W}/{params["decomposition"]["path"]}',
-                                                                f'{W}/{params["domain"]["path"]}'))
+    groups = decomposition_groups(f'{W}/{params["decomposition"]["path"]}', f'{W}/{params["domain"]["path"]}')
+    for r in runs:
+        check_tasks(run_resources(r, resources)['ntasks'], dict(groups))
     base = f'{W}/scratch/{campaign["campaign_id"]}' if scratch else f'{W}/runs/{campaign["campaign_id"]}'
     rendered = []
     blocks_on = not campaign.get('restriction')     # spin-up blocks: campaigns without a restriction (D19, D20)
@@ -866,6 +873,8 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
                               f'{init["without_parent"]!r} (cold_start or state_of_run)')
         usoc = campaign['dhf_forcing']['units'][seg['soc']]
         pl = campaign['plugins']
+        rres = run_resources(run, resources)
+        dec = check_tasks(rres['ntasks'], dict(groups))
         cyears = run_chunk_years(run, resources)
         plan = chunk_plan(run['start_year'], run['end_year'], cyears)
         chunked = len(plan) > 1
@@ -946,7 +955,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
                          f'DAM_ALPHA {pl["dams"]["alpha"]}\nDAM_BETA {pl["dams"]["beta"]}\nDAM_GAMMA {pl["dams"]["gamma"]}\n')
             if pl['water_use'].get('nonrenewable_limit_mm') is not None:   # absent or null: no limit (compiled default)
                 constants += f'NONRENEWABLE_LIMIT {float(pl["water_use"]["nonrenewable_limit_mm"])}\n'
-            job_text, hours = render_job(W, rdir, campaign['campaign_id'], run['run_id'], c0, c1, resources, model,
+            job_text, hours = render_job(W, rdir, campaign['campaign_id'], run['run_id'], c0, c1, rres, model,
                                          chunk_dir=cdir, chunk=cid)
             hours_total += hours
             cfiles = {'config/vic_global.txt': vic_text, 'config/vic_constants.txt': constants,
@@ -964,7 +973,8 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
                 'parent': parent_rec,
                 'campaign_file': os.path.relpath(campaign_path, REPO) if os.path.isabs(campaign_path) else campaign_path,
                 'campaign_sha256': file_hash(campaign_path), 'campaign': campaign,
-                'resources_file': campaign['resources'], 'resources': resources,
+                'resources_file': campaign['resources'], 'resources': rres,
+                **({'resources_override': run['resources_override']} if run.get('resources_override') else {}),
                 'model': model, 'parameters': rparams, 'decomposition': dec,
                 'protocol_water_global_variables': nvars,
                 'forcing_units': {k2: {kk: vv for kk, vv in v.items() if kk != 'files'} for k2, v in units.items()},
@@ -1016,7 +1026,7 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         if seg['period'] == 'spinup':
             spin_rendered.add(run['segment_id'])
         print(f'rendered {rdir} ({len(links)} forcing links, {len(plan)} chunk(s), {hours_total} h wall time, '
-              f'{resources["ntasks"]} tasks)')
+              f'{rres["ntasks"]} tasks)')
     return rendered
 
 

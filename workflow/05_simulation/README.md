@@ -197,6 +197,13 @@ variables), except the diagnostic `OUT_WATER_ERROR` of 2016 (differences up to 5
 `qc/runs/chunk-test/<continuous run>/reports/compare_<chunked run>.json`. The first whole-run check (job 43407189)
 started beside the last chunk check and read its status before it was written, which led to the `afterany` wait above.
 
+**Resources of a test run (task L5, user 2026-10-30).** A restriction run of a non-production campaign may set
+`resources: {ntasks, cpus_per_task, mem}`; these replace the three values of the campaign's resource file for that
+run only (`resolve_campaign.run_resources_override`, `render_run.run_resources`). The renderer checks the ranks
+against the decomposition groups per run and records the values in `resolved.yaml` (`resources`, and
+`resources_override`); `submit_run.py --retry` renders a new job with the same values. Campaign `dam-test` uses it
+to run 2015-2016 with 8 ranks x 16 threads and 16 ranks x 8 threads.
+
 **Initial state.** Parent relations come from the whole campaign, whatever `--run-id` selects. A run whose
 parent segment is a run of the campaign (and the campaign has no `restriction`) starts from the parent's end
 state (`INIT_STATE`): when the parent is rendered in the same call, the job checks before VIC starts that the

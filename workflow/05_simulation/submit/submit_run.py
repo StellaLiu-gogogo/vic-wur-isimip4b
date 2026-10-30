@@ -125,7 +125,7 @@ def rerender_job(run_dir, W, from_chunk=0):
     first = (m.get('chunks') or [{'dir': '.'}])[0]['dir']
     with open(os.path.join(run_dir, first, 'config', 'resolved.yaml')) as fh:
         res = yaml.safe_load(fh)
-    resources = rr.read_yaml(os.path.join(rr.REPO, res['resources_file']))
+    resources = rr.run_resources(res, rr.read_yaml(os.path.join(rr.REPO, res['resources_file'])))
     # the checks of a new render that depend on the resources (render_run.py check_build and check_tasks)
     if [str(x) for x in resources['modules']] != list(res['model']['runtime_modules']):
         raise SystemExit(f'resources modules {resources["modules"]} differ from the build runtime_modules '

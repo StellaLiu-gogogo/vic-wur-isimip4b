@@ -379,6 +379,7 @@ def runs(campaign, segments, label=None):
         chunk = r['runs'][label].get('chunk_years')   # non-production test: overrides resources chunk_years
         if chunk is not None and not (isinstance(chunk, int) and chunk >= 1):
             raise CampaignError(f'restriction run {label}: chunk_years must be a positive integer')
+        override = run_resources_override(label, r['runs'][label].get('resources'))
     elif label is not None:
         raise CampaignError('labels exist only for restricted non-production campaigns')
     for sid, s in segments.items():
@@ -391,8 +392,32 @@ def runs(campaign, segments, label=None):
             raise CampaignError(f'{sid}: spin-up length is not declared (campaign spinup.length_years)')
         out.append({'run_id': sid + (f'__{label}' if r else ''), 'segment_id': sid, 'label': label if r else None,
                     'start_year': start, 'end_year': end, 'segment': asdict(s),
-                    **({'chunk_years': chunk} if r and chunk is not None else {})})
+                    **({'chunk_years': chunk} if r and chunk is not None else {}),
+                    **({'resources_override': override} if r and override else {})})
     return out
+
+
+# Resources a restriction run of a non-production campaign may set for itself (tests of ranks, threads and memory);
+# everything else comes from the campaign's resources file.
+RUN_RESOURCE_KEYS = ('ntasks', 'cpus_per_task', 'mem')
+
+
+def run_resources_override(label, value):
+    """{key: value} of a restriction run's `resources` ({} when absent); stops on another key, a count that is not a
+    positive integer, or a memory that is not like 450G."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or not value:
+        raise CampaignError(f'restriction run {label}: resources must map {list(RUN_RESOURCE_KEYS)} to values')
+    other = sorted(set(value) - set(RUN_RESOURCE_KEYS))
+    if other:
+        raise CampaignError(f'restriction run {label}: resources may set only {list(RUN_RESOURCE_KEYS)}, not {other}')
+    for k in ('ntasks', 'cpus_per_task'):
+        if k in value and not (isinstance(value[k], int) and not isinstance(value[k], bool) and value[k] >= 1):
+            raise CampaignError(f'restriction run {label}: resources.{k} must be a positive integer')
+    if 'mem' in value and not re.fullmatch(r'[1-9][0-9]*[MGT]', str(value['mem'])):
+        raise CampaignError(f'restriction run {label}: resources.mem must be like 450G')
+    return dict(value)
 
 
 def leap(year):

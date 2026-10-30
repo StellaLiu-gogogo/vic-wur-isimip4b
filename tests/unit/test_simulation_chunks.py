@@ -203,3 +203,45 @@ class CompareRunsTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RunResourcesTest(tsr.RenderHarness):
+    """A restriction run may set its own ntasks, cpus_per_task and mem (task L5: rank tests); nothing else."""
+
+    def test_resolver_accepts_only_three_keys(self):
+        import resolve_campaign as rc
+        c = tsr.smoke()
+        seg = tsr.segment('historical', 'histsoc', 'historical', (1850, 2021), None)
+        c['restriction']['runs']['smoke2015'] = {'years': [2015, 2016],
+                                                 'resources': {'ntasks': 16, 'cpus_per_task': 8, 'mem': '500G'}}
+        run = rc.runs(c, {HIST: seg}, 'smoke2015')[0]
+        self.assertEqual(run['resources_override'], {'ntasks': 16, 'cpus_per_task': 8, 'mem': '500G'})
+        self.assertEqual(rr.run_resources(run, {'ntasks': 8, 'mem': '700G', 'partition': 'main'}),
+                         {'ntasks': 16, 'cpus_per_task': 8, 'mem': '500G', 'partition': 'main'})
+        for bad in ({'partition': 'x'}, {'ntasks': 0}, {'ntasks': True}, {'mem': '500'}, {}):
+            c['restriction']['runs']['smoke2015']['resources'] = bad
+            with self.subTest(bad=bad), self.assertRaises(rc.CampaignError):
+                rc.runs(c, {HIST: seg}, 'smoke2015')
+
+    def test_rendered_job_and_record(self):
+        self.campaign['restriction'] = {'periods': ['historical'], 'runs': {
+            'ranks16': {'years': [2015, 2016], 'resources': {'ntasks': 16, 'cpus_per_task': 8, 'mem': '500G'}},
+            'ranks8': {'years': [2015, 2016]}}}
+        seen = []
+        with mock.patch.object(rr, 'render_job', side_effect=lambda *a, **k: (seen.append(a[6]), ('job\n', 5))[1]):
+            rr.render(tsr.SMOKE, 'ranks16', None, scratch=False, W=self.W)
+            rr.render(tsr.SMOKE, 'ranks8', None, scratch=False, W=self.W)
+        self.assertEqual([(r['ntasks'], r['cpus_per_task'], r['mem']) for r in seen],
+                         [(16, 8, '500G'), (8, 16, '700G')])
+        import yaml
+        with open(os.path.join(self.W, 'runs', 'smoke', HIST + '__ranks16', 'config', 'resolved.yaml')) as fh:
+            res = yaml.safe_load(fh)
+        self.assertEqual(res['resources_override'], {'ntasks': 16, 'cpus_per_task': 8, 'mem': '500G'})
+        self.assertEqual(res['resources']['ntasks'], 16)
+        self.assertEqual(res['decomposition']['largest_rank_cells_lower_bound'], 10)
+
+    def test_too_many_ranks_stop(self):
+        self.campaign['restriction'] = {'periods': ['historical'], 'runs': {
+            'ranks200': {'years': [2015, 2016], 'resources': {'ntasks': 200}}}}
+        with self.assertRaises(rr.RenderError):
+            rr.render(tsr.SMOKE, 'ranks200', None, scratch=False, W=self.W)
