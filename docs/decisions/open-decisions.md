@@ -72,7 +72,7 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | D10 | VIC-WUR model name and version suffix for ISIMIP4b filenames | 06_postprocessing | | user | open |
 | D11 | Structure of the postprocessed product-set manifest | 06_postprocessing | | user | open |
 | D12 | Whether `2021co2` experiments are reported (VIC-WUR has no CO₂ response) | 08_delivery | | sector coordinators | open |
-| D13 | Location and implementation of the backup procedure | - | first production object accepted | user | open |
+| D13 | Location and implementation of the backup procedure | - | first production object accepted | user | open (trigger reached 2026-10-30: `parameters/production/vic-global-5arcmin-version-a` promoted; the user deferred the backup procedure, so no production object is backed up yet) |
 | D14 | Include the ensemble member in project identifiers | - | a second ensemble member is used | user | open |
 | D15 | Migration of the legacy `vic_global/isimip4b/` area into this project | - | approved 2026-09-29 | user | decided ([D15-legacy-migration.md](D15-legacy-migration.md)) |
 | D16 | Elevation correction of downward longwave radiation (`lwdown`) in the climate forcing, consistent with the lapse-rate correction of `tair` | 04_forcing | | user | decided 2026-10-01 ([D16-lwdown-elevation-correction.md](D16-lwdown-elevation-correction.md)): option A, ratio method of Cosgrove et al. (2003) as in WATCH/WFDE5 |
