@@ -21,17 +21,17 @@ model:
 
 parameter_set:
   id: vic-global-5arcmin-version-a
-  # the candidate set promoted to parameters/production/ after the dam component (task L) and the remaining QC
-  # (D01 consequences); until then the renderer stops at the missing parameter files
+  # the set promoted to parameters/production/ by workflow/03_parameters/promote_parameter_set.py (copy of the
+  # candidate set, every promoted entry qc passed); before the promotion the renderer stops at the missing files
   status: production
   # role -> file inside the parameter set (manifests/parameters/vic-global-5arcmin-version-a.yaml)
   files:
     domain: domain/vic_global_5min_domain_nogl.nc
     parameters: bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc
     routing: routing/vic_global_5min_routing.nc
-    # the FILE decomposition is rebuilt with the D19 dam list (D19 decision, dam list 2); no producer writes it yet,
-    # so its file name is set here when it exists. The file below is the adopted decomposition of the smoke runs.
-    decomposition: routing/vic_global_5min_file_decomposition_wateruse_dams.nc
+    # the FILE decomposition rebuilt with the D19 dam list (workflow/03_parameters/routing/build_decomposition.py,
+    # task L3; manifest entry decomposition_isimip4b); the adopted v2.0.0 file is excluded from promotion
+    decomposition: routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc
     irrigation: irrigation/vic_global_5min_irrigation_parameters.nc
     # soc scenario of a segment -> dam file (D19, construction years per DHF scenario; files of the dam component,
     # workflow/03_parameters/dams/README.md, task L). The SSP units without extrasoc dams use the 2021soc file.

@@ -77,3 +77,38 @@ A manifest entry with `promotion: excluded` (and its `promotion_reason`) is not 
 another entry supersedes, or a source file that VIC does not read and whose values reach VIC through a checked entry.
 Such an entry keeps `qc_status: not_checked`; every other entry needs `qc_status: passed`.
 
+## Promotion to production
+
+| File | Role |
+|---|---|
+| `promote_parameter_set.py` | copies every file of the manifest entries not marked `promotion: excluded` (their `files` and `provenance` record) from `parameters/candidates/<set>/` to `parameters/production/<set>/` |
+| `verify_parameter_promotion.py` | independent verification of the promoted copy; writes `qc/parameters/production/<set>/{summary.json,reports/verify.json}` |
+| `parameter_promotion.sbatch` | Slurm template: promotion, then verification |
+| `submit_parameter_promotion.py` | renders and submits the job, job record under `logs/03_parameters/parameter-promotion-<set>_<slurm-job-id>/` |
+
+Tests: `tests/unit/test_parameter_promotion.py`. Classification: production workflow code (user, 2026-10-30, task R).
+
+The promotion copies, never moves: the candidate set stays, because earlier runs record its paths. Before copying it
+checks that every promoted entry has `qc_status: passed`, that every candidate file has the md5 (and sha256) of the
+manifest, and it lists the restriction attributes (`not_authorized_for_global_production`, `product_stage`) of the
+candidate NetCDF files, promoted or excluded; it stops when such attributes exist and the user's acceptance is not
+given (`--accepted-restrictions`). Each copy keeps the modification time and is checked against the candidate
+(md5, sha256) before it gets its final name. `promotion.yaml`, written last at the root of the production set,
+records the time, the workflow commit, the user's authorisation, the accepted restrictions, every file with size,
+md5 and sha256, the excluded entries with their reasons and the QC evidence of every promoted entry; a production
+directory without it is an unfinished promotion. An existing production directory stops the promotion. The
+verifier checks the record, every copy (size, md5, sha256, still equal to the candidate and to the manifest), that
+the set holds exactly the promoted files, and that the QC evidence of every promoted entry exists and passed. After
+it has passed, the manifest is set to `status: production` by hand.
+
+```bash
+conda activate isimip4b
+export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
+export PYTHONPATH=$PWD/workflow
+python3 workflow/03_parameters/submit_parameter_promotion.py --scratch --authorised "test" --accepted-restrictions "test"
+python3 workflow/03_parameters/submit_parameter_promotion.py --authorised "user, <date>" --accepted-restrictions "<text>"
+```
+
+`--scratch` promotes into `scratch/parameter-promotion/production/` (QC under `scratch/parameter-promotion/qc/`).
+One core, a few GB of memory; the copy of `vic-global-5arcmin-version-a` is 27 files, 4.9 GB.
+
