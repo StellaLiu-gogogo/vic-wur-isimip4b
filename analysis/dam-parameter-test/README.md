@@ -13,7 +13,9 @@
 **Classification.** Analysis (user, 2026-10-30): the product is a comparison used for a decision on the resource
 file. No workflow stage reads it.
 
-**Status.** open
+**Status.** closed (2026-10-31). The maintained record of the conclusion is the D01 amendment of 2026-10-31
+(`docs/decisions/D01-frozen-model-version.md`); the dam results support D19
+(`docs/decisions/D19-dams-and-initial-states.md`).
 
 **Inputs** (paths relative to the workdir):
 
@@ -95,6 +97,26 @@ The test runs write more than the smoke run (monthly `OUT_GDAM_*`/`OUT_LDAM_*` i
 - No rank of either test run reported a dam service cell or a water-use receiving cell that was not found.
 - The remote water-use summary reports zero events.
 
+**Dams in 2016** (`dam_parameter_test.py dams`, run `ranks16`, job record `logs/dams_43529450/`, tables
+`dams_global_2016.csv`, `key_dams.csv`, `key_dams_monthly.csv`, `dams_summary.json`):
+
+- 5 708 global dams (6 677 km3) active, none sharing a cell. They start to operate in different months of 2016
+  (214 in January, 536 in November).
+- Inflow per operating day over the natural mean inflow: median 0.73 (10 % 0.24, 90 % 1.34); 3 922 dams between 0.5
+  and 2, 142 dams (78 km3) below 0.1.
+- Storage at the end of 2016: median 75 % of capacity (capacity-weighted 75 %); release over inflow in 2016: 1.05.
+- 1 556 local dams (59 km3): every one receives inflow (14.2 km3 in 2016).
+- Key dams (inflow ratio, storage at the end of 2016): Ust-Ilim 1.00, 87 %; Bratsk 0.68, 79 %; Brokopondo 0.42,
+  87 %; Three Gorges 0.63, 61 %; Kariba 0.29, 68 %; Akosombo 1.24, 84 %. Ust-Ilim and Brokopondo, which received
+  almost no inflow with the old dam file, now do. Brokopondo is low because 2016 is dry there in EC-Earth3-ESM-1-1:
+  the smoke run has only about 58 m3/s at the same cell.
+
+**GRDC stations in 2016** (`dam_parameter_test.py grdc`, job record `logs/grdc_43528700/`, tables `grdc_2016.csv`,
+`grdc_key_dams.csv`, `grdc_summary.json`): of 969 stations, simulated over observed mean 1.23 (`ranks16`) and 1.22
+(smoke); share within 0.8-1.25 39 % and 38 %; seasonal correlation 0.67 and 0.68. 364 stations change by more than
+5 % (97 of them closer to the observations), 106 by more than 20 %. Because of the caveat above (one year since the
+start, dams operating only from some month of 2016), this comparison does not rate the dam file.
+
 **Ranks and threads.** `compare_runs.py`, reports `qc/runs/dam-test/<ranks8 run>/reports/compare_<other run>.json`:
 
 - `ranks8` (8 × 16) and `ranks16` (16 × 8): 2015 bitwise identical; from 2016-01-01 on they differ (day 1: runoff
@@ -172,6 +194,9 @@ MaxRSS 60.3 GB per rank; `ranks16` 10.07 s/day, init 740 s, MaxRSS 35.8 GB per r
 `dam-test` within 1 %. The correction does not change speed or memory.
 
 **Conclusion (user, 2026-10-31).**
+
+- The D19 dam files and the FILE decomposition run as intended: no link is lost, the dams receive, store and release
+  water plausibly, and Ust-Ilim and Brokopondo now receive inflow.
 
 - The correction is the new frozen model version (D01 amendment 2026-10-31). The user, who develops the branch,
   pushed it to `fix-restart-luapply-snow-state` of `https://github.com/wur-wsg/VIC` as commit

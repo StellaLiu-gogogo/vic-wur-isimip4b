@@ -7,7 +7,7 @@ GRDC stations change against the smoke run with the old dam file?
 
 Runs (campaign configs/campaigns/dam-test.yaml, 2015-2016, cold start in 2015, histsoc):
   ranks8   8 ranks x 16 threads (job 43522174)      ranks16  16 ranks x 8 threads (job 43522179)
-  ranks8-threads8   8 ranks x 8 threads (job 43529716)
+  ranks8-threads8-shared   8 ranks x 8 threads on a shared node (job 43530364)
 Reference: smoke run 2011-2020 (old dam file t3-extended-merged and old decomposition, cold start in 2011).
 The runs are compared with each other by workflow/05_simulation/monitor/compare_runs.py (qc/<run>/reports/).
 
