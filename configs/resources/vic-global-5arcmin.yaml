@@ -7,17 +7,20 @@ partition: main
 # that every rank uses the same library tree of the 2025 module bucket.
 constraint: gen3
 nodes: 1
-# MPI ranks: the FILE decomposition of the parameter set has 128 groups (largest 372 255 of 2 188 551 active
-# cells); VIC gives whole groups to ranks, largest first, so with 6 or more ranks the rank with the largest
-# group sets the pace and more ranks shorten nothing (render_run.py checks ntasks <= groups). The cores go
-# to OpenMP threads instead: 8 ranks x 16 threads fill one 128-core node (one rank per 16-core block).
-ntasks: 8
-cpus_per_task: 16
+# MPI ranks: the FILE decomposition of the parameter set has 128 groups (largest 69 678 of 2 188 551 active
+# cells, routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc); VIC gives whole groups to ranks,
+# largest first (render_run.py checks ntasks <= groups). 16 ranks x 8 threads fill one 128-core node (user,
+# 2026-10-31, analysis dam-parameter-test): in 2015-2016 with this decomposition 16 x 8 took 10.08 s per model day
+# and 804 s to start, 8 x 16 11.88 s and 1050 s. With VIC a826251b the result does not depend on the number of
+# ranks (8 and 16 ranks bitwise identical, D01 amendment 2026-10-31).
+ntasks: 16
+cpus_per_task: 8
 exclusive: true
-# Measured on Anunna: MaxRSS 72.5 GB per rank in the smoke runs of 1 and 10 model years (no growth with run
-# length), about 580 GB for 8 ranks; 700G leaves about 20 % margin. Anunna bills the requested memory
-# (analysis compute-storage-plan, 2026-10-06).
-mem: 700G
+# Measured on Anunna with 16 ranks (dam-test job 43522179, snow-density-test job 43531704, 2015-2016): MaxRSS
+# 35.8 GB per rank, AveRSS x ranks about 396 GB; both runs completed with 500G, which is about 25 % above
+# AveRSS x ranks. Anunna bills the requested memory (analysis compute-storage-plan, 2026-10-06). Until
+# 2026-10-31: 8 ranks x 16 threads with 700G (MaxRSS 72.5 GB per rank with the earlier decomposition).
+mem: 500G
 # Wall time = setup + per model year x years, rounded up to whole hours. Snellius: 1.07-1.10 h per model
 # year on 192 cores with Force Time 79 % of Run Time; Anunna has 128 cores and a slower filesystem.
 wall_time:

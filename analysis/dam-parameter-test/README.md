@@ -178,4 +178,5 @@ MaxRSS 60.3 GB per rank; `ranks16` 10.07 s/day, init 740 s, MaxRSS 35.8 GB per r
   `a826251b6a9b831f432ebd7b655f2b456388c5e4`: the test commit `a6868324` with a new commit message, the same Git tree
   (`45eaa7d7be64e3b94b90541cbf81d7df2a6944aa`), so the results above hold for it.
 - Earlier runs with `39e21ff5` are not rerun: the effect is small.
-- The layout of `configs/resources/vic-global-5arcmin.yaml` is still open.
+- `configs/resources/vic-global-5arcmin.yaml` uses 16 ranks × 8 threads with 500G (user, 2026-10-31; before: 8 × 16
+  with 700G): 15 % faster than 8 × 16 per model day, and the measured memory fits.

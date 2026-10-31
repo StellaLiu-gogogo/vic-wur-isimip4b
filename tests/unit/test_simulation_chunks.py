@@ -229,20 +229,22 @@ class RunResourcesTest(tsr.RenderHarness):
 
     def test_rendered_job_and_record(self):
         self.campaign['restriction'] = {'periods': ['historical'], 'runs': {
-            'ranks16': {'years': [2015, 2016], 'resources': {'ntasks': 16, 'cpus_per_task': 8, 'mem': '500G'}},
-            'ranks8': {'years': [2015, 2016]}}}
+            'ranks8': {'years': [2015, 2016], 'resources': {'ntasks': 8, 'cpus_per_task': 16, 'mem': '450G'}},
+            'ranks16': {'years': [2015, 2016]}}}
         seen = []
         with mock.patch.object(rr, 'render_job', side_effect=lambda *a, **k: (seen.append(a[6]), ('job\n', 5))[1]):
-            rr.render(tsr.SMOKE, 'ranks16', None, scratch=False, W=self.W)
             rr.render(tsr.SMOKE, 'ranks8', None, scratch=False, W=self.W)
+            rr.render(tsr.SMOKE, 'ranks16', None, scratch=False, W=self.W)
+        # the second run takes configs/resources/vic-global-5arcmin.yaml unchanged
         self.assertEqual([(r['ntasks'], r['cpus_per_task'], r['mem']) for r in seen],
-                         [(16, 8, '500G'), (8, 16, '700G')])
+                         [(8, 16, '450G'), (16, 8, '500G')])
         import yaml
-        with open(os.path.join(self.W, 'runs', 'smoke', HIST + '__ranks16', 'config', 'resolved.yaml')) as fh:
+        with open(os.path.join(self.W, 'runs', 'smoke', HIST + '__ranks8', 'config', 'resolved.yaml')) as fh:
             res = yaml.safe_load(fh)
-        self.assertEqual(res['resources_override'], {'ntasks': 16, 'cpus_per_task': 8, 'mem': '500G'})
-        self.assertEqual(res['resources']['ntasks'], 16)
-        self.assertEqual(res['decomposition']['largest_rank_cells_lower_bound'], 10)
+        self.assertEqual(res['resources_override'], {'ntasks': 8, 'cpus_per_task': 16, 'mem': '450G'})
+        self.assertEqual(res['resources']['ntasks'], 8)
+        # the active cells over 8 ranks exceed the largest group of the test decomposition (10 cells)
+        self.assertEqual(res['decomposition']['largest_rank_cells_lower_bound'], 13)
 
     def test_too_many_ranks_stop(self):
         self.campaign['restriction'] = {'periods': ['historical'], 'runs': {
