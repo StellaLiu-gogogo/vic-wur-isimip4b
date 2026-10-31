@@ -49,8 +49,12 @@ frozen and the script gives a production build of the same commit. The user
 decided that the existing build, unchanged, becomes the production build
 (D01 amendment 2026-10-28): `build/promote_build.py` checked it and recorded
 the change in its manifest without recompiling (`build/README.md`); promoted
-on 2026-10-30 with the user's authorisation, from `a6761b7`. A production
-campaign renders only with a production build.
+on 2026-10-30 with the user's authorisation, from `a6761b7`. On 2026-10-31
+the user froze `a826251b` instead (D01 amendment 2026-10-31: `39e21ff5` with
+the corrected fresh-snow density of the land-use step, task L5); its
+production build was compiled by `build_vic.sh` on 2026-10-31, and the build
+of `39e21ff5` stays as the record of the earlier runs. A production campaign
+renders only with a production build.
 
 ## Configuration
 
@@ -311,8 +315,9 @@ D03 with `OUT_NONREN_DEFICIT` monthly, also in the spin-ups (not part of the con
 python3 workflow/05_simulation/render/resolve_campaign.py --campaign configs/campaigns/water-global-ec-earth3-esm-1-1.yaml
 ```
 
-The render needs the production build and the production parameter set; both exist since 2026-10-30: the build was
-promoted by `build/promote_build.py` (D01 amendment 2026-10-28), and `parameters/production/vic-global-5arcmin-version-a/`
+The render needs the production build and the production parameter set. The build of the frozen commit `a826251b`
+was compiled on 2026-10-31 (D01 amendment 2026-10-31; the build of `39e21ff5` promoted on 2026-10-30 by
+`build/promote_build.py` no longer matches the lock), and `parameters/production/vic-global-5arcmin-version-a/`
 was promoted by `workflow/03_parameters/promote_parameter_set.py` (task R) with the D19 dam files
 `dams/vic_global_5min_dam_parameters_isimip4b_{histsoc,1850soc,2021soc}.nc` (task L2) and the FILE decomposition
 rebuilt for them, `routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc`
@@ -325,7 +330,7 @@ D03 daily outputs); it is not changed by task S.
 | S1 | one climate window per spin-up chain (resolver, renderer) | done |
 | S2 | outputs by period (`output.period_outputs`, D03) | done |
 | S3 | production campaign file, run order, resolver dry run | done (not rendered) |
-| S4 | production build: `build/promote_build.py`, production campaigns need `build_kind: production` | done: `builds/vic/39e21ff5…/` promoted 2026-10-30 (user's authorisation, from `a6761b7`), not recompiled |
+| S4 | production build: `build/promote_build.py`, production campaigns need `build_kind: production` | done: `builds/vic/39e21ff5…/` promoted 2026-10-30 (user's authorisation, from `a6761b7`), not recompiled; since D01 amendment 2026-10-31 the production build is `builds/vic/a826251b…/` (compiled, task L5) |
 
 ## Natural run (task Q)
 

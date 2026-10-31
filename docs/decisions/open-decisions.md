@@ -8,12 +8,16 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-10-28.
+Last reviewed: 2026-10-31.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
 D01 was decided on 2026-10-28: VIC-WUR `39e21ff5`, the provisional commit,
 is frozen ([D01-frozen-model-version.md](D01-frozen-model-version.md)).
+On 2026-10-31 the user froze `a826251b` instead, which is `39e21ff5` with the
+corrected fresh-snow density of the land-use step; it changes no reader of
+the parameter, forcing or water-use files, so the allowances below stay
+valid (amendment 2026-10-31 in the record).
 While D01 was open, the user allowed these forcing units to be accepted:
 
 - the EC-Earth3-ESM-1-1 climate units `esm-hist` 2011–2020 (user,
@@ -60,7 +64,7 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 
 | ID | Decision | Due stage | Trigger | Owner | Status |
 |---|---|---|---|---|---|
-| D01 | Which VIC-WUR commit is frozen for production | 03_parameters | | user | decided 2026-10-28, amended the same day (the existing build is recorded as the production build, task S) ([D01-frozen-model-version.md](D01-frozen-model-version.md)): commit `39e21ff5015d01d9bc20407a8f50006831417aff` (branch `fix-restart-luapply-snow-state`, image driver), `freeze_status: frozen` in `model/vic.lock.yaml`; provisional since 2026-09-29 |
+| D01 | Which VIC-WUR commit is frozen for production | 03_parameters | | user | decided 2026-10-28, amended the same day (the existing build is recorded as the production build, task S) and on 2026-10-31 ([D01-frozen-model-version.md](D01-frozen-model-version.md)): commit `a826251b6a9b831f432ebd7b655f2b456388c5e4` since 2026-10-31 (branch `fix-restart-luapply-snow-state`, image driver; `39e21ff5` with the corrected fresh-snow density of the land-use step, task L5), `freeze_status: frozen` in `model/vic.lock.yaml`; `39e21ff5` provisional since 2026-09-29, frozen 2026-10-28 to 2026-10-31 |
 | D02 | Compute scope: which GCMs, experiments, and priorities fit the available compute, and whether to apply for more | 05_simulation | | user | decided 2026-10-22 ([D02-compute-scope.md](D02-compute-scope.md)): EC-Earth3-ESM-1-1 only (UKESM1-3-LL by amendment when its inputs arrive); all experiments except the two `extrasoc` ones (D06); 1st-priority segments first; no resource request to the Anunna admins for now |
 | D03 | Storage plan for 5′ model output: where it lives during a campaign and when it is deleted after postprocessing | 05_simulation | | user | decided 2026-10-22 ([D03-output-storage.md](D03-output-storage.md)): option (a), every run keeps all its 5′ output, nothing deleted after postprocessing; daily `qtot`, `dis` in every reported segment and also `OUT_SOIL_MOIST`, `OUT_EVAP`, `OUT_WITHDRAWN` in the historical and future segments; no rolling climate forcing |
 | D04 | Land use: single-child rule for fallback parents, `rice_rainfed`, ISIMIP paddy area, `*_bf` variables, Köppen period for parameter backfill | 03_parameters | | user | decided 2026-09-30 ([D04-landuse-harmonization.md](D04-landuse-harmonization.md)) |
@@ -86,8 +90,9 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 **D01 — Frozen model version.** Every production build, run, and cache
 records a model commit. Parameter files must match the input format of that
 commit, so the decision is needed before production parameters are
-generated. Decided 2026-10-28: the provisional commit `39e21ff5` is frozen; see
-the record.
+generated. Decided 2026-10-28: the provisional commit `39e21ff5` is frozen; from
+2026-10-31 `a826251b` (`39e21ff5` with the corrected fresh-snow density);
+see the record.
 
 **D02 — Compute scope.** The model capability audit (legacy audit area,
 `VICWUR_ISIMIP4b_WaterGlobal_model_capability_audit_v2_2026-09-20.md`)

@@ -1,6 +1,7 @@
 # D01 — Frozen VIC-WUR model version
 
-Status: **decided 2026-10-28** by the user; amended the same day (production build, see "Amendment 2026-10-28").
+Status: **decided 2026-10-28** by the user; amended the same day (production build, see "Amendment 2026-10-28")
+and on 2026-10-31 (new frozen commit `a826251b`, see "Amendment 2026-10-31").
 Due stage: `03_parameters`.
 
 ## Context
@@ -101,3 +102,42 @@ How the change is made and recorded (rules in
 needed, and the manifest fields) is implemented by task S. The change in
 `builds/` needs the user's authorisation of the exact file change before it is
 made.
+
+## Amendment 2026-10-31: new frozen commit `a826251b`
+
+Decided by the user on 2026-10-31 (task L5).
+
+**Reason.** `39e21ff5` computes the density of fresh snow at every year start from the air temperature of the first
+cell of an MPI rank instead of the cell itself (`plugins/landuse/src/lu_support.c`, `calculate_derived_water_states`,
+called by `lu_apply`). The result therefore depends on the number of ranks: the `dam-test` runs with 8 × 16 and
+16 × 8 differ from 2016-01-01 on. The user, who develops the branch, corrected the line (`force[iCell]`,
+`soil_con[iCell]`) and pushed it to `fix-restart-luapply-snow-state` on 2026-10-31.
+
+**Evidence** (`analysis/dam-parameter-test/README.md`):
+
+- a test build of the same code (commit `a6868324`, same Git tree `45eaa7d7` as `a826251b`; only the commit message
+  differs) gives bitwise identical results with 8 and 16 ranks (campaign `snow-density-test`, 2015-2016);
+- against `39e21ff5` the effect in 2016 is small: global runoff and evapotranspiration change by about 0.0001 %, the
+  annual runoff by more than 1 mm in 140 of 2 188 551 cells, the annual mean discharge by at most 0.36 % in cells
+  above 10 m3/s.
+
+**Decision.** VIC-WUR commit `a826251b6a9b831f432ebd7b655f2b456388c5e4` (image driver, branch
+`fix-restart-luapply-snow-state`, head on 2026-10-31) is the frozen model version from 2026-10-31.
+`model/vic.lock.yaml` records it with `freeze_status: frozen`.
+
+**Consequences.**
+
+- **Earlier runs are not rerun** (user, 2026-10-31: the difference is small). The smoke, smoke-nonrenewable,
+  chunk-test, natural-spinup, natural-run and dam-test campaigns keep `model.commit: 39e21ff5` as the record of what
+  they ran. `render_run.py` renders a campaign only at the locked commit, so they can no longer be rendered; a
+  campaign that runs again (for example smoke-nonrenewable with the D19 dam file) is changed to `a826251b` first.
+- **Production campaign.** `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml` (no run yet) uses `a826251b`.
+- **Build.** `a826251b` gets a new production build by `build_vic.sh` (compiled, not promoted).
+  `builds/vic/39e21ff5…/` stays unchanged as the build of the earlier runs; `builds/vic/a6868324…/` stays as the test
+  build of task L5.
+- **Forcing and parameters.** The commit changes only the land-use step; the readers of the parameter, forcing and
+  water-use files are those of `39e21ff5`. Every accepted forcing unit, the water-use demand unit and the parameter
+  checks therefore stay valid. The references to `39e21ff5` in the parameter verifiers, the parameter manifest and
+  the READMEs of `workflow/04_forcing/climate/`, `landuse/` and `water_use/` describe reader code that is unchanged
+  in `a826251b` and are left as they are (the forcing READMEs are bound to the verifier reports, user 2026-10-28).
+- Task S and task P were told on 2026-10-31 before the change.

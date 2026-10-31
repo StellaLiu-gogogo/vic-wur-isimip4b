@@ -56,6 +56,17 @@ file. No workflow stage reads it.
     `ranks16` and of the smoke run, and compares each against the GRDC climatology 2005-2024 (ratio of the means,
     correlation of the 12 months). It also lists the first two stations on the downstream path of each key dam.
 
+- Diagnoses of the rank dependence and of its correction, each run once as a Slurm job (`python3 <script>` with
+  `ISIMIP4B_WORKDIR` set, 2 CPUs; the job script is `job.sbatch` in the job record; output in the record's
+  `slurm-<job>.out`):
+  - `diag_day1_cells.py` (job 43531574): runoff difference on 2016-01-01 between `ranks8` and `ranks16`, by change of
+    the land-use cover. The job stopped with an error after this part (it read a monthly file that does not exist);
+    the snow part was redone by `diag_snow_link.py`.
+  - `diag_snow_link.py` (job 43531575): the differing cells against snow in December 2015 and snowfall on its last
+    day.
+  - `diag_effect.py` (job 43532147): size of the effect in 2016, corrected against original `ranks8` and original
+    `ranks8` against `ranks16`.
+
 **Caveat.** Both runs use the same climate (EC-Earth3-ESM-1-1 historical), but the smoke run started cold in 2011
 and the test runs in 2015. In 2016 the soil and snow stores of the test runs have had one year to develop instead
 of five, and most of their dams operate only from some month of 2016 on (the dams of the smoke run operate from
@@ -108,7 +119,7 @@ The line runs for a tile with snow that fell on the last step of the year (`last
 first cell of a rank depends on the number of ranks, not on the threads (`lu_apply` is serial), which matches all
 comparisons; at the cold start of 2015 there is no snow, so 2015 is identical.
 
-Evidence on 2016-01-01, `ranks8` against `ranks16` (temporary diagnostics, job records
+Evidence on 2016-01-01, `ranks8` against `ranks16` (`diag_day1_cells.py`, `diag_snow_link.py`, job records
 `logs/diag-day1_cells_43531574/`, `logs/diag-snow_link_43531575/`):
 
 - `OUT_RUNOFF` differs in 7 829 of 2 188 551 cells, `OUT_BASEFLOW` in none. The differences are small (median
@@ -125,7 +136,45 @@ commit `a686832448d4db64870fa96450992b7b5d9a9b92` on 39e21ff5, branch `lu-snow-d
 pushed): it uses `force[iCell]` and `soil_con[iCell]` in the line above and changes nothing else. Its test build
 (`workflow/05_simulation/build/build_vic.sh --test-commit`, `builds/vic/a6868324…/`) runs in campaign
 `snow-density-test` (`configs/campaigns/snow-density-test.yaml`): the runs `ranks8` and `ranks16` of `dam-test`
-again, on shared nodes. Expected: the two runs are bitwise identical; the comparison of the corrected `ranks8` run
-with the `ranks8` run of `dam-test` shows the effect of the defect. Results: pending.
+again, on shared nodes (jobs 43531702 and 43531704, run checks passed). Expected: the two runs are bitwise
+identical; the comparison of the corrected `ranks8` run with the `ranks8` run of `dam-test` shows the effect of the
+defect. Results (2026-10-31):
 
-**Conclusion.** Pending.
+- Corrected `ranks8` against corrected `ranks16` (`compare_runs.py`, report
+  `qc/runs/snow-density-test/<ranks8 run>/reports/compare_<ranks16 run>.json`): bitwise identical in all compared
+  variables (daily and monthly output of 2015 and 2016, end state), status `passed`. The correction removes the rank
+  dependence.
+- Corrected `ranks8` against the `ranks8` run of `dam-test` (report
+  `qc/runs/snow-density-test/<ranks8 run>/reports/compare_<ranks8 run>.json`; both runs have the same run ID):
+  2015 identical, 2016 and the end state differ (status
+  `warning`; the Slurm job 43532002 ends with exit code 3, the code of `warning`).
+- Size of the effect in 2016 (`diag_effect.py`, job record `logs/diag-effect_43532147/`), with original `ranks8`
+  against original `ranks16` (both with the defect) for scale:
+
+| 2016 | Corrected − original (`ranks8`) | Original `ranks8` − `ranks16` |
+|---|---|---|
+| Cells with a different annual runoff + baseflow (of 2 188 551) | 551 489 | 413 719 |
+| … by more than 1 mm / 5 mm / 20 mm | 140 / 15 / 2 (largest 25.5 mm) | 28 / 4 / 0 (largest 7.8 mm) |
+| … by more than 1 % of the annual value | 129 | 12 |
+| Cells with a different annual evapotranspiration by more than 1 mm | 187 (largest 17.9 mm) | 42 (largest 7.3 mm) |
+| Global annual runoff + baseflow, global evapotranspiration | −0.0001 %, +0.0001 % | 0.0000 %, 0.0000 % |
+| Cells with a monthly SWE difference above 10 mm | 7 | 2 |
+| Cells with 2016 mean discharge > 10 m3/s (389 257): annual mean changed by more than 0.1 % / 1 % | 71 / 0 (largest 0.36 %) | 16 / 0 (largest 0.20 %) |
+| … some month changed by more than 1 % / 5 % | 406 / 135 | 97 / 44 |
+
+The defect changes the snow density at the year start in snow cells. The effect is small in global and annual
+terms. It is a few millimetres to a few tens of millimetres in a few hundred cells, and it reaches some months of
+discharge downstream of them. This run covers one year start (2016); a long run passes one year start per year.
+
+**Speed of the corrected runs** (shared nodes, no other heavy job seen): `ranks8` 11.87 s/day run, init 1082 s,
+MaxRSS 60.3 GB per rank; `ranks16` 10.07 s/day, init 740 s, MaxRSS 35.8 GB per rank, the same as the runs of
+`dam-test` within 1 %. The correction does not change speed or memory.
+
+**Conclusion (user, 2026-10-31).**
+
+- The correction is the new frozen model version (D01 amendment 2026-10-31). The user, who develops the branch,
+  pushed it to `fix-restart-luapply-snow-state` of `https://github.com/wur-wsg/VIC` as commit
+  `a826251b6a9b831f432ebd7b655f2b456388c5e4`: the test commit `a6868324` with a new commit message, the same Git tree
+  (`45eaa7d7be64e3b94b90541cbf81d7df2a6944aa`), so the results above hold for it.
+- Earlier runs with `39e21ff5` are not rerun: the effect is small.
+- The layout of `configs/resources/vic-global-5arcmin.yaml` is still open.

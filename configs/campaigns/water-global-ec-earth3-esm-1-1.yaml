@@ -6,16 +6,16 @@ production: true
 description: >-
   Production campaign of D02 (user, 2026-10-22): every ISIMIP4b water_global experiment except the two extrasoc
   experiments (D06 open) for ec-earth3-esm-1-1, i.e. 16 experiments, 22 segments and 2408 model years including the
-  two 50-year spin-ups (D19, D20). Standalone VIC-WUR image driver 39e21ff5 (GWM FALSE, not coupled to MODFLOW)
+  two 50-year spin-ups (D19, D20). Standalone VIC-WUR image driver a826251b (GWM FALSE, not coupled to MODFLOW)
   with routing, irrigation, dams, water use (with non-renewable withdrawal) and land use. Output as D03: every run
   keeps its 5 arcmin output; daily qtot and dis in every reported segment, daily OUT_SOIL_MOIST, OUT_EVAP and
   OUT_WITHDRAWN in addition in the historical and future segments. Runs in the order of D02 decision 3 (run_order).
-  Not renderable before the production parameter set (with the D19 dam files of task L) exists and the build is
-  promoted to the production build (D01 amendment 2026-10-28).
+  Not renderable before the production parameter set (with the D19 dam files of task L) exists and the production
+  build of a826251b is made (D01 amendment 2026-10-31).
 
 model:
   lock: model/vic.lock.yaml
-  commit: 39e21ff5015d01d9bc20407a8f50006831417aff
+  commit: a826251b6a9b831f432ebd7b655f2b456388c5e4   # D01, frozen 2026-10-31
   driver: image
   coupling: standalone image driver, GWM FALSE, no MODFLOW coupling
 

@@ -140,4 +140,9 @@ without recompiling (amendment 2026-10-28 of
 `docs/decisions/D01-frozen-model-version.md`), recorded by `promote_build.py`
 after the user's authorisation of the file change: promoted on 2026-10-30
 (from `a6761b7`; the earlier manifest is `logs/build_manifest.candidate.json`).
-D02, D03 and D06 do not affect the build.
+On 2026-10-31 the user froze `a826251b` instead (D01 amendment 2026-10-31:
+`39e21ff5` with the corrected fresh-snow density of the land-use step, tested
+as the test build `a6868324` of the same code, task L5). Its production build
+in `builds/vic/a826251b…/` was compiled by this script; the builds of
+`39e21ff5` and `a6868324` stay unchanged. D02, D03 and D06 do not affect the
+build.

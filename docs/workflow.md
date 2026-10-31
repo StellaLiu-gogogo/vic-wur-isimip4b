@@ -64,8 +64,10 @@ DKRZ ISIMIP4b inputs ──01──▶ raw/ISIMIP4b ──02──▶ intermedia
      (2026-10-28);
    - QC evidence for the adopted components: done 2026-10-24 (task R); the
      decomposition file is checked once the dam component rebuilds it.
-3. **Model version** frozen (D01, 2026-10-28: `39e21ff5`); production
-   build: done 2026-10-30 (the existing build promoted, task S); one climate
+3. **Model version** frozen (D01, 2026-10-28: `39e21ff5`; from 2026-10-31
+   `a826251b`, the corrected fresh-snow density of the land-use step, task L5);
+   production build of `39e21ff5`: done 2026-10-30 (the existing build
+   promoted, task S), of `a826251b`: compiled 2026-10-31 (task L5); one climate
    window per spin-up chain (D19 amendment) and the period-dependent daily
    outputs of D03: done (task S); parameter set promoted to `production/`:
    done 2026-10-30 (task R); decide D06 (`extrasoc`) or record it as outside

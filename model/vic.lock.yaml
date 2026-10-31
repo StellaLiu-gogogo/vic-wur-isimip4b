@@ -4,17 +4,20 @@
 # deliveries use exactly this commit.
 repository: https://github.com/wur-wsg/VIC
 branch: fix-restart-luapply-snow-state
-commit: 39e21ff5015d01d9bc20407a8f50006831417aff   # branch head on 2026-09-29 and 2026-10-28
-commit_date: 2026-09-15
+commit: a826251b6a9b831f432ebd7b655f2b456388c5e4   # branch head on 2026-10-31
+commit_date: 2026-10-31
 driver: image
 freeze_status: frozen
-set_on: 2026-10-28
-set_by: user (D01)
+set_on: 2026-10-31
+set_by: user (D01, amendment 2026-10-31)
 note: >-
-  Recorded as the provisional choice on 2026-09-29 and frozen by the user on
-  2026-10-28 (D01). The frozen version is the commit SHA; later commits on the
-  branch do not change it. The build made on 2026-09-30 from the provisional
-  record is a candidate build of this commit; the user decided on 2026-10-28
-  that it becomes the production build without recompiling (D01 amendment),
-  recorded in its manifest by workflow/05_simulation/build/promote_build.py
-  on 2026-10-30.
+  Frozen by the user on 2026-10-31 (D01 amendment 2026-10-31), replacing
+  39e21ff5015d01d9bc20407a8f50006831417aff (provisional from 2026-09-29,
+  frozen from 2026-10-28). a826251b is 39e21ff5 plus one commit: the
+  land-use step (plugins/landuse/src/lu_support.c,
+  calculate_derived_water_states) takes the density of fresh snow at the
+  year start from the cell's own air temperature instead of the first cell
+  of the MPI rank (task L5, analysis/dam-parameter-test/). The frozen
+  version is the commit SHA; later commits on the branch do not change it.
+  Runs made with 39e21ff5 are not rerun (user, 2026-10-31); its build
+  builds/vic/39e21ff5.../ stays as their record.
