@@ -940,6 +940,11 @@ builds/
 The build manifest must record the full model commit, build environment, build
 command, executable checksum, and test status.
 
+A test build (`build_kind: test`, `build_vic.sh --test-commit`) is the build of a
+commit that descends from the locked commit; its manifest records the locked
+commit and the difference to it. Only non-production campaigns with
+`model.test_build: true` may run a test build; production runs never do.
+
 A candidate build (made while the lock was provisional) becomes the production
 build of the same commit only by
 `workflow/05_simulation/build/promote_build.py`, after the user's decision and

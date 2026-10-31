@@ -2,12 +2,17 @@
 # Build the VIC-WUR image driver at the commit pinned in model/vic.lock.yaml and
 # record it as a build under $ISIMIP4B_WORKDIR/builds/vic/<commit>/.
 #
-# usage: build_vic.sh [--scratch] [--jobs N] [--git-url URL]
+# usage: build_vic.sh [--scratch] [--jobs N] [--git-url URL] [--test-commit SHA --test-source DIR]
 #   --scratch    test run: leave the result under scratch/vic-build/output/<commit>/<build-date>/
 #                and never touch builds/ (also the automatic behaviour when the repository is not clean)
 #   --jobs N     parallel compile jobs (default 8)
 #   --git-url    clone URL when the checkout does not exist yet (default: the SSH form of the
 #                repository in model/vic.lock.yaml, git@github.com:<owner>/<name>.git)
+#   --test-commit SHA --test-source DIR
+#                test build (build_kind test) of commit SHA from the VIC git repository DIR instead of the
+#                locked commit: SHA must descend from the locked commit; its difference to the locked commit
+#                is kept in logs/test_diff.patch. Only a non-production campaign that sets model.test_build
+#                may run it (render_run.py check_build).
 #
 # Steps
 #   1. read model/vic.lock.yaml (never modified here): repository, branch, commit, freeze_status, driver
@@ -44,6 +49,8 @@ LMOD_INIT=/etc/profile.d/z00_lmod.sh
 JOBS=8
 GIT_URL=""
 SCRATCH_ONLY=0
+TEST_COMMIT=""
+TEST_SOURCE=""
 SCRIPT_REL=workflow/05_simulation/build/build_vic.sh
 
 while [ $# -gt 0 ]; do
@@ -51,6 +58,8 @@ while [ $# -gt 0 ]; do
     --scratch) SCRATCH_ONLY=1 ;;
     --jobs) JOBS=${2:?--jobs N}; shift ;;
     --git-url) GIT_URL=${2:?--git-url URL}; shift ;;
+    --test-commit) TEST_COMMIT=${2:?--test-commit SHA}; shift ;;
+    --test-source) TEST_SOURCE=${2:?--test-source DIR}; shift ;;
     -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -82,6 +91,8 @@ write_manifest() {
   EXE_SHA=${EXE_SHA:-} EXE_SIZE=${EXE_SIZE:-} VIC_VERSION_LINE=${VIC_VERSION_LINE:-} VIC_GIT_TAG=${VIC_GIT_TAG:-} \
   VERSION_RC=${VERSION_RC:-} OPTIONS_RC=${OPTIONS_RC:-} LDD_RC=${LDD_RC:-} LDD_OK=${LDD_OK:-} \
   TO_SCRATCH=$TO_SCRATCH FINAL=$FINAL SCRATCH_ONLY=$SCRATCH_ONLY \
+  LOCK_COMMIT=$LOCK_COMMIT TEST_SOURCE=$TEST_SOURCE TEST_DIFF_SHA=${TEST_DIFF_SHA:-} \
+  TEST_DIFF_FILES=${TEST_DIFF_FILES:-} \
   python3 - <<'PY'
 import json, os, pathlib
 e = os.environ
@@ -184,6 +195,16 @@ m = {
     },
     "logs": listing("logs"),
 }
+if e["BUILD_KIND"] == "test":
+    m["test"] = {
+        "note": ("test build of a commit derived from the locked commit; only a non-production campaign with "
+                 "model.test_build true may run it"),
+        "base_commit": e["LOCK_COMMIT"],
+        "source": e["TEST_SOURCE"],
+        "diff": "logs/test_diff.patch",
+        "diff_sha256": e["TEST_DIFF_SHA"] or None,
+        "files_changed": e["TEST_DIFF_FILES"].split() if e["TEST_DIFF_FILES"] else [],
+    }
 (out / "build_manifest.json").write_text(json.dumps(m, indent=2) + "\n")
 PY
 }
@@ -202,6 +223,23 @@ case "$FREEZE_STATUS" in
   provisional) BUILD_KIND=candidate ;;
   *) echo "unknown freeze_status '$FREEZE_STATUS'" >&2; exit 2 ;;
 esac
+LOCK_COMMIT=$MODEL_COMMIT
+if [ -n "$TEST_COMMIT$TEST_SOURCE" ]; then
+  [ -n "$TEST_COMMIT" ] && [ -n "$TEST_SOURCE" ] || { echo "--test-commit and --test-source go together" >&2; exit 2; }
+  [[ "$TEST_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "--test-commit is not a full SHA: '$TEST_COMMIT'" >&2; exit 2; }
+  [ "$TEST_COMMIT" != "$LOCK_COMMIT" ] || { echo "--test-commit is the locked commit; build it without --test-commit" >&2; exit 2; }
+  TEST_SOURCE=$(cd "$TEST_SOURCE" && pwd)
+  git -C "$TEST_SOURCE" cat-file -e "$TEST_COMMIT^{commit}" 2>/dev/null || { echo "$TEST_COMMIT is not in $TEST_SOURCE" >&2; exit 2; }
+  git -C "$TEST_SOURCE" merge-base --is-ancestor "$LOCK_COMMIT" "$TEST_COMMIT" || {
+    echo "$TEST_COMMIT does not descend from the locked commit $LOCK_COMMIT" >&2; exit 2; }
+  MODEL_COMMIT=$TEST_COMMIT
+  MODEL_REPO=$TEST_SOURCE
+  GIT_URL=$TEST_SOURCE
+  MODEL_BRANCH=$(git -C "$TEST_SOURCE" branch --contains "$TEST_COMMIT" --format='%(refname:short)' | head -1)
+  MODEL_COMMIT_DATE=$(git -C "$TEST_SOURCE" log -1 --format=%cs "$TEST_COMMIT")
+  FREEZE_STATUS=test
+  BUILD_KIND=test
+fi
 if [ -z "$GIT_URL" ]; then
   GIT_URL=$(echo "$MODEL_REPO" | sed -E 's#^https?://github\.com/([^/]+)/([^/.]+)(\.git)?/?$#git@github.com:\1/\2.git#')
 fi
@@ -246,6 +284,12 @@ fi
 git -C "$SRC" -c advice.detachedHead=false checkout --detach "$MODEL_COMMIT"
 HEAD_SHA=$(git -C "$SRC" rev-parse HEAD)
 [ "$HEAD_SHA" = "$MODEL_COMMIT" ] || { FAIL_REASON="checkout HEAD $HEAD_SHA != $MODEL_COMMIT"; exit 4; }
+if [ "$BUILD_KIND" = test ]; then
+  git -C "$SRC" diff "$LOCK_COMMIT" "$MODEL_COMMIT" > "$OUT/logs/test_diff.patch"
+  TEST_DIFF_SHA=$(sha256sum "$OUT/logs/test_diff.patch" | cut -d' ' -f1)
+  TEST_DIFF_FILES=$(git -C "$SRC" diff --name-only "$LOCK_COMMIT" "$MODEL_COMMIT" | tr '\n' ' ')
+  log "test build: difference to the locked commit $LOCK_COMMIT in logs/test_diff.patch ($TEST_DIFF_FILES)"
+fi
 if [ -n "$(git -C "$SRC" status --porcelain)" ]; then
   git -C "$SRC" status --porcelain
   FAIL_REASON="checkout $SRC is not clean"; exit 4

@@ -3,7 +3,8 @@
 
 check_build: the campaign's model commit must equal model/vic.lock.yaml, the build manifest must be a build of that
 commit with status built or tested, the runtime modules of the build must equal the modules of the resources, and a
-production campaign needs a frozen lock. parameter_files: every parameter file of the campaign must be recorded in
+production campaign needs a frozen lock; a non-production campaign with model.test_build runs a test build of a commit
+derived from the locked commit. parameter_files: every parameter file of the campaign must be recorded in
 the parameter manifest with an md5 and exist under parameters/<status>/<set>/.
 
 The repository files (lock, parameter manifest) and the workdir (build manifest, parameter files) are synthetic,
@@ -58,12 +59,15 @@ class Synthetic(unittest.TestCase):
     def lock(self, commit, freeze_status):
         dump_yaml(os.path.join(self.R, 'model', 'vic.lock.yaml'), {'commit': commit, 'freeze_status': freeze_status})
 
-    def build(self, commit, status, modules, model_commit=None, build_kind='candidate'):
+    def build(self, commit, status, modules, model_commit=None, build_kind='candidate', test_base=None):
         bdir = os.path.join(self.W, 'builds', 'vic', commit); os.makedirs(bdir, exist_ok=True)
+        m = {'model': {'model_commit': model_commit or commit}, 'status': status, 'build_kind': build_kind,
+             'executable': {'path': 'bin/vic_image.exe', 'sha256': 'e' * 64, 'vic_git_tag': 'tag'},
+             'runtime_modules': modules}
+        if test_base:
+            m['test'] = {'base_commit': test_base}
         with open(os.path.join(bdir, 'build_manifest.json'), 'w') as fh:
-            json.dump({'model': {'model_commit': model_commit or commit}, 'status': status, 'build_kind': build_kind,
-                       'executable': {'path': 'bin/vic_image.exe', 'sha256': 'e' * 64, 'vic_git_tag': 'tag'},
-                       'runtime_modules': modules}, fh)
+            json.dump(m, fh)
 
     def manifest(self, components):
         dump_yaml(os.path.join(self.R, 'manifests', 'parameters', 'pset.yaml'), {'components': components})
@@ -130,6 +134,47 @@ class CheckBuildTest(Synthetic):
             rr.check_build(self.W, self.campaign, self.resources)
         self.build(COMMIT, 'built', MODULES, build_kind='production')
         self.assertEqual(rr.check_build(self.W, self.campaign, self.resources)['build_kind'], 'production')
+
+
+class TestBuildTest(Synthetic):
+    """A non-production campaign with model.test_build runs a test build (build_vic.sh --test-commit) of a commit that
+    descends from the locked commit (task L5, user 2026-10-31)."""
+    TEST = 'c' * 40
+
+    def setUp(self):
+        super().setUp()
+        self.lock(COMMIT, 'frozen')
+        self.campaign['model'] = {'lock': 'model/vic.lock.yaml', 'commit': self.TEST, 'test_build': True}
+
+    def test_usable_test_build(self):
+        self.build(self.TEST, 'built', MODULES, build_kind='test', test_base=COMMIT)
+        m = rr.check_build(self.W, self.campaign, self.resources)
+        self.assertEqual((m['commit'], m['freeze_status'], m['build_kind']), (self.TEST, 'test', 'test'))
+        self.assertEqual(m['build'], f'builds/vic/{self.TEST}')
+
+    def test_needs_the_flag(self):
+        self.build(self.TEST, 'built', MODULES, build_kind='test', test_base=COMMIT)
+        for flag in (False, 'yes'):
+            self.campaign['model']['test_build'] = flag
+            with self.subTest(flag=flag), self.assertRaisesRegex(rr.RenderError, 'differs from model/vic.lock.yaml'):
+                rr.check_build(self.W, self.campaign, self.resources)
+
+    def test_never_in_production(self):
+        self.build(self.TEST, 'built', MODULES, build_kind='test', test_base=COMMIT)
+        self.campaign['production'] = True
+        with self.assertRaisesRegex(rr.RenderError, 'production campaign cannot run a test build'):
+            rr.check_build(self.W, self.campaign, self.resources)
+
+    def test_flag_with_the_locked_commit(self):
+        self.campaign['model']['commit'] = COMMIT
+        with self.assertRaisesRegex(rr.RenderError, 'is the locked commit'):
+            rr.check_build(self.W, self.campaign, self.resources)
+
+    def test_needs_a_test_build_of_the_locked_commit(self):
+        for kind, base in (('candidate', None), ('production', None), ('test', None), ('test', 'b' * 40)):
+            self.build(self.TEST, 'built', MODULES, build_kind=kind, test_base=base)
+            with self.subTest(kind=kind, base=base), self.assertRaisesRegex(rr.RenderError, 'needs a test build'):
+                rr.check_build(self.W, self.campaign, self.resources)
 
 
 class ParameterFilesTest(Synthetic):

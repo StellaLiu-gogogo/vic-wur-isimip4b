@@ -3,7 +3,8 @@
 
 For each run (resolve_campaign.py) the renderer
   1. checks the model build (builds/vic/<commit>/build_manifest.json: commit of the campaign and of
-     model/vic.lock.yaml, build status, runtime modules equal to the resources, build_kind production for a
+     model/vic.lock.yaml, or a test build of a commit derived from it for a non-production campaign with
+     model.test_build; build status, runtime modules equal to the resources, build_kind production for a
      production campaign; the executable sha256 is recorded
      here and checked by the job), the parameter files (present, md5 recorded in manifests/parameters/<set>.yaml;
      the md5 is checked by the job) and every forcing unit it reads (accepted: code_dirty false and qc.status
@@ -99,15 +100,26 @@ def read_yaml(path):
 
 # ------------------------------------------------------------------------------------------------ checks
 def check_build(W, campaign, resources):
+    """The model record of the campaign's build. The campaign's commit must be the locked commit, except for a
+    non-production campaign with model.test_build true: it runs a test build (build_vic.sh --test-commit) of a commit
+    that descends from the locked commit."""
     lock = read_yaml(os.path.join(REPO, campaign['model']['lock']))
     commit = campaign['model']['commit']
-    if lock['commit'] != commit:
+    test = campaign['model'].get('test_build', False) is True
+    if test and campaign.get('production'):
+        raise RenderError('a production campaign cannot run a test build (model.test_build)')
+    if test and lock['commit'] == commit:
+        raise RenderError(f'model.test_build is set but the campaign model commit {commit} is the locked commit')
+    if not test and lock['commit'] != commit:
         raise RenderError(f'campaign model commit {commit} differs from model/vic.lock.yaml {lock["commit"]}')
     bdir = f'{W}/builds/vic/{commit}'
     with open(f'{bdir}/build_manifest.json') as fh:
         bm = json.load(fh)
     if bm['model']['model_commit'] != commit or bm['status'] not in ('built', 'tested'):
         raise RenderError(f'build {bdir} is not a usable build of {commit} (status {bm["status"]})')
+    if test and (bm.get('build_kind') != 'test' or (bm.get('test') or {}).get('base_commit') != lock['commit']):
+        raise RenderError(f'model.test_build needs a test build of a commit derived from the locked commit '
+                          f'{lock["commit"]}; {bdir} is a {bm.get("build_kind")} build')
     exe = f'{bdir}/{bm["executable"]["path"]}'
     if [str(m) for m in resources['modules']] != bm['runtime_modules']:
         raise RenderError(f'resources modules {resources["modules"]} differ from the build runtime_modules '
@@ -118,7 +130,8 @@ def check_build(W, campaign, resources):
         raise RenderError(f'a production campaign needs a production build; {bdir} is a {bm.get("build_kind")} build '
                           '(build/README.md: build_vic.sh with a frozen lock, or promote_build.py, D01 amendment '
                           '2026-10-28)')
-    return {'commit': commit, 'freeze_status': lock.get('freeze_status'), 'build': os.path.relpath(bdir, W),
+    return {'commit': commit, 'freeze_status': 'test' if test else lock.get('freeze_status'),
+            'build': os.path.relpath(bdir, W),
             'build_status': bm['status'], 'build_kind': bm.get('build_kind'),
             'executable': os.path.relpath(exe, W), 'executable_sha256': bm['executable']['sha256'],
             'runtime_modules': bm['runtime_modules'], 'vic_git_tag': bm['executable'].get('vic_git_tag')}

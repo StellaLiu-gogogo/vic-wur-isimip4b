@@ -9,7 +9,7 @@ read by the run stage and must be rebuilt to reproduce any simulation.
 
 | File | Role |
 |---|---|
-| `build_vic.sh` | producer: checkout at the locked commit, module setup, `make`, checks, `build_manifest.json` |
+| `build_vic.sh` | producer: checkout at the locked commit (or, with `--test-commit`, a test commit derived from it), module setup, `make`, checks, `build_manifest.json` |
 | `promote_build.py` | records an existing candidate build of the frozen commit as the production build, without recompiling (D01 amendment 2026-10-28) |
 
 ## What the script does
@@ -68,6 +68,28 @@ runs on a login node in about 1 minute of CPU time; writing the object
 files on `/lustre` took 7 minutes on 2026-09-30. If the repository is not
 clean the result stays in scratch with `code_dirty: true` (rule 14): commit
 first, then build, so that the manifest records the workflow commit.
+
+## Test builds (`--test-commit`)
+
+A test build compiles a VIC-WUR commit that descends from the locked commit, to test a change of the model before
+the user decides on a new model version (task L5, user 2026-10-31: the new snow density of the land-use step,
+campaign `snow-density-test`). The lock file is not changed.
+
+```bash
+export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
+workflow/05_simulation/build/build_vic.sh --test-commit <sha> --test-source <VIC git repository>
+```
+
+- `<sha>` must be a full commit in `<VIC git repository>` (a local clone, for example in the task's scratch) that
+  descends from the locked commit; the checkout `scratch/vic-build/<sha>/` is cloned from that repository.
+- The manifest records `build_kind: test`, `model.freeze_status: test`, the source repository and branch, and a
+  `test` record: `base_commit` (the locked commit), the difference to it (`logs/test_diff.patch`, its sha256 and the
+  changed files).
+- The build goes to `builds/vic/<sha>/` like any build. Only a non-production campaign with `model.test_build: true`
+  and `model.commit: <sha>` can run it (`render_run.py check_build`); a production campaign never can.
+- A commit that exists only in a local clone must also be kept in the repository, as a patch with the analysis that
+  uses it (campaign `snow-density-test`: `analysis/dam-parameter-test/vic-lu-snow-density.patch`), so that the
+  workdir never holds the only copy of the change.
 
 ## Promotion of a candidate build (`promote_build.py`)
 

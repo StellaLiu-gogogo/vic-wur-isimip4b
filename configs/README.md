@@ -23,14 +23,14 @@ Keys of a campaign file (checked by `workflow/05_simulation/render/resolve_campa
 |---|---|
 | `campaign_id` | equals the file name |
 | `production` | `true` for production campaigns; only non-production campaigns may carry a `restriction` |
-| `model` | `lock` file and `commit` (must equal `model/vic.lock.yaml`), driver, coupling |
+| `model` | `lock` file and `commit` (must equal `model/vic.lock.yaml`), driver, coupling; a non-production campaign may set `test_build: true` and the commit of a test build of a commit derived from the locked one (`workflow/05_simulation/build/README.md`, "Test builds"; campaign `snow-density-test`) |
 | `parameter_set` | `id`, `status`, and `files`: role (`domain`, `parameters`, `routing`, `decomposition`, `irrigation`, `water_use`) → file inside the set; `dams`: soc scenario of a segment → dam file inside the set, one entry for every soc scenario the campaign simulates (D19; the files share one dam list) |
 | `protocol` | `path` (under the workdir), `commit`, `simulation_round`, `sector` |
 | `gcms` | per GCM `climate_input`: `concentration-driven` or `emission-driven` (selects the input alias) |
 | `experiments` | `ids: [...]`, `priority: [...]` or `all: true` |
 | `exclusions` | list of `{experiment, reason}` |
 | `sensitivity_equivalence` | sens scenario → `{same_as, reason}` (e.g. `2021co2` → `default`) |
-| `restriction` | non-production only: `periods` and `runs: {<label>: {years: [start, end]}}`; a run may set `chunk_years` (test of chunked runs, campaign `chunk-test`) and `resources: {ntasks, cpus_per_task, mem}`, which replace these three values of the resource file for that run only (test of ranks and memory, campaign `dam-test`) |
+| `restriction` | non-production only: `periods` and `runs: {<label>: {years: [start, end]}}`; a run may set `chunk_years` (test of chunked runs, campaign `chunk-test`) and `resources: {ntasks, cpus_per_task, mem, exclusive}`, which replace these values of the resource file for that run only (test of ranks and memory, campaign `dam-test`) |
 | `run_order` | optional: `longest-chain-then-priority` renders and submits the segments of the longest chain first, then by protocol priority (D02 decision 3; `workflow/05_simulation/README.md`, "Run order"); absent: spin-ups, pre-industrial, historical, future |
 | `initialisation` | `without_parent`: `cold_start` (no INIT_STATE) or `state_of_run` (the end state of an earlier, completed run: `state_of_run` with `run_dir` under `runs/`, `state` inside it, and `reason`); `state_at_end` |
 | `spinup` | `length_years` (first block) and `climate_cycle`: `[first, last]` for every spin-up chain, or a map spin-up DHF scenario → `[first, last]` naming exactly the scenarios of the campaign's spin-ups (D19 amendment 2026-10-22; null when the campaign simulates no spin-up); for a campaign without a restriction also `block_years` (continuation blocks) and `max_blocks` (D19, D20; `workflow/05_simulation/README.md`, "Spin-up blocks") |
