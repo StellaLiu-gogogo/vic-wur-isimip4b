@@ -1,0 +1,32 @@
+From a686832448d4db64870fa96450992b7b5d9a9b92 Mon Sep 17 00:00:00 2001
+From: StellaLiu-gogogo <lsd920608@gmail.com>
+Date: Sat, 31 Oct 2026 16:13:29 +0100
+Subject: [PATCH] Use the cell's own air temperature for the new snow density
+ in lu_apply
+
+calculate_derived_water_states (called by lu_apply at every year start)
+computed the density of fresh snow from force->air_temp[NR] and
+soil_con->Tfactor[iBand], i.e. from the first cell of the MPI rank, not
+from cell iCell. The result therefore depended on the number of ranks.
+Test commit for the ISIMIP4b project (task L5), not pushed.
+---
+ vic/plugins/landuse/src/lu_support.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/vic/plugins/landuse/src/lu_support.c b/vic/plugins/landuse/src/lu_support.c
+index 95ef108e..e9de5b18 100644
+--- a/vic/plugins/landuse/src/lu_support.c
++++ b/vic/plugins/landuse/src/lu_support.c
+@@ -282,7 +282,8 @@ calculate_derived_water_states(size_t iCell,
+             if (snow[iVeg][iBand].last_snow == 0 ||
+                 snow[iVeg][iBand].density <= 0.) {
+                 snow[iVeg][iBand].density = new_snow_density(
+-                    force->air_temp[NR] + soil_con->Tfactor[iBand]);
++                    force[iCell].air_temp[NR] +
++                    soil_con[iCell].Tfactor[iBand]);
+             }
+             snow[iVeg][iBand].depth = CONST_RHOFW * snow[iVeg][iBand].swq /
+                                       snow[iVeg][iBand].density;
+-- 
+2.43.0
+
