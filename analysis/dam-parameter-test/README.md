@@ -120,7 +120,8 @@ first cell of a rank depends on the number of ranks, not on the threads (`lu_app
 comparisons; at the cold start of 2015 there is no snow, so 2015 is identical.
 
 Evidence on 2016-01-01, `ranks8` against `ranks16` (`diag_day1_cells.py`, `diag_snow_link.py`, job records
-`logs/diag-day1_cells_43531574/`, `logs/diag-snow_link_43531575/`):
+`logs/diag-day1-cells_43531574/`, `logs/diag-snow-link_43531575/`; renamed on 2026-10-31 from `diag-day1_cells_…` and
+`diag-snow_link_…` to follow the job-record naming rule):
 
 - `OUT_RUNOFF` differs in 7 829 of 2 188 551 cells, `OUT_BASEFLOW` in none. The differences are small (median
   relative difference 8e-7, largest 0.15 mm).
