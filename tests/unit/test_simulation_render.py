@@ -816,6 +816,50 @@ class ChunkedWarmStartTest(unittest.TestCase):
                 rr.check_same_plugins(rd, c, 'r')
 
 
+class ParameterProvenanceTest(unittest.TestCase):
+    """The bundle provenance of a promoted set keeps the candidate path as `object` (promote_parameter_set.py copies
+    it unchanged); it is still the record of the production copy that promotion.yaml lists (production-config-check,
+    2026-10-31: the elevation and land-use tile checks stopped every campaign on the production set)."""
+
+    CAND = 'parameters/candidates/s/bundle/b.nc'
+    PROD = 'parameters/production/s/bundle/b.nc'
+
+    def write(self, W, rel_dir, prov, promo=None):
+        os.makedirs(os.path.join(W, rel_dir), exist_ok=True)
+        with open(os.path.join(W, rel_dir, 'provenance.yaml'), 'w') as fh:
+            yaml.safe_dump(prov, fh)
+        if promo is not None:
+            with open(os.path.join(W, 'parameters/production/s/promotion.yaml'), 'w') as fh:
+                yaml.safe_dump(promo, fh)
+
+    def test_candidate_and_promoted(self):
+        prov = {'object': self.CAND, 'inputs': {'vegetation_component': 'v'}}
+        promo = {'source': 'parameters/candidates/s', 'target': 'parameters/production/s',
+                 'files': [{'path': 'bundle/b.nc'}, {'path': 'bundle/provenance.yaml'}]}
+        with tempfile.TemporaryDirectory() as W:
+            self.write(W, 'parameters/candidates/s/bundle', prov)
+            self.write(W, 'parameters/production/s/bundle', prov, promo)
+            self.assertEqual(rr.parameter_provenance(W, self.CAND), prov)
+            self.assertEqual(rr.parameter_provenance(W, self.PROD), prov)
+
+    def test_not_the_record(self):
+        with tempfile.TemporaryDirectory() as W:
+            # another file's record in a candidate set
+            self.write(W, 'parameters/candidates/s/bundle', {'object': 'parameters/candidates/s/bundle/other.nc'})
+            self.assertEqual(rr.parameter_provenance(W, self.CAND), {})
+            # a production copy whose file promotion.yaml does not list, or from another source, or no record
+            self.write(W, 'parameters/production/s/bundle', {'object': self.CAND},
+                       {'source': 'parameters/candidates/s', 'target': 'parameters/production/s', 'files': []})
+            self.assertEqual(rr.parameter_provenance(W, self.PROD), {})
+            self.write(W, 'parameters/production/s/bundle', {'object': self.CAND},
+                       {'source': 'parameters/candidates/t', 'target': 'parameters/production/s',
+                        'files': [{'path': 'bundle/b.nc'}]})
+            self.assertEqual(rr.parameter_provenance(W, self.PROD), {})
+            os.remove(os.path.join(W, 'parameters/production/s/promotion.yaml'))
+            self.assertEqual(rr.parameter_provenance(W, self.PROD), {})
+            self.assertEqual(rr.parameter_provenance(W, 'parameters/production/s/routing/r.nc'), {})
+
+
 class ConvergenceRuleTest(unittest.TestCase):
     """D19 convergence rule (user 2026-10-22): |trend per year| <= 0.1 x SD of the detrended annual values."""
 

@@ -394,6 +394,29 @@ def check_nonrenewable_output(campaign):
                           'reaches the river would not be recorded')
 
 
+def parameter_provenance(W, rel):
+    """The provenance.yaml next to the parameter file `rel` (workdir-relative) when it is the record of that file,
+    else {}. It is when its `object` is `rel`, or, in a promoted set, when `object` is the same file of the candidate
+    set the promotion copied: promote_parameter_set.py copies a provenance record unchanged, so its `object` and inputs
+    keep the candidate paths, and promotion.yaml (source, target, files) records the copy, checked by md5 and sha256."""
+    p = f'{W}/{os.path.dirname(rel)}/provenance.yaml'
+    if not os.path.isfile(p):
+        return {}
+    prov = read_yaml(p)
+    if prov.get('object') == rel:
+        return prov
+    parts = rel.split('/')
+    record = f'{W}/{"/".join(parts[:3])}/promotion.yaml'
+    if parts[:2] != ['parameters', 'production'] or len(parts) < 4 or not os.path.isfile(record):
+        return {}
+    promo = read_yaml(record)
+    inner = '/'.join(parts[3:])
+    if (promo.get('target') == '/'.join(parts[:3]) and prov.get('object') == f'{promo.get("source")}/{inner}'
+            and inner in {f.get('path') for f in promo.get('files') or []}):
+        return prov
+    return {}
+
+
 def check_unit_parameters(W, params, units):
     """Every forcing unit of the run was made on the campaign's domain file (sha256 recorded in its provenance.yaml,
     input_sha256: key `domain` or a parameters/.../domain/ path), and a climate unit with the elevation of the
@@ -410,9 +433,7 @@ def check_unit_parameters(W, params, units):
     def elevation_sources():
         if 'elev' not in cache:
             rel = params['parameters']['path']
-            p = f'{W}/{os.path.dirname(rel)}/provenance.yaml'
-            bprov = read_yaml(p) if os.path.exists(p) else {}
-            nat = (bprov.get('input_sha256') or {}).get('natural_bundle') if bprov.get('object') == rel else None
+            nat = (parameter_provenance(W, rel).get('input_sha256') or {}).get('natural_bundle')
             cache['elev'] = {nat} if nat else {sha('parameters', rel)}
         return cache['elev']
 
@@ -436,9 +457,9 @@ def check_landuse_tiles(W, params, units, usoc):
     checked exactly the land-use files of this run (same sha256); otherwise the QC has to be run again
     (submit_vegetation_component.py --verify-only)."""
     rel = params['parameters']['path']
-    bprov = read_yaml(f'{W}/{os.path.dirname(rel)}/provenance.yaml')
+    bprov = parameter_provenance(W, rel)
     veg = (bprov.get('inputs') or {}).get('vegetation_component')
-    if bprov.get('object') != rel or not veg:
+    if not veg:
         raise RenderError(f'{rel}: its provenance.yaml names no vegetation component, so the land-use tiles cannot be '
                           'checked against the land-use forcing')
     q = read_yaml(f'{W}/{os.path.dirname(veg)}/provenance.yaml').get('qc') or {}
