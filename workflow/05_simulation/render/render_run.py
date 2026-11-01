@@ -36,7 +36,7 @@ campaign run). An existing run directory is never rendered again: a retry of the
 
 Usage: render_run.py --campaign configs/campaigns/smoke.yaml [--label smoke2015] [--run-id ID] [--scratch]
 """
-import argparse, datetime, hashlib, json, math, os, re, subprocess, sys
+import argparse, datetime, hashlib, json, math, os, re, shutil, subprocess, sys
 
 import yaml
 
@@ -47,6 +47,8 @@ import resolve_campaign as rc   # noqa: E402
 import forcing_years as fy      # noqa: E402
 
 RENDERED_BY = 'workflow/05_simulation/render/render_run.py'
+# a run is written into <base>/<TMP_PREFIX><run-id> and renamed to <base>/<run-id> when complete
+TMP_PREFIX = '.rendering-'
 VIC_TEMPLATE = 'workflow/05_simulation/templates/vic/global_param.txt'
 SLURM_TEMPLATE = 'workflow/05_simulation/templates/slurm/vic_run.sbatch'
 CLIMATE_VARIABLES = ('tair', 'prec', 'psurf', 'swdown', 'lwdown', 'vp', 'wind')
@@ -271,9 +273,11 @@ def year_of(name):
     return int(re.search(r'_(\d{4})\.nc$', name).group(1))
 
 
-def forcing_plan(W, campaign, run, alias):
+def forcing_plan(W, campaign, run, alias, run_starts=None):
     """Links of the forcing view and the forcing-unit identities: ([(link, target)], {unit: record},
-    {family/variable: {sim_year: {source, rule}}})."""
+    {family/variable: {sim_year: {source, rule}}}). run_starts: the years in which the run or one of its chunks
+    starts (default the run's start year), for the climate start years of the cycle rule (forcing_years.map_cycle).
+    A year a rule cannot map stops the render (RenderError)."""
     seg = run['segment']; years = range(run['start_year'], run['end_year'] + 1)
     gcm = seg['gcm']; spinup = seg['period'] == 'spinup'
     dhf = campaign['dhf_forcing']
@@ -282,7 +286,10 @@ def forcing_plan(W, campaign, run, alias):
     def add_unit(rel_unit, family_key, link_dir, pattern, year_map):
         prov, files = unit_record(W, rel_unit)
         uyears = sorted(year_of(p) for p in files if re.fullmatch(pattern.format(year=r'\d{4}'), p))
-        ymap = year_map(uyears, prov)
+        try:
+            ymap = year_map(uyears, prov)
+        except ValueError as e:
+            raise RenderError(f'{run["run_id"]}: forcing unit {rel_unit}: {e}')
         rec = {'forcing_unit': rel_unit, 'code_commit': prov['code_commit'], 'created_at': prov['created_at'],
                'qc_status': prov['qc']['status'], 'files': {}}
         mapping[family_key] = {}
@@ -307,7 +314,7 @@ def forcing_plan(W, campaign, run, alias):
                 raise RenderError(f'{run["run_id"]}: {e}')
             # a start year of the unit made for this window is used as itself (D20, forcing_years.map_cycle)
             add_unit(rel, f'climate/{var}', f'climate/{var}', pat, lambda uy, pv, w=win: fy.map_cycle(
-                years, w, uy, pv.get('start_years'), pv.get('cycle_windows')))
+                years, w, uy, pv.get('start_years'), pv.get('cycle_windows'), run_starts))
         else:
             add_unit(rel, f'climate/{var}', f'climate/{var}', pat,
                      lambda uy, pv: fy.map_identity_or_constant(years, uy, constant=False))
@@ -728,7 +735,12 @@ SPINUP_CHECKED_BY = 'workflow/05_simulation/monitor/check_spinup.py'
 
 
 def manifest_of(run_dir):
-    with open(os.path.join(run_dir, 'run_manifest.json')) as fh:
+    path = os.path.join(run_dir, 'run_manifest.json')
+    if not os.path.isfile(path):
+        raise RenderError(f'{run_dir} has no run_manifest.json: an incomplete run directory (e.g. of a render that '
+                          'stopped part-way before renders were written to a temporary directory); the user decides '
+                          'whether it is deleted')
+    with open(path) as fh:
         return json.load(fh)
 
 
@@ -849,10 +861,21 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         rdir = f'{base}/{run["run_id"]}'
         if os.path.exists(rdir):
             raise RenderError(f'{rdir} exists; a run directory is never rendered again (retry: submit_run.py --retry)')
+        # the run is written into tmp and renamed to rdir when complete, so a render that stops leaves no run directory
+        tmp = f'{base}/{TMP_PREFIX}{run["run_id"]}'
+        if os.path.exists(tmp):
+            raise RenderError(f'{tmp} exists: left by a render that was killed; the user decides whether it is deleted')
+        rres = run_resources(run, resources)
+        cyears = run_chunk_years(run, resources)
+        plan = chunk_plan(run['start_year'], run['end_year'], cyears)
+        chunked = len(plan) > 1
         alias = rc.input_alias(aliases, seg['climate'], campaign['gcms'][seg['gcm']]['climate_input'])
         rparams = run_parameters(params, seg['soc'])
-        links, units, mapping = forcing_plan(W, campaign, run, alias)
-        check_start_year(run, mapping)
+        links, units, mapping = forcing_plan(W, campaign, run, alias, run_starts=[c0 for c0, _ in plan])
+        # VIC checks the first-year file of every chunk: all chunks are checked before anything is written
+        for c0, c1 in plan:
+            check_start_year({'run_id': f'{run["run_id"]}' + (f' (chunk {chunk_id(c0, c1)})' if chunked else ''),
+                              'start_year': c0}, mapping)
         check_unit_parameters(W, rparams, units)
         if campaign['plugins']['landuse']['enabled']:
             check_landuse_tiles(W, rparams, units, campaign['dhf_forcing']['units'][seg['soc']])
@@ -905,163 +928,174 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
         elif init['without_parent'] != 'cold_start':
             raise RenderError(f'{run["run_id"]}: parent {parent} is not simulated and initialisation.without_parent is '
                               f'{init["without_parent"]!r} (cold_start or state_of_run)')
-        usoc = campaign['dhf_forcing']['units'][seg['soc']]
-        pl = campaign['plugins']
-        rres = run_resources(run, resources)
         dec = check_tasks(rres['ntasks'], dict(groups))
-        cyears = run_chunk_years(run, resources)
-        plan = chunk_plan(run['start_year'], run['end_year'], cyears)
-        chunked = len(plan) > 1
         spinup = seg['period'] == 'spinup'
         streams_text, streams = output_streams(campaign, None, run['run_id'] if spinup else None, seg['period'])
         parent_rec = {'segment_id': None if warm or prev_block else parent,
                       **({'protocol_parent_segment': parent} if warm else {}),
                       'init_state': init_state and os.path.relpath(init_state, W),
                       'initialisation': init_how, **parent_state}
-        files, expected, chunks, hours_total = {}, [], [], 0
-        for k, (c0, c1) in enumerate(plan):
-            cid = chunk_id(c0, c1) if chunked else None
-            pre = f'chunks/{cid}/' if chunked else ''
-            cdir = f'{rdir}/chunks/{cid}' if chunked else rdir
-            if k == 0:
-                c_init, c_how = init_state, init_how
-            else:
-                c_init = f'{rdir}/chunks/{chunk_id(*plan[k - 1])}/states/state.{c0:04d}0101_00000.nc'
-                c_how = f'end state of chunk {chunk_id(*plan[k - 1])} of this run'
-            check_start_year({'run_id': f'{run["run_id"]}' + (f' (chunk {cid})' if chunked else ''),
-                              'start_year': c0}, mapping)
-            for sub in ('config', 'logs', 'states', 'output', 'forcing'):
-                os.makedirs(f'{cdir}/{sub}')
-            clinks = [(n, t) for n, t in links if c0 <= year_of(n) <= c1]
-            fy.build_view(f'{cdir}/forcing', clinks)
-            view = f'{cdir}/forcing'
-            force_types = '\n'.join(
-                f'FORCE_TYPE              {vt:9s} {var:7s} {view}/climate/{var}/{var}_{seg["gcm"]}_{alias}_'
-                for vt, var in (('AIR_TEMP', 'tair'), ('PREC', 'prec'), ('PRESSURE', 'psurf'), ('SWDOWN', 'swdown'),
-                                ('LWDOWN', 'lwdown'), ('VP', 'vp'), ('WIND', 'wind')))
-            # VIC opens the start-year file of every PLUGIN_FORCE_TYPE line, whether its plugin is on or not
-            # (plugins/general/src/plugin_forcing_utils.c, plugin_force_validate_global_param, at 39e21ff5); the forcing
-            # view has links only for the plugins that are on, so the lines of a plugin that is off are left out
-            wu_lines = [] if pl['water_use']['enabled'] else ['# water use off: no water-use forcing']
-            for prefix, sector in WATER_USE_FILES:
-                if pl['water_use']['enabled'] and sector in pl['water_use']['sectors']:
-                    for kind, var in WATER_USE_VARIABLES:
-                        wu_lines.append(f'PLUGIN_FORCE_TYPE  {prefix}_{kind:12s} {var:21s} YEAR  '
-                                        f'{view}/water_use/{sector}_{var}_{usoc}_')
-            end_state = c1 + 1
-            state_lines = '\n'.join([f'STATENAME               {cdir}/states/state', f'STATEYEAR               {end_state}',
-                                     'STATEMONTH              1', 'STATEDAY                1', 'STATESEC                0',
-                                     'STATE_FORMAT            NETCDF4', 'STATE_COMPRESS          2'])
-            values = {
-                'RUN_ID': run['run_id'] + (f' chunk {cid}' if chunked else ''), 'CAMPAIGN_ID': campaign['campaign_id'],
-                'CODE_COMMIT': commit, 'MODEL_COMMIT': model['commit'], 'START_YEAR': c0, 'END_YEAR': c1,
-                'DOMAIN': f'{W}/{rparams["domain"]["path"]}', 'PARAMETERS': f'{W}/{rparams["parameters"]["path"]}',
-                'CONSTANTS': f'{cdir}/config/vic_constants.txt', 'FORCE_TYPES': force_types,
-                'INIT_STATE_LINES': f'# {c_how}\nINIT_STATE              {c_init}' if c_init else
-                                    '# cold start: no INIT_STATE (campaign initialisation.without_parent)',
-                'STATE_LINES': state_lines,
-                'ROUTING': tf(pl['routing']['enabled']), 'ROUT_STEPS_PER_DAY': pl['routing']['steps_per_day'],
-                'DECOMPOSITION': pl['routing']['decomposition'],
-                'ROUTING_PARAMETERS': f'{W}/{rparams["routing"]["path"]}',
-                'DECOMPOSITION_PARAMETERS': f'{W}/{rparams["decomposition"]["path"]}',
-                'WATERUSE': tf(pl['water_use']['enabled']), 'WATERUSE_PARAMETERS': f'{W}/{rparams["water_use"]["path"]}',
-                'LOCAL_WITHDRAWAL': tf(pl['water_use']['local_withdrawal']),
-                'REMOTE_WITHDRAWAL': tf(pl['water_use']['remote_withdrawal']),
-                'COMPENSATION_WITHDRAWAL': tf(pl['water_use']['compensation_withdrawal']),
-                'NONRENEWABLE_WITHDRAWAL': tf(pl['water_use']['nonrenewable_withdrawal']),
-                'NONRENEWABLE_RUNOFF': tf(pl['water_use']['nonrenewable_runoff']),
-                'WATER_USE_FORCE_TYPES': '\n'.join(wu_lines),
-                'IRRIGATION': tf(pl['irrigation']['enabled']), 'IRRIGATION_PARAMETERS': f'{W}/{rparams["irrigation"]["path"]}',
-                'POTENTIAL_IRRIGATION': tf(pl['irrigation']['potential_irrigation']),
-                'EFFICIENT_IRRIGATION': tf(pl['irrigation']['efficient_irrigation']),
-                'OFFSET_IRRIGATION': tf(pl['irrigation']['offset_irrigation']),
-                'PBARE': pl['irrigation']['paddy_bare_class'],
-                'DAMS': tf(pl['dams']['enabled']), 'DAMS_PARAMETERS': f'{W}/{rparams["dams"]["path"]}',
-                'LANDUSE': tf(pl['landuse']['enabled']),
-                'LANDUSE_FORCE_TYPE': f'PLUGIN_FORCE_TYPE  CV  coverage  YEAR  {view}/landuse/coverage_{usoc}_'
-                                      if pl['landuse']['enabled'] else '# land use off: no land-use forcing',
-                'EFR': tf(pl['efr']['enabled']), 'WOFOST': tf(pl['wofost']['enabled']),
-                'RESULT_DIR': f'{cdir}/output/', 'LOG_DIR': f'{cdir}/logs/', 'OUTPUT_STREAMS': streams_text}
-            vic_text = fill(open(os.path.join(REPO, VIC_TEMPLATE)).read(), values)
-            if c_init:
-                check_start_january(vic_text, run['run_id'])
-            constants = (f'# VIC constants of run {run["run_id"]} (campaign plugins.dams, plugins.water_use)\n'
-                         f'DAM_ALPHA {pl["dams"]["alpha"]}\nDAM_BETA {pl["dams"]["beta"]}\nDAM_GAMMA {pl["dams"]["gamma"]}\n')
-            if pl['water_use'].get('nonrenewable_limit_mm') is not None:   # absent or null: no limit (compiled default)
-                constants += f'NONRENEWABLE_LIMIT {float(pl["water_use"]["nonrenewable_limit_mm"])}\n'
-            job_text, hours = render_job(W, rdir, campaign['campaign_id'], run['run_id'], c0, c1, rres, model,
-                                         chunk_dir=cdir, chunk=cid)
-            hours_total += hours
-            cfiles = {'config/vic_global.txt': vic_text, 'config/vic_constants.txt': constants,
-                      'config/job.sbatch': job_text}
-            resolved = {
-                'campaign_id': campaign['campaign_id'], 'run_id': run['run_id'], 'segment_id': run['segment_id'],
-                'label': run['label'], 'start_year': run['start_year'], 'end_year': run['end_year'],
-                **({'chunk': {'id': cid, 'index': k, 'chunks': len(plan), 'start_year': c0, 'end_year': c1,
-                              'init_state': c_init and os.path.relpath(c_init, W), 'initialisation': c_how},
-                    'chunk_years': cyears} if chunked else {}),
-                'segment': seg, 'climate_input_alias': alias, 'dhf_unit': usoc,
-                **({'spinup_block': run['spinup_block']} if 'spinup_block' in run else {}),
-                'experiments_using_segment': seg['experiments'],
-                # a warm start comes from an earlier run (run_id, run_dir), not from the protocol parent segment
-                'parent': parent_rec,
-                'campaign_file': os.path.relpath(campaign_path, REPO) if os.path.isabs(campaign_path) else campaign_path,
-                'campaign_sha256': file_hash(campaign_path), 'campaign': campaign,
-                'resources_file': campaign['resources'], 'resources': rres,
-                **({'resources_override': run['resources_override']} if run.get('resources_override') else {}),
-                'model': model, 'parameters': rparams, 'decomposition': dec,
-                'protocol_water_global_variables': nvars,
-                'forcing_units': {k2: {kk: vv for kk, vv in v.items() if kk != 'files'} for k2, v in units.items()},
-                'output_streams': streams, 'wall_time_hours': hours,
-                'rendered_by': RENDERED_BY, 'code_commit': commit, 'code_dirty': dirty, 'rendered_at': utcnow()}
-            cfiles['config/resolved.yaml'] = yaml.safe_dump(resolved, sort_keys=False)
-            for rel, text in cfiles.items():
-                with open(f'{cdir}/{rel}', 'w') as fh:
-                    fh.write(text)
-                files[pre + rel] = text
-            cexp = []
-            for y in range(c0, c1 + 1):
-                cexp += ([] if spinup else [f'{pre}output/daily.{y}-01-01.nc']) + [f'{pre}output/monthly.{y}-01.nc']
-            cexp.append(f'{pre}states/state.{end_state:04d}0101_00000.nc')
-            expected += cexp
-            if chunked:
-                chunks.append({'id': cid, 'start_year': c0, 'end_year': c1, 'dir': f'chunks/{cid}',
-                               'init_state': c_init and os.path.relpath(c_init, W),
-                               'job_file': f'{pre}config/job.sbatch', 'expected_outputs': cexp,
-                               'end_state': f'{pre}states/state.{end_state:04d}0101_00000.nc', 'wall_time_hours': hours})
-        manifest = {
-            'schema': 'isimip4b-run-manifest-1', 'campaign_id': campaign['campaign_id'], 'run_id': run['run_id'],
-            'segment_id': run['segment_id'], 'label': run['label'], 'production': campaign['production'],
-            **({'spinup_block': run['spinup_block']} if 'spinup_block' in run else {}),
-            'status': 'rendered', 'run_dir': os.path.relpath(rdir, W),
-            'period': {'start': f'{run["start_year"]}-01-01', 'end': f'{run["end_year"]}-12-31'},
-            'parent': parent_rec,
-            'workflow': {'code_commit': commit, 'code_dirty': dirty, 'rendered_by': RENDERED_BY,
-                         'rendered_at': resolved['rendered_at']},
-            'campaign_config': {'path': resolved['campaign_file'], 'sha256': resolved['campaign_sha256']},
-            'model': {k: model[k] for k in ('commit', 'freeze_status', 'build', 'build_status', 'executable',
-                                            'executable_sha256', 'runtime_modules')},
-            'inputs': {'parameter_set': campaign['parameter_set']['id'], 'parameters': rparams,
-                       'forcing_units': units},
-            'forcing_view': {k: {str(y): v for y, v in m.items()} for k, m in mapping.items()},
-            'forcing_links': link_record(W, links) if not chunked else
-            {f'chunks/{chunk_id(c0, c1)}/forcing/{n}': os.path.relpath(t, W)
-             for c0, c1 in plan for n, t in links if c0 <= year_of(n) <= c1},
-            'rendered_files': {rel: text_sha256(text) for rel, text in files.items()},
-            'expected_outputs': expected,
-            'end_state': end_state_rel(run['start_year'], run['end_year'], cyears),
-            **({'chunk_years': cyears, 'chunks': chunks} if chunked else {}),
-            'attempts': []}
-        sys.path.insert(0, os.path.join(HERE, '..', 'submit'))
-        import run_manifest as rm
-        manifest['inputs_fingerprint'] = rm.inputs_fingerprint(manifest)
-        rm.save(rdir, manifest)
+        try:
+            files, expected, chunks, hours_total = write_run(
+                W, campaign, campaign_path, run, rdir, tmp, plan, cyears, links, units, mapping, model, rparams, dec,
+                rres, alias, init_state, init_how, parent_rec, streams_text, streams, nvars, commit, dirty)
+        except BaseException:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
         rendered.append(rdir)
         if seg['period'] == 'spinup':
             spin_rendered.add(run['segment_id'])
         print(f'rendered {rdir} ({len(links)} forcing links, {len(plan)} chunk(s), {hours_total} h wall time, '
               f'{rres["ntasks"]} tasks)')
     return rendered
+
+
+def write_run(W, campaign, campaign_path, run, rdir, tmp, plan, cyears, links, units, mapping, model, rparams, dec,
+              rres, alias, init_state, init_how, parent_rec, streams_text, streams, nvars, commit, dirty):
+    """Write the files of one run into tmp, a sibling of rdir (same depth, so the relative forcing links are those
+    of rdir), and rename tmp to rdir when complete. The rendered files name rdir. Returns (files, expected outputs,
+    chunks, wall time in hours)."""
+    seg = run['segment']; pl = campaign['plugins']; usoc = campaign['dhf_forcing']['units'][seg['soc']]
+    chunked = len(plan) > 1; spinup = seg['period'] == 'spinup'
+    files, expected, chunks, hours_total = {}, [], [], 0
+    for k, (c0, c1) in enumerate(plan):
+        cid = chunk_id(c0, c1) if chunked else None
+        pre = f'chunks/{cid}/' if chunked else ''
+        cdir = f'{rdir}/chunks/{cid}' if chunked else rdir
+        if k == 0:
+            c_init, c_how = init_state, init_how
+        else:
+            c_init = f'{rdir}/chunks/{chunk_id(*plan[k - 1])}/states/state.{c0:04d}0101_00000.nc'
+            c_how = f'end state of chunk {chunk_id(*plan[k - 1])} of this run'
+        wdir = tmp + cdir[len(rdir):]                      # where the chunk is written before the rename
+        for sub in ('config', 'logs', 'states', 'output', 'forcing'):
+            os.makedirs(f'{wdir}/{sub}')
+        clinks = [(n, t) for n, t in links if c0 <= year_of(n) <= c1]
+        fy.build_view(f'{wdir}/forcing', clinks)
+        view = f'{cdir}/forcing'
+        force_types = '\n'.join(
+            f'FORCE_TYPE              {vt:9s} {var:7s} {view}/climate/{var}/{var}_{seg["gcm"]}_{alias}_'
+            for vt, var in (('AIR_TEMP', 'tair'), ('PREC', 'prec'), ('PRESSURE', 'psurf'), ('SWDOWN', 'swdown'),
+                            ('LWDOWN', 'lwdown'), ('VP', 'vp'), ('WIND', 'wind')))
+        # VIC opens the start-year file of every PLUGIN_FORCE_TYPE line, whether its plugin is on or not
+        # (plugins/general/src/plugin_forcing_utils.c, plugin_force_validate_global_param, at 39e21ff5); the forcing
+        # view has links only for the plugins that are on, so the lines of a plugin that is off are left out
+        wu_lines = [] if pl['water_use']['enabled'] else ['# water use off: no water-use forcing']
+        for prefix, sector in WATER_USE_FILES:
+            if pl['water_use']['enabled'] and sector in pl['water_use']['sectors']:
+                for kind, var in WATER_USE_VARIABLES:
+                    wu_lines.append(f'PLUGIN_FORCE_TYPE  {prefix}_{kind:12s} {var:21s} YEAR  '
+                                    f'{view}/water_use/{sector}_{var}_{usoc}_')
+        end_state = c1 + 1
+        state_lines = '\n'.join([f'STATENAME               {cdir}/states/state', f'STATEYEAR               {end_state}',
+                                 'STATEMONTH              1', 'STATEDAY                1', 'STATESEC                0',
+                                 'STATE_FORMAT            NETCDF4', 'STATE_COMPRESS          2'])
+        values = {
+            'RUN_ID': run['run_id'] + (f' chunk {cid}' if chunked else ''), 'CAMPAIGN_ID': campaign['campaign_id'],
+            'CODE_COMMIT': commit, 'MODEL_COMMIT': model['commit'], 'START_YEAR': c0, 'END_YEAR': c1,
+            'DOMAIN': f'{W}/{rparams["domain"]["path"]}', 'PARAMETERS': f'{W}/{rparams["parameters"]["path"]}',
+            'CONSTANTS': f'{cdir}/config/vic_constants.txt', 'FORCE_TYPES': force_types,
+            'INIT_STATE_LINES': f'# {c_how}\nINIT_STATE              {c_init}' if c_init else
+                                '# cold start: no INIT_STATE (campaign initialisation.without_parent)',
+            'STATE_LINES': state_lines,
+            'ROUTING': tf(pl['routing']['enabled']), 'ROUT_STEPS_PER_DAY': pl['routing']['steps_per_day'],
+            'DECOMPOSITION': pl['routing']['decomposition'],
+            'ROUTING_PARAMETERS': f'{W}/{rparams["routing"]["path"]}',
+            'DECOMPOSITION_PARAMETERS': f'{W}/{rparams["decomposition"]["path"]}',
+            'WATERUSE': tf(pl['water_use']['enabled']), 'WATERUSE_PARAMETERS': f'{W}/{rparams["water_use"]["path"]}',
+            'LOCAL_WITHDRAWAL': tf(pl['water_use']['local_withdrawal']),
+            'REMOTE_WITHDRAWAL': tf(pl['water_use']['remote_withdrawal']),
+            'COMPENSATION_WITHDRAWAL': tf(pl['water_use']['compensation_withdrawal']),
+            'NONRENEWABLE_WITHDRAWAL': tf(pl['water_use']['nonrenewable_withdrawal']),
+            'NONRENEWABLE_RUNOFF': tf(pl['water_use']['nonrenewable_runoff']),
+            'WATER_USE_FORCE_TYPES': '\n'.join(wu_lines),
+            'IRRIGATION': tf(pl['irrigation']['enabled']), 'IRRIGATION_PARAMETERS': f'{W}/{rparams["irrigation"]["path"]}',
+            'POTENTIAL_IRRIGATION': tf(pl['irrigation']['potential_irrigation']),
+            'EFFICIENT_IRRIGATION': tf(pl['irrigation']['efficient_irrigation']),
+            'OFFSET_IRRIGATION': tf(pl['irrigation']['offset_irrigation']),
+            'PBARE': pl['irrigation']['paddy_bare_class'],
+            'DAMS': tf(pl['dams']['enabled']), 'DAMS_PARAMETERS': f'{W}/{rparams["dams"]["path"]}',
+            'LANDUSE': tf(pl['landuse']['enabled']),
+            'LANDUSE_FORCE_TYPE': f'PLUGIN_FORCE_TYPE  CV  coverage  YEAR  {view}/landuse/coverage_{usoc}_'
+                                  if pl['landuse']['enabled'] else '# land use off: no land-use forcing',
+            'EFR': tf(pl['efr']['enabled']), 'WOFOST': tf(pl['wofost']['enabled']),
+            'RESULT_DIR': f'{cdir}/output/', 'LOG_DIR': f'{cdir}/logs/', 'OUTPUT_STREAMS': streams_text}
+        vic_text = fill(open(os.path.join(REPO, VIC_TEMPLATE)).read(), values)
+        if c_init:
+            check_start_january(vic_text, run['run_id'])
+        constants = (f'# VIC constants of run {run["run_id"]} (campaign plugins.dams, plugins.water_use)\n'
+                     f'DAM_ALPHA {pl["dams"]["alpha"]}\nDAM_BETA {pl["dams"]["beta"]}\nDAM_GAMMA {pl["dams"]["gamma"]}\n')
+        if pl['water_use'].get('nonrenewable_limit_mm') is not None:   # absent or null: no limit (compiled default)
+            constants += f'NONRENEWABLE_LIMIT {float(pl["water_use"]["nonrenewable_limit_mm"])}\n'
+        job_text, hours = render_job(W, rdir, campaign['campaign_id'], run['run_id'], c0, c1, rres, model,
+                                     chunk_dir=cdir, chunk=cid)
+        hours_total += hours
+        cfiles = {'config/vic_global.txt': vic_text, 'config/vic_constants.txt': constants,
+                  'config/job.sbatch': job_text}
+        resolved = {
+            'campaign_id': campaign['campaign_id'], 'run_id': run['run_id'], 'segment_id': run['segment_id'],
+            'label': run['label'], 'start_year': run['start_year'], 'end_year': run['end_year'],
+            **({'chunk': {'id': cid, 'index': k, 'chunks': len(plan), 'start_year': c0, 'end_year': c1,
+                          'init_state': c_init and os.path.relpath(c_init, W), 'initialisation': c_how},
+                'chunk_years': cyears} if chunked else {}),
+            'segment': seg, 'climate_input_alias': alias, 'dhf_unit': usoc,
+            **({'spinup_block': run['spinup_block']} if 'spinup_block' in run else {}),
+            'experiments_using_segment': seg['experiments'],
+            # a warm start comes from an earlier run (run_id, run_dir), not from the protocol parent segment
+            'parent': parent_rec,
+            'campaign_file': os.path.relpath(campaign_path, REPO) if os.path.isabs(campaign_path) else campaign_path,
+            'campaign_sha256': file_hash(campaign_path), 'campaign': campaign,
+            'resources_file': campaign['resources'], 'resources': rres,
+            **({'resources_override': run['resources_override']} if run.get('resources_override') else {}),
+            'model': model, 'parameters': rparams, 'decomposition': dec,
+            'protocol_water_global_variables': nvars,
+            'forcing_units': {k2: {kk: vv for kk, vv in v.items() if kk != 'files'} for k2, v in units.items()},
+            'output_streams': streams, 'wall_time_hours': hours,
+            'rendered_by': RENDERED_BY, 'code_commit': commit, 'code_dirty': dirty, 'rendered_at': utcnow()}
+        cfiles['config/resolved.yaml'] = yaml.safe_dump(resolved, sort_keys=False)
+        for rel, text in cfiles.items():
+            with open(f'{wdir}/{rel}', 'w') as fh:
+                fh.write(text)
+            files[pre + rel] = text
+        cexp = []
+        for y in range(c0, c1 + 1):
+            cexp += ([] if spinup else [f'{pre}output/daily.{y}-01-01.nc']) + [f'{pre}output/monthly.{y}-01.nc']
+        cexp.append(f'{pre}states/state.{end_state:04d}0101_00000.nc')
+        expected += cexp
+        if chunked:
+            chunks.append({'id': cid, 'start_year': c0, 'end_year': c1, 'dir': f'chunks/{cid}',
+                           'init_state': c_init and os.path.relpath(c_init, W),
+                           'job_file': f'{pre}config/job.sbatch', 'expected_outputs': cexp,
+                           'end_state': f'{pre}states/state.{end_state:04d}0101_00000.nc', 'wall_time_hours': hours})
+    manifest = {
+        'schema': 'isimip4b-run-manifest-1', 'campaign_id': campaign['campaign_id'], 'run_id': run['run_id'],
+        'segment_id': run['segment_id'], 'label': run['label'], 'production': campaign['production'],
+        **({'spinup_block': run['spinup_block']} if 'spinup_block' in run else {}),
+        'status': 'rendered', 'run_dir': os.path.relpath(rdir, W),
+        'period': {'start': f'{run["start_year"]}-01-01', 'end': f'{run["end_year"]}-12-31'},
+        'parent': parent_rec,
+        'workflow': {'code_commit': commit, 'code_dirty': dirty, 'rendered_by': RENDERED_BY,
+                     'rendered_at': resolved['rendered_at']},
+        'campaign_config': {'path': resolved['campaign_file'], 'sha256': resolved['campaign_sha256']},
+        'model': {k: model[k] for k in ('commit', 'freeze_status', 'build', 'build_status', 'executable',
+                                        'executable_sha256', 'runtime_modules')},
+        'inputs': {'parameter_set': campaign['parameter_set']['id'], 'parameters': rparams,
+                   'forcing_units': units},
+        'forcing_view': {k: {str(y): v for y, v in m.items()} for k, m in mapping.items()},
+        'forcing_links': link_record(W, links) if not chunked else
+        {f'chunks/{chunk_id(c0, c1)}/forcing/{n}': os.path.relpath(t, W)
+         for c0, c1 in plan for n, t in links if c0 <= year_of(n) <= c1},
+        'rendered_files': {rel: text_sha256(text) for rel, text in files.items()},
+        'expected_outputs': expected,
+        'end_state': end_state_rel(run['start_year'], run['end_year'], cyears),
+        **({'chunk_years': cyears, 'chunks': chunks} if chunked else {}),
+        'attempts': []}
+    sys.path.insert(0, os.path.join(HERE, '..', 'submit'))
+    import run_manifest as rm
+    manifest['inputs_fingerprint'] = rm.inputs_fingerprint(manifest)
+    rm.save(tmp, manifest)
+    os.rename(tmp, rdir)
+    return files, expected, chunks, hours_total
 
 
 def main():

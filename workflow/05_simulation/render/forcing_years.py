@@ -18,7 +18,9 @@ constant and the spin-up climate cycle):
   cycle     spin-up climate: simulation year Y maps to a + (Y - a) mod L in the declared window [a, b]
             (L = b - a + 1); when that year has a different day count, the next year of the window (cyclic)
             with the same day count is used. A year that maps to itself is recorded as identity, and so is a
-            start year of the unit made as a copy of its cycle year for the same window (D20).
+            start year of the unit made as a copy of its cycle year for the same window (D20). A start year of
+            the unit made for another window is an ordinary cycle year unless the run or one of its chunks
+            starts in it (D20 amendment 2026-11-01).
 
 The mapping of every year is returned as data and recorded in the run manifest.
 """
@@ -64,28 +66,33 @@ def cycle_source(year, window):
     raise ValueError(f'cycle window {a}-{b} has no {days(year)}-day year for {year}')
 
 
-def map_cycle(sim_years, window, unit_years, start_years=None, cycle_windows=None):
+def map_cycle(sim_years, window, unit_years, start_years=None, cycle_windows=None, run_starts=None):
     """{sim_year: (source_year, rule)} for spin-up climate over the window [a, b]; the rule is 'identity' when the
     source year is the simulation year (the file and its time axis are of that year), else 'cycle'.
 
     A start year of the unit (D20: provenance `start_years` {year: source year}, `cycle_windows` {year: [a, b]}) is a
     copy of its cycle year re-stamped to its own year; it is used as itself ('identity') when it was made for this
     window, so that a spin-up can start in it (VIC checks the start-year file's first time). A start year made for
-    another window stops the mapping: its data are not the cycle year of this window."""
+    another window holds the data of another cycle year: a simulation year in which the run or one of its chunks
+    starts (`run_starts`, default the first simulation year) stops the mapping, any other year is linked to its
+    cycle year of this window like a year the unit lacks (D20 amendment 2026-11-01: the 1591 copy of 1601 made for
+    1601-1610 is not read by a spin-up in 1601-1650, whose year 1591 links to 1641)."""
     a, b = int(window[0]), int(window[1])
     missing = sorted(set(range(a, b + 1)) - set(unit_years))
     if missing:
         raise ValueError(f'cycle window {a}-{b} not covered by the unit (missing {missing[:5]}...)')
     starts = {int(y): int(s) for y, s in (start_years or {}).items()}
     windows = {int(y): [int(v) for v in w] for y, w in (cycle_windows or {}).items()}
+    sim_years = list(sim_years)
+    run_starts = {int(y) for y in run_starts} if run_starts is not None else set(sim_years[:1])
     out = {}
     for y in sim_years:
         s = cycle_source(y, (a, b))
-        if y in starts and y in set(unit_years):
-            if starts[y] != s or windows.get(y) != [a, b]:
-                raise ValueError(f'start year {y} of the unit is a copy of {starts[y]} made for the cycle window '
-                                 f'{windows.get(y)}; the campaign window {a}-{b} needs a copy of {s}')
+        if y in starts and y in set(unit_years) and starts[y] == s and windows.get(y) == [a, b]:
             out[y] = (y, 'identity')
+        elif y in starts and y in set(unit_years) and y in run_starts:
+            raise ValueError(f'the run starts in {y}, but start year {y} of the unit is a copy of {starts[y]} made for '
+                             f'the cycle window {windows.get(y)}; the campaign window {a}-{b} needs a copy of {s}')
         else:
             out[y] = (s, 'identity' if s == y else 'cycle')
     return out

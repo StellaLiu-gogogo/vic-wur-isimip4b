@@ -495,6 +495,24 @@ class SpinupStartYearTest(unittest.TestCase):
         with self.assertRaises(ValueError):                                  # same source, window not recorded
             fy.map_cycle([1591], (1601, 1610), years, {1591: 1601}, {})
 
+    def test_start_year_of_other_window_inside_run(self):
+        # D20 amendment 2026-11-01: the 1591 copy of 1601 made for 1601-1610 (natural-run spin-up) is not a start year
+        # of the 1850soc spin-up 1551-1600 in the window 1601-1650 (chunks 1551, 1576): 1591 links to 1641
+        import forcing_years as fy
+        years = [1551, 1576, 1591] + list(range(1601, 1651))
+        starts = {1551: 1601, 1576: 1628, 1591: 1601}
+        windows = {1551: [1601, 1650], 1576: [1601, 1650], 1591: [1601, 1610]}
+        m = fy.map_cycle(range(1551, 1601), (1601, 1650), years, starts, windows, run_starts=[1551, 1576])
+        self.assertEqual(m[1551], (1551, 'identity'))
+        self.assertEqual(m[1576], (1576, 'identity'))
+        self.assertEqual(m[1591], (1641, 'cycle'))
+        self.assertEqual(m[1600], (1604, 'cycle'))                          # leap 1600: the next leap year of the window
+        # a chunk that starts in 1591 still stops: its first-year file holds the data of 1601
+        with self.assertRaisesRegex(ValueError, 'the run starts in 1591'):
+            fy.map_cycle(range(1551, 1601), (1601, 1650), years, starts, windows, run_starts=[1551, 1591])
+        # without run_starts the first simulation year is the only start
+        self.assertEqual(fy.map_cycle(range(1581, 1601), (1601, 1650), years, starts, windows)[1591], (1641, 'cycle'))
+
 
 class SpinupForcingPlanTest(unittest.TestCase):
     """forcing_plan of a spin-up: climate cycled with the unit's start year, constant 1850soc land use."""
@@ -549,11 +567,12 @@ class SpinupWindowOwnYearsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.W = self.tmp.name
         # the unit also holds the 1850soc start years 1551 and 1576, made for the window 1601-1650
-        years = [1551, 1576] + list(range(1601, 1651)) + list(range(1800, 1850))
+        # and 1591, made for the window 1601-1610 of the natural-run spin-up (D20 amendment 2026-10-17)
+        years = [1551, 1576, 1591] + list(range(1601, 1651)) + list(range(1800, 1850))
         for var in rr.CLIMATE_VARIABLES:
             fake_unit(self.W, f'climate/{G}/esm-picontrol/{var}', [f'{var}_{G}_esm-picontrol_{y}.nc' for y in years],
-                      extra={'start_years': {1551: 1601, 1576: 1628},
-                             'cycle_windows': {1551: [1601, 1650], 1576: [1601, 1650]}})
+                      extra={'start_years': {1551: 1601, 1576: 1628, 1591: 1601},
+                             'cycle_windows': {1551: [1601, 1650], 1576: [1601, 1650], 1591: [1601, 1610]}})
         fake_unit(self.W, 'landuse/2021soc', [f'coverage_2021soc_{y}.nc' for y in (1800, 1825, 2022, 2023, 2024)])
         fake_unit(self.W, 'landuse/1850soc', [f'coverage_1850soc_{y}.nc' for y in (1551, 1576, 1850, 1851, 1852)])
         self.c = smoke()
@@ -563,9 +582,9 @@ class SpinupWindowOwnYearsTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def plan(self, soc, y0, y1):
+    def plan(self, soc, y0, y1, run_starts=None):
         run = {'run_id': 's', 'start_year': y0, 'end_year': y1, 'segment': {'gcm': G, 'soc': soc, 'period': 'spinup'}}
-        _, _, mapping = rr.forcing_plan(self.W, self.c, run, 'esm-picontrol')
+        _, _, mapping = rr.forcing_plan(self.W, self.c, run, 'esm-picontrol', run_starts)
         rr.check_start_year(run, mapping)
         return mapping['climate/tair']
 
@@ -581,6 +600,16 @@ class SpinupWindowOwnYearsTest(unittest.TestCase):
         self.assertEqual(m[1553]['source'], f'forcing/climate/{G}/esm-picontrol/tair/tair_{G}_esm-picontrol_1603.nc')
         m = self.plan('1850soc', 1576, 1600)
         self.assertEqual(m[1576]['rule'], 'identity')
+
+    def test_1850soc_block_with_start_year_of_other_window(self):
+        # D20 amendment 2026-11-01: block 1 in two 25-year chunks reads 1641 for 1591, not the 1591 copy of 1601
+        m = self.plan('1850soc', 1551, 1600, run_starts=[1551, 1576])
+        self.assertEqual((m[1551]['rule'], m[1576]['rule']), ('identity', 'identity'))
+        self.assertEqual(m[1591], {'rule': 'cycle',
+                                   'source': f'forcing/climate/{G}/esm-picontrol/tair/tair_{G}_esm-picontrol_1641.nc'})
+        # a run or chunk that starts in 1591 stops with a render error, not a traceback (main: 'render stopped: ...')
+        with self.assertRaisesRegex(rr.RenderError, r'forcing unit climate/.*the run starts in 1591'):
+            self.plan('1850soc', 1551, 1600, run_starts=[1551, 1591])
 
 
 SPIN = f'{G}_picontrol_1850soc_default_spinup'

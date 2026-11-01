@@ -81,6 +81,73 @@ class ChunkRenderTest(tsr.RenderHarness):
         self.assertNotEqual(rm.inputs_fingerprint(m), before)
 
 
+class StoppedRenderTest(tsr.RenderHarness):
+    """A render that stops leaves no run directory (task V, 2026-11-01): every chunk's start year is checked before
+    anything is written, and the run is written into a temporary directory that is renamed when complete."""
+    chunk_years = 20
+
+    def run_dir(self, run_id=HIST):
+        return os.path.join(self.W, 'runs', 'smoke', run_id)
+
+    def assert_nothing_left(self):
+        base = os.path.join(self.W, 'runs', 'smoke')                  # no run and no temporary directory
+        self.assertEqual(os.listdir(base) if os.path.isdir(base) else [], [])
+
+    def landuse_mapping(self, bad_year=None):
+        return {'landuse': {y: {'source': 'forcing/landuse/histsoc/coverage_histsoc_1850.nc',
+                                'rule': 'constant' if y == bad_year else 'identity'} for y in range(1850, 2022)}}
+
+    def test_chunk_start_year_stops_before_writing(self):
+        # the second chunk (1870) has no identity link: before task V chunk 1850-1869 was already written
+        with mock.patch.object(rr, 'forcing_plan', return_value=([], {}, self.landuse_mapping(1870))) as fp:
+            with self.assertRaisesRegex(rr.RenderError, r'chunk 1870-1889\) starts in 1870'):
+                self.render(HIST)
+        self.assertEqual(fp.call_args.kwargs['run_starts'], list(range(1850, 2022, 20)))   # chunk starts
+        self.assert_nothing_left()
+        with mock.patch.object(rr, 'forcing_plan', return_value=([], {}, self.landuse_mapping())):
+            self.render(HIST)                                                            # renders again
+        self.assertEqual(len(self.manifest(HIST)['chunks']), 9)
+
+    def test_stop_while_writing_removes_the_temporary_directory(self):
+        def job(W, rdir, campaign_id, run_id, c0, c1, *a, **k):
+            if c0 == 1910:
+                raise rr.RenderError('stop in chunk 1910')
+            return 'job\n', 5
+        with mock.patch.object(rr, 'render_job', side_effect=job):
+            with self.assertRaisesRegex(rr.RenderError, 'stop in chunk 1910'):
+                self.render(HIST)
+        self.assert_nothing_left()
+        self.render(HIST)
+        self.assertTrue(os.path.isfile(os.path.join(self.run_dir(), 'run_manifest.json')))
+
+    def test_links_and_paths_name_the_run_directory(self):
+        target = os.path.join(self.W, 'forcing', 'landuse', 'histsoc', 'coverage_histsoc_1870.nc')
+        os.makedirs(os.path.dirname(target))
+        open(target, 'w').close()
+        links = [('landuse/coverage_histsoc_1870.nc', target)]
+        with mock.patch.object(rr, 'forcing_plan', return_value=(links, {}, self.landuse_mapping())):
+            self.render(HIST)
+        link = os.path.join(self.run_dir(), 'chunks', '1870-1889', 'forcing', 'landuse', 'coverage_histsoc_1870.nc')
+        self.assertTrue(os.path.islink(link))
+        self.assertEqual(os.path.realpath(link), os.path.realpath(target))           # relative link valid after rename
+        with open(os.path.join(self.run_dir(), 'chunks', '1870-1889', 'config', 'vic_global.txt')) as fh:
+            g = fh.read()
+        self.assertNotIn(rr.TMP_PREFIX, g)
+        self.assertIn(f'RESULT_DIR              {self.run_dir()}/chunks/1870-1889/output/', g)
+        self.assertEqual(self.manifest(HIST)['run_dir'], f'runs/smoke/{HIST}')
+
+    def test_left_temporary_directory_stops(self):
+        os.makedirs(os.path.join(self.W, 'runs', 'smoke', rr.TMP_PREFIX + HIST))   # a render killed part-way
+        with self.assertRaisesRegex(rr.RenderError, 'left by a render that was killed'):
+            self.render(HIST)
+        self.assertFalse(os.path.exists(self.run_dir()))
+
+    def test_run_directory_without_manifest_stops_cleanly(self):
+        os.makedirs(os.path.join(self.run_dir(), 'chunks'))
+        with self.assertRaisesRegex(rr.RenderError, 'has no run_manifest.json'):
+            rr.manifest_of(self.run_dir())
+
+
 def chunked_manifest():
     chunks = [{'id': f'{y}-{y}', 'start_year': y, 'end_year': y, 'dir': f'chunks/{y}-{y}',
                'end_state': f'chunks/{y}-{y}/states/state.{y + 1}0101_00000.nc',

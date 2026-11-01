@@ -122,7 +122,7 @@ accepted units; units are never modified or copied. Rules (`forcing_years.py`):
 |---|---|---|
 | identity | the unit has the year | the same year |
 | constant | the DHF scenario is listed in the campaign's `dhf_forcing.constant` (`1850soc`, `2021soc`) and the unit lacks the year | the first year of the unit with the same number of days (365/366): VIC reads daily records within the year and the water-use demand is mm/day of its calendar year |
-| cycle | spin-up climate | `a + (Y − a) mod L` in the window `[a, b]` of the run's spin-up chain (`spinup.climate_cycle`: one window, or one per spin-up DHF scenario, D19 amendment 2026-10-22); when the day count differs, the next year of the window with the same count (a year that maps to itself is recorded as identity, and so is a start year of the unit recorded as a copy of its cycle year for the same window, D20 amendment 2026-10-17; a start year made for another window stops the render) |
+| cycle | spin-up climate | `a + (Y − a) mod L` in the window `[a, b]` of the run's spin-up chain (`spinup.climate_cycle`: one window, or one per spin-up DHF scenario, D19 amendment 2026-10-22); when the day count differs, the next year of the window with the same count (a year that maps to itself is recorded as identity, and so is a start year of the unit recorded as a copy of its cycle year for the same window, D20 amendment 2026-10-17; a start year made for another window is linked to its cycle year of this window, e.g. 1591 → 1641 in 1601–1650, and stops the render only when the run or one of its chunks starts in it, D20 amendment 2026-11-01) |
 
 `2021soc-from-histsoc` uses the `2021soc` unit (`dhf_forcing.units`). The view and the `PLUGIN_FORCE_TYPE` lines of
 the VIC file cover only the plugins that are on: VIC opens the start-year file of every `PLUGIN_FORCE_TYPE` line,
@@ -180,9 +180,14 @@ do not operate in 2011.
 submitted): `config/` (`vic_global.txt`, `vic_constants.txt` with the dam constants, `job.sbatch`,
 `resolved.yaml` with campaign, segment, resources, build, parameter files and forcing units), `forcing/`
 (the view), `logs/`, `states/`, `output/`, `run_manifest.json`. An existing run directory is never
-rendered again; renders of campaign runs need a clean repository.
+rendered again; renders of campaign runs need a clean repository. A render that stops leaves no run directory (D20
+amendment 2026-11-01): the first year of every chunk is checked before anything is written, and the run is written
+into `.rendering-<run-id>/` beside it and renamed when complete. A run directory without `run_manifest.json`, or a
+`.rendering-` directory left by a killed render, stops the render; the user decides whether it is deleted. A year that
+no mapping rule can map stops the render with `render stopped: <run>: forcing unit <unit>: ...`.
 
-**Chunked runs (task L4b, user 2026-10-16).** A run longer than `chunk_years` of the resources (20) is split into
+**Chunked runs (task L4b, user 2026-10-16).** A run longer than `chunk_years` of the resources (25 since 2026-11-01,
+D20 amendment 2026-11-01: the chunks of the 50-year spin-ups then start on the D20 start years; 20 before) is split into
 chunks of `chunk_years` years, the last one shorter (`render_run.chunk_plan`; a restriction run of a non-production
 campaign may set its own `chunk_years`, e.g. campaign `chunk-test`). The run directory then holds only
 `run_manifest.json` and `chunks/<start>-<end>/` with `config/`, `forcing/` (the links of the chunk's years),
@@ -191,7 +196,9 @@ parent or warm start); every later chunk from the previous chunk's end state, wi
 time; the run's end state is the last chunk's (`end_state` in the manifest; a child run starts from it). Every
 chunk starts on 1 January and its first year must be an identity link in every forcing family, as for a run:
 a chunk of a run on a constant DHF unit (`1850soc`, `2021soc`) therefore needs the unit's file of the chunk's start
-year (D20 extension years) or the render stops. `submit_run.py` submits one job per chunk, each waiting for the
+year (D20 extension years) or the render stops. With 25-year chunks the production campaign needs 18 such years that
+the land-use and water-use units do not hold yet (`1850soc` 1626, 1651, …, 1826 and 2047, 2072, 2097; `2021soc`
+1875, 1900, …, 2000; D20 amendment 2026-11-01). `submit_run.py` submits one job per chunk, each waiting for the
 previous one (`afterok`), with a check of each chunk and the check of the whole run after the last chunk and every chunk check (`afterany`: it reads their status);
 `--retry` resubmits from the first chunk whose latest attempt did not complete. The manifest's `chunks` and the
 `chunk` of every attempt record the bookkeeping; the run is `completed` when every chunk is. **Test (campaign
@@ -325,7 +332,9 @@ was promoted by `workflow/03_parameters/promote_parameter_set.py` (task R) with 
 rebuilt for them, `routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc`
 (`workflow/03_parameters/routing/build_decomposition.py`, task L3), which the campaign names.
 `configs/resources/vic-global-5arcmin.yaml` still plans 3.0 h per model year (D02 measured 1.14 h, about 1.4 h with the
-D03 daily outputs); it is not changed by task S.
+D03 daily outputs); it is not changed by task S. Its `chunk_years` became 25 on 2026-11-01 (task V, D20 amendment
+2026-11-01); since then both spin-ups render (scratch render of a copy of the campaign: two chunks each, 77 h per
+chunk, cold start, 1850soc year 1591 linked to `esm-picontrol` 1641).
 
 | Step | Content | State |
 |---|---|---|

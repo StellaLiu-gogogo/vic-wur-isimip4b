@@ -1,6 +1,6 @@
 # D20 — First-year files of runs that start outside a forcing unit's years
 
-Status: **decided 2026-10-11** by the user (option A); amended 2026-10-17 (start year 1591, renderer cycle rule; see "Amendment 2026-10-17") and 2026-10-22 (no climate start years for the `2021soc` chain; see "Amendment 2026-10-22").
+Status: **decided 2026-10-11** by the user (option A); amended 2026-10-17 (start year 1591, renderer cycle rule; see "Amendment 2026-10-17") 2026-10-22 (no climate start years for the `2021soc` chain; see "Amendment 2026-10-22") and 2026-11-01 (25-year chunks, cycle rule for start years of another window; see "Amendment 2026-11-01").
 Due stage: `05_simulation`.
 
 ## Context
@@ -201,3 +201,42 @@ the table in "Evidence" becomes:
 The land-use and water-use start years of the `2021soc` chain (1800, 1825) are unchanged. The climate start years
 cost about 26 GB per GCM instead of about 55 GB. The climate producer keeps refusing a start year that the input
 contains.
+
+## Amendment 2026-11-01
+
+Decided by the user on 2026-11-01 (task V, spin-up render fix), after scratch renders of the production campaign
+`water-global-ec-earth3-esm-1-1` (campaign `production-config-check`, task S) showed that neither cold-start spin-up
+(`1850soc` 1551–1600, `2021soc` 1800–1849) could be rendered:
+
+1. **Chunks of 25 years.** `chunk_years` of `configs/resources/vic-global-5arcmin.yaml` changes from 20 to 25. With 20
+   the second chunk of a 50-year spin-up started in 1571 or 1820, a year without a first-year file in the `1850soc` and
+   `2021soc` land-use and water-use units and in the climate unit; with 25 the chunk starts are the start years of
+   decision 3 (1551 and 1576; 1800 and 1825), which the units already hold. Wall time per chunk 25 × 3.0 + 2.0 = 77 h
+   (within `max_hours` 240). D02's estimate assumed jobs of at most 20 model years; the core-hours do not change, only
+   the number of jobs. Runs rendered before (campaign `natural-run`, 20-year chunks) keep their recorded chunks.
+2. **Climate start years of another window.** The `esm-picontrol` unit holds the start year 1591, a copy of 1601 made
+   for the window 1601–1610 of the natural-run spin-up (amendment 2026-10-17). The renderer stopped every spin-up whose
+   years include 1591 with another window, so the `1850soc` spin-up (window 1601–1650) could not be rendered although it
+   does not start in 1591. New rule of `forcing_years.map_cycle`: a start year of the unit made for another window is
+   linked to its cycle year of the campaign's window, like a year the unit lacks (1591 → 1641, rule `cycle`), unless
+   the run or one of its chunks starts in it; a run or chunk that starts in such a year still stops the render, since
+   its first-year file holds the data of another cycle year. A start year made for the campaign's window stays an
+   identity link, and `render_run.check_start_year` still requires an identity link in every family for the first year
+   of every run and chunk. The accepted 1591 files are not changed.
+
+Fixed in the same task (no decision needed):
+
+- A render that stops leaves no run directory: the start years of all chunks are checked before anything is written,
+  and a run is written into `<base>/.rendering-<run-id>/` and renamed to `<base>/<run-id>/` when complete (removed when
+  the render stops while writing). Before, a stop in the check of the second chunk left the first chunk's directory
+  without `run_manifest.json`, and the next render of the run failed. A run directory without `run_manifest.json`, or a
+  `.rendering-` directory left by a killed render, now stops the render with a message; the user decides whether it is
+  deleted.
+- A year that a mapping rule cannot map (`map_cycle`, `map_identity_or_constant`) stops the render with
+  `render stopped: <run>: forcing unit <unit>: ...` instead of a Python traceback.
+
+**Remaining gap (not part of this amendment).** With 25-year chunks the chunk starts of the runs on constant DHF units
+that are longer than 25 years fall on years these units do not contain: `1850soc` pre-industrial 1626, 1651, …, 1826;
+`2021soc` historical 1875, 1900, …, 2000; `1850soc` future 2047, 2072, 2097 (18 start years). They need extension years
+of the land-use and water-use units by decision 1 (user authorisation per unit); until then those runs cannot be
+rendered.

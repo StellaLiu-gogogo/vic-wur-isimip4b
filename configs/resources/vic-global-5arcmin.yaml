@@ -29,7 +29,9 @@ wall_time:
   max_hours: 240
 # A run longer than chunk_years is split into chunks of chunk_years (the last one shorter), each one Slurm job
 # that starts from the previous chunk's end state (runs/<campaign>/<run-id>/chunks/<start>-<end>/, user 2026-10-16).
-chunk_years: 20
+# 25 since 2026-11-01 (user, D20 amendment 2026-11-01): the chunk starts of the 50-year spin-ups then fall on the
+# D20 start years (1551/1576, 1800/1825); 25 x 3.0 + 2.0 = 77 h per chunk. Until then 20 (natural-run: 20-year chunks).
+chunk_years: 25
 # Anunna's Slurm uses task/cgroup only: tasks share the job's cores and --cpu-bind has no effect, so no
 # binding is requested (an OpenMP binding put all 8 ranks on core 0 in the first smoke attempt, 2026-10-04)
 launcher: srun --mpi=pmix --cpus-per-task=${SLURM_CPUS_PER_TASK}
