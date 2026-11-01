@@ -18,7 +18,7 @@ that mean for `wall_time.hours_per_model_year` of the resources file (3.0 h)?
 **Classification.** Analysis (user, 2026-10-31): the product is a comparison and a conclusion on whether the
 production campaign can start. No workflow stage reads it.
 
-**Status.** done (2026-11-01). The proposal for `wall_time.hours_per_model_year` is with the user.
+**Status.** done (2026-11-01).
 
 **Run.** Campaign `production-config-check` (`configs/campaigns/production-config-check.yaml`, non-production): the
 settings of the production campaign `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml`, restricted to the
@@ -129,7 +129,7 @@ Values for 2016 unless stated; km3 per year.
    of which writing output 4.20 s (2.85; the D03 daily variables), 1.25 h per model year including the start
    (1.14 h without it). MaxRSS 34.5 GB per rank, AveRSS × ranks 379 GB of 500G. Output per model year: daily
    19.0 GB, monthly 3.3 GB; one state 4.4 GB. The resources file plans 3.0 h per model year: 2.4 × the measured
-   value.
+   value. Proposed: 1.5 h. Decision: `wall_time.hours_per_model_year` stays 3.0 (user, 2026-11-01).
 
 **Finding before the run (2026-10-31).** The first render of the campaign stopped in `render_run.py`
 (`check_unit_parameters`, and `check_landuse_tiles` after it): `promote_parameter_set.py` copies the provenance record
