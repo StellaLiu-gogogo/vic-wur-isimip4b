@@ -60,11 +60,11 @@ experiments:
   all: true
 exclusions:
   - experiment: vl_ssp1vlsoc-noadapt_extrasoc
-    reason: D06 (decided 2026-11-01): the extrasoc experiments are not simulated; an amendment of D06 would add the
-      future segment, starting from the kept end state of the historical histsoc segment (D02)
+    reason: "D06 (decided 2026-11-01): the extrasoc experiments are not simulated; an amendment of D06 would add the
+      future segment, starting from the kept end state of the historical histsoc segment (D02)"
   - experiment: h_ssp3hsoc-noadapt_extrasoc
-    reason: D06 (decided 2026-11-01): the extrasoc experiments are not simulated; an amendment of D06 would add the
-      future segment, starting from the kept end state of the historical histsoc segment (D02)
+    reason: "D06 (decided 2026-11-01): the extrasoc experiments are not simulated; an amendment of D06 would add the
+      future segment, starting from the kept end state of the historical histsoc segment (D02)"
 sensitivity_equivalence:
   2021co2:
     same_as: default
