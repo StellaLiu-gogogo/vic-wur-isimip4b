@@ -1,6 +1,6 @@
 # D20 — First-year files of runs that start outside a forcing unit's years
 
-Status: **decided 2026-10-11** by the user (option A); amended 2026-10-17 (start year 1591, renderer cycle rule; see "Amendment 2026-10-17") 2026-10-22 (no climate start years for the `2021soc` chain; see "Amendment 2026-10-22") and 2026-11-01 (25-year chunks, cycle rule for start years of another window; see "Amendment 2026-11-01").
+Status: **decided 2026-10-11** by the user (option A); amended 2026-10-17 (start year 1591, renderer cycle rule; see "Amendment 2026-10-17") 2026-10-22 (no climate start years for the `2021soc` chain; see "Amendment 2026-10-22") and 2026-11-01 (25-year chunks, cycle rule for start years of another window, the 18 chunk start years of the land-use and water-use units produced in task W; see "Amendment 2026-11-01").
 Due stage: `05_simulation`.
 
 ## Context
@@ -240,3 +240,31 @@ that are longer than 25 years fall on years these units do not contain: `1850soc
 `2021soc` historical 1875, 1900, …, 2000; `1850soc` future 2047, 2072, 2097 (18 start years). They need extension years
 of the land-use and water-use units by decision 1 (user authorisation per unit); until then those runs cannot be
 rendered.
+
+**Start years of the 25-year chunks (task W, 2026-11-01).** The remaining gap is closed. The user authorised the
+extension of the four units on 2026-11-01. The units' producers wrote the 18 start years with `--start-years` as
+decision 1 prescribes (the constant field of the scenario's first year, 1850 or 2022, re-stamped to the start year;
+the water-use demand per day of the start year), and the verifiers passed every file:
+
+| Unit | Start years added | New files (unit total) | Jobs |
+|---|---|---|---|
+| `water_use/1850soc` | 1626, 1651, 1676, 1701, 1726, 1751, 1776, 1801, 1826, 2047, 2072, 2097 | 72 (1 128) | 43533688 |
+| `water_use/2021soc` | 1875, 1900, 1925, 1950, 1975, 2000 | 36 (528) | 43533689 |
+| `landuse/1850soc` | the 12 years of `water_use/1850soc` | 12 (189) | 43533696; whole unit verified 43533703 |
+| `landuse/2021soc` | the 6 years of `water_use/2021soc` | 6 (88) | 43533697; whole unit verified 43533704 |
+
+- The land-use units recorded the code tree of commit `248b933`; the submit-script change `9f45ae9` (task O4) had
+  no code-equivalence entry for land use. The entry `submit-existing-unit-landuse` (commit `e5358c8`, before/after
+  scratch test of `histsoc` 2015: coverage identical in every variable) lets the units be extended. The verifier's
+  code tree changed with it, so its earlier reports no longer counted, and both land-use units were verified whole.
+- The vegetation QC (`forcing_tiles`, which the renderer requires for every land-use file a run reads) was run again
+  on the extended units and passed on all 607 land-use files (job 43533707).
+- 2000 is now the first leap year of the `2021soc` units, so the renderer's `constant` rule links the leap years of
+  the `2021soc` historical runs to 2000 instead of 2024. The data of 2000 and 2024 are equal value for value in
+  every land-use and water-use file (checked 2026-11-01); only the time axis differs.
+- A dry check with the renderer's own checks made before anything is written (`forcing_plan`, `check_start_year` for
+  every chunk, `check_unit_parameters`, `check_landuse_tiles`; commit `e5358c8` on top of `dad7f2e`) passed for all 22
+  runs of the campaign with `chunk_years` 25. A full render of the runs after the spin-ups needs their parents' end
+  states and was not possible yet.
+- If `chunk_years` or the segment years change, the set of chunk start years changes with them, and further start
+  years are produced the same way.

@@ -196,9 +196,9 @@ parent or warm start); every later chunk from the previous chunk's end state, wi
 time; the run's end state is the last chunk's (`end_state` in the manifest; a child run starts from it). Every
 chunk starts on 1 January and its first year must be an identity link in every forcing family, as for a run:
 a chunk of a run on a constant DHF unit (`1850soc`, `2021soc`) therefore needs the unit's file of the chunk's start
-year (D20 extension years) or the render stops. With 25-year chunks the production campaign needs 18 such years that
-the land-use and water-use units do not hold yet (`1850soc` 1626, 1651, …, 1826 and 2047, 2072, 2097; `2021soc`
-1875, 1900, …, 2000; D20 amendment 2026-11-01). `submit_run.py` submits one job per chunk, each waiting for the
+year (D20 extension years) or the render stops. With 25-year chunks the production campaign needs 18 such years in the
+land-use and water-use units (`1850soc` 1626, 1651, …, 1826 and 2047, 2072, 2097; `2021soc` 1875, 1900, …, 2000;
+D20 amendment 2026-11-01), produced in task W on 2026-11-01. `submit_run.py` submits one job per chunk, each waiting for the
 previous one (`afterok`), with a check of each chunk and the check of the whole run after the last chunk and every chunk check (`afterany`: it reads their status);
 `--retry` resubmits from the first chunk whose latest attempt did not complete. The manifest's `chunks` and the
 `chunk` of every attempt record the bookkeeping; the run is `completed` when every chunk is. **Test (campaign

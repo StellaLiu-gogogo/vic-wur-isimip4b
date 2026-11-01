@@ -53,6 +53,14 @@ water use `1850soc` 1601, 2022, 1551, 1576; land use and water use `2021soc` 185
 `esm-picontrol` 1551, 1576, 1800, 1825 (task P). The climate start years and task P's records use the same form as
 O2: `start_years` `{year: source year}` in `provenance.yaml` and the file attribute `source_year`.
 
+Chunk start years (task W, 2026-11-01; D20 amendment 2026-11-01): with 25-year chunks every chunk of a run on a
+constant DHF unit starts on a file of its own year, so `1850soc` (land use and water use) also holds 1626, 1651, …,
+1826 and 2047, 2072, 2097, and `2021soc` 1875, 1900, …, 2000. The land-use units were extended through the
+code-equivalence entry `submit-existing-unit-landuse` (before/after test
+`scratch/first-year-files/compare-w-landuse.log`) and verified whole; all four units `qc.status: passed`, vegetation
+QC passed again (job 43533707). The family READMEs keep the D20 start-year list of task O, because a change inside
+`landuse/` or `water_use/` changes the code tree that the units and the verifier reports record.
+
 ## Allowed content
 
 - Forcing conversion and validation source code.
