@@ -69,7 +69,7 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | D03 | Storage plan for 5′ model output: where it lives during a campaign and when it is deleted after postprocessing | 05_simulation | | user | decided 2026-10-22 ([D03-output-storage.md](D03-output-storage.md)): option (a), every run keeps all its 5′ output, nothing deleted after postprocessing; daily `qtot`, `dis` in every reported segment and also `OUT_SOIL_MOIST`, `OUT_EVAP`, `OUT_WITHDRAWN` in the historical and future segments; no rolling climate forcing |
 | D04 | Land use: single-child rule for fallback parents, `rice_rainfed`, ISIMIP paddy area, `*_bf` variables, Köppen period for parameter backfill | 03_parameters | | user | decided 2026-09-30 ([D04-landuse-harmonization.md](D04-landuse-harmonization.md)) |
 | D05 | Non-irrigation water use: how to proceed while the ISIMIP4b dataset is not released | 04_forcing | | user, sector coordinators | decided 2026-10-02, amended 2026-10-03 (SSP series used raw, one producer task D2) ([D05-non-irrigation-water-use.md](D05-non-irrigation-water-use.md)): option A, ISIMIP3a/3b water-abstraction series downscaled with ISIMIP4b population |
-| D06 | Composition of the `extrasoc` sensitivity experiments (which additional direct human forcings) | 05_simulation | | user, sector coordinators | open |
+| D06 | Composition of the `extrasoc` sensitivity experiments (which additional direct human forcings) | 05_simulation | | user, sector coordinators | decided 2026-11-01 ([D06-extrasoc.md](D06-extrasoc.md)): option B, the two `extrasoc` experiments are not simulated; the `default` runs already carry the historical dams (D19), and the frozen model has no other additional direct human forcing than the SSP future hydropower dams; amendable |
 | D07 | 5′ to 0.5° aggregation method, `dis` outlet mapping, and `contfrac` derivation | 06_postprocessing | | user | open |
 | D08 | Simulated domain versus the ISIMIP `water_global` mask: keep the VIC domain and report uncovered mask cells as missing, or extend the domain (fully or partially) | 03_parameters | | user, sector coordinators | decided 2026-09-30 ([D08-mask-coverage.md](D08-mask-coverage.md)): option (a), keep the domain, report uncovered cells as missing |
 | D09 | ISIMIP4b `water_global` output filename pattern (not yet published by ISIMIP) | 06_postprocessing | | ISIMIP | open |
@@ -126,7 +126,7 @@ substitute was decided: see the record. Amended 2026-10-03 after the D1 review: 
 
 **D06 — `extrasoc`.** The protocol leaves the choice of additional direct
 human forcings to the modelling team and encourages coordination with the
-sector coordinators.
+sector coordinators. Decided 2026-11-01: not simulated; see the record.
 
 **D07 — Aggregation.** ISIMIP `water_global` output is reported at 0.5°.
 The capability audit identified the missing 5′ to 0.5° aggregation, the

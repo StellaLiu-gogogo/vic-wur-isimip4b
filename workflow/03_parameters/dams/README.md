@@ -91,7 +91,8 @@ Tests: `tests/unit/test_dam_parameters.py`.
 | `..._isimip4b_1850soc.nc` | 0 for `YEAR` ≤ 1850, 9999 otherwise | `1850soc` |
 | `..._isimip4b_2021soc.nc` | 0 for every historical dam, 9999 for SSP future dams | `2021soc`, `2021soc-from-histsoc`, SSP units without `extrasoc` dams |
 
-Files for `extrasoc` (SSP future dams following their construction year) wait for D06.
+No `extrasoc` dam files: D06 (decided 2026-11-01) does not simulate the `extrasoc` experiments; the SSP future dams
+keep year 9999 in every file.
 
 ## Outputs
 
@@ -119,4 +120,4 @@ never overwrites its own files.
 ## Decisions
 
 D19 (decided 2026-10-11) and the user's choices of 2026-10-11 recorded above. D01 is decided (2026-10-28): the dam files
-follow the reader of the frozen VIC `39e21ff5`. D06 (`extrasoc`) is open.
+follow the reader of the frozen VIC `39e21ff5`. D06 (decided 2026-11-01): no `extrasoc` runs, no `extrasoc` dam files.

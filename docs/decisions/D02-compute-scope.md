@@ -94,7 +94,8 @@ EC-Earth3-ESM-1-1 first, 1st-priority segments first, on 6 nodes.
 - The production campaign under `configs/campaigns/` selects these 16
   experiments for `ec-earth3-esm-1-1`; the `extrasoc` experiments are added
   when D06 is decided and start from the kept end state of the historical
-  `histsoc` segment.
+  `histsoc` segment. (D06 decided 2026-11-01: not simulated; the scope stays
+  at these 16 experiments.)
 - Submission order follows decision 3; the renderer and submit scripts need
   no scope logic beyond the experiment selection.
 - `configs/resources/vic-global-5arcmin.yaml` still plans 3.0 h per model
