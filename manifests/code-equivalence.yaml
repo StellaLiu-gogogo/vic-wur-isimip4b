@@ -289,3 +289,27 @@ equivalences:
       paths that carry the scratch label; the verifier report failed before (range: 1 value above 600) and passed
       after, all other checks equal.
     approved: user, 2026-10-25
+  - id: submit-existing-unit-landuse
+    producer: workflow/04_forcing/landuse/isimip_landuse_to_vic_annual.py
+    method_version: '1.4'
+    from:
+      workflow/04_forcing/landuse: 03252b0654aeb9c150cbcbc9f46804afe3404cf6
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    to:
+      workflow/04_forcing/landuse: c719a06569fbe8d79260ec49aa6b7d70ddfa45e4
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    change: >-
+      task O4 (D20), recorded in task W: the submit script no longer refuses an existing, non-empty unit (the producer
+      extends it or stops under common/unit_extension.py) and stops only for files without provenance.yaml. Only
+      submit_landuse_forcing.py changed (commit 9f45ae9); producer, verifier, job template and method unchanged. The
+      entry was missing when the units landuse/1850soc and landuse/2021soc (made at 248b933) were to be extended with
+      the start years of the 25-year chunks.
+    evidence: >-
+      Scratch test on 2026-11-01, landuse histsoc 2015, same inputs and commit base 248b933: before = worktree of
+      248b933 (Slurm job 43533690), after = f139ec6 (tree c719a065, job 43533691), comparison job 43533693
+      (scratch/first-year-files/compare-w-landuse.log): coverage file identical in every variable (raw bytes, dtype,
+      dimensions, chunking, filters, attributes) and every global attribute except code_commit; ledger_2015.csv,
+      summary.json and the figure byte-identical; qa_2015.json differs only in runtime_s; provenance.yaml differs only
+      in code_commit, files[].code_commit, files[].sha256, fingerprint.code_tree and the paths that carry the scratch
+      label; both verifier reports passed, differing only in the file SHA-256 and the verifier commit and tree.
+    approved: user, 2026-11-01
