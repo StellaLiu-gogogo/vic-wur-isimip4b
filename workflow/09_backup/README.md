@@ -29,6 +29,7 @@ in `logs/09_backup/<job-name>_<slurm-job-id>/`. Nothing is written into the work
 | `backup_rules.py` | the selection: excluded directories (`raw/`, `scratch/`, every `output/`, the repository's `.git/`), excluded file types (read from `.gitignore`), the three kinds kept whatever the type (`parameters/production/`, `postprocessed/` and `delivery/`, the `states/` of accepted production runs: manifest `production` and `completed`, `qc/runs/<campaign-id>/<run-id>/summary.json` present); every selected file gets a category: workdir, states, parameter-sets, products, repo |
 | `backup_snapshot.py` | `--dry-run` lists the categories with file counts and sizes, the accepted runs, the production runs not yet accepted and the free space; `--run` writes the snapshot (rsync with hard links against the current snapshot, `git push --all` and `--tags` into `repo.git/`, sha256 comparison of every copied file with its source, checksums file and manifest, rename of the staging directory, pointer switch); `--verify` re-hashes a published snapshot against its checksums file |
 | `submit_backup.py`, `backup_snapshot.sbatch` | the Slurm job (compute node, job record `logs/09_backup/`): `--list` for the dry run, `--approved "user, <date>"` for a snapshot |
+| `scheduled_backup.sh` | the command of the `scrontab` entry: sets the environment of a scheduled job and calls `submit_backup.py` with the standing approval |
 
 ## How to run
 
@@ -49,8 +50,19 @@ permissions". A snapshot is never replaced: a second one on the same day needs `
 
 ## Schedule
 
-Every two weeks (the 1st and the 15th of each month, 02:00) from the user's `scrontab`, pending the user's
-confirmation of the entry; the entry is recorded here when it is enabled.
+Every two weeks, on the 1st and the 15th of each month at 02:00, the user's `scrontab` runs
+`scheduled_backup.sh` as a small Slurm job (10 min, 1 core), which submits the snapshot job with its job record
+through `submit_backup.py` under the user's standing approval of the D13 rules (2026-11-02). The entry (`scrontab -l`):
+
+```text
+#SCRON --partition=main --time=00:10:00 --cpus-per-task=1 --mem=1G --job-name=backup-schedule
+#SCRON --output=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir/logs/09_backup/scrontab-%j.out
+0 2 1,15 * * ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir ISIMIP4B_BACKUP=/lustre/backup/WUR/ESG/liu297/isimip4b /lustre/nobackup/WUR/ESG/liu297/isimip4b/repo/workflow/09_backup/scheduled_backup.sh
+```
+
+The small job's own output goes to `logs/09_backup/scrontab-<job-id>.out`; the snapshot job records itself in
+`logs/09_backup/backup-snapshot_<job-id>/` as a manual one does. A snapshot that fails leaves
+`archive/<date>.staging/`; the next scheduled one on a later date is not blocked by it.
 
 ## Restore
 
