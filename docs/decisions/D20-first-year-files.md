@@ -268,3 +268,17 @@ the water-use demand per day of the start year), and the verifiers passed every 
   states and was not possible yet.
 - If `chunk_years` or the segment years change, the set of chunk start years changes with them, and further start
   years are produced the same way.
+
+
+## Note 2026-11-02: the years the `1850soc` spin-up reads under the cycle rule
+
+The renderer's `cycle` rule links a spin-up year to the year of the window at the same position
+(first + (year − first) mod 50) when both have the same number of days, otherwise to the next year of the
+window with that day count. The `1850soc` chain (1551–1600 on 1601–1650) has an offset of 50 years, not a
+multiple of 4, so every leap year meets a common year at its position: the first block reads 37 distinct
+`picontrol` years (13 never, 13 twice), and every continuation block (1576–1600) reads 1627–1649 and 1604.
+The `2021soc` chain reads the real years 1800–1849. Found by the pre-production review of 2026-11-01 (note
+N1). The user decided on 2026-11-02 to keep the rule and the window: the spin-up needs representative
+pre-industrial climate, not the complete window, and every continuation block reading the same climate makes
+the convergence test (D19 amendment 2026-11-02) a test of the drift alone. The alternative (window 1603–1652,
+an offset of 52 years, every year read once, a new start-year copy of 1603 for 1551) was not taken.
