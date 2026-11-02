@@ -212,8 +212,8 @@ started beside the last chunk check and read its status before it was written, w
 **Resources of a test run (task L5, user 2026-10-30).** A restriction run of a non-production campaign may set
 `resources: {ntasks, cpus_per_task, mem, exclusive, wall_time_hours}`; these replace the values of the campaign's
 resource file for that run only (`resolve_campaign.run_resources_override`, `render_run.run_resources`;
-`wall_time_hours` replaces the wall time computed from the resource file: the `timeout-test` run of campaign `smoke`,
-task X, uses 1 h to provoke the TERM signal of the job template). The renderer checks the ranks
+`wall_time_hours` replaces the wall time computed from the resource file: the `timeout-test` run of campaign
+`production-config-check`, task X, uses 1 h to provoke the TERM signal of the job template). The renderer checks the ranks
 against the decomposition groups per run and records the values in `resolved.yaml` (`resources`, and
 `resources_override`); `submit_run.py --retry` renders a new job with the same values. Campaign `dam-test` uses it
 to run 2015-2016 with 8 ranks x 16 threads and 16 ranks x 8 threads, and with 8 ranks x 8 threads on a shared
