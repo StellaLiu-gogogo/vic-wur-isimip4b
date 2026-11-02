@@ -1220,7 +1220,7 @@ Backup root `/lustre/backup/WUR/ESG/liu297/isimip4b/` (`ISIMIP4B_BACKUP`),
 procedure `workflow/09_backup/`, decided by D13 on 2026-11-02
 (`docs/decisions/D13-backup-procedure.md`). First snapshot `archive/2026-11-02`
 (job 43539753: 19 871 files, 17.0 GiB, verified; `repo.git` created). Schedule:
-not yet enabled; update this line when the `scrontab` entry is in place.
+enabled 2026-11-02 (`scrontab`, 1st and 15th of each month, 02:00 UTC; `workflow/09_backup/README.md`).
 
 ### Principle
 
