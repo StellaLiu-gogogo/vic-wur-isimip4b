@@ -12,6 +12,7 @@ This directory contains the complete version-controlled workflow. It is organize
 6. `06_postprocessing`: convert raw model output into protocol-oriented products.
 7. `07_quality_control`: evaluate scientific, structural, and protocol compliance.
 8. `08_delivery`: assemble only approved products and generate delivery inventories.
+9. `09_backup`: write dated snapshots of everything that cannot be recomputed into the backup root (contract "Data protection", D13).
 
 ## Shared code
 

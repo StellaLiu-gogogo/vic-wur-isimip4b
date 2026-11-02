@@ -102,9 +102,9 @@ isimip4b/
 - `workdir/` is the large-data and runtime area outside Git, on the
   non-backed-up filesystem `/lustre/nobackup/`.
 
-The approved backup root for selected workdir content is outside the project
-root, in `/lustre/backup/WUR/ESG/liu297/isimip4b/workdir/` (see
-[Data protection](#data-protection)). No backup exists yet.
+The backup root is outside the project root, in
+`/lustre/backup/WUR/ESG/liu297/isimip4b/` (see
+[Data protection](#data-protection)).
 
 The complete project runs on Anunna.
 
@@ -159,7 +159,8 @@ repo/
     ├── 05_simulation/
     ├── 06_postprocessing/
     ├── 07_quality_control/
-    └── 08_delivery/
+    ├── 08_delivery/
+    └── 09_backup/
 ```
 
 ### Required repository paths
@@ -476,6 +477,12 @@ Create responsibility directories only when implementation exists:
 - `templates/slurm/` stores Slurm job templates.
 
 Generated configurations and jobs belong with the dynamic run, not here.
+
+#### `workflow/09_backup/`
+
+The backup procedure of [Data protection](#data-protection): the selection
+rules, the snapshot script, its Slurm template and submit script, and the
+README with the schedule. No other stage writes to the backup root.
 
 ## Workdir hierarchy
 
@@ -1190,102 +1197,137 @@ Never delete a cache or run directory that a running job may be reading.
 
 ## Data protection
 
-`/lustre/nobackup/` is not backed up but is not purged automatically. The Git
-repository is protected by its GitHub remote.
+`/lustre/nobackup/` and `/lustre/backup/` are two directories of the same
+Lustre file system: they share its space and the user's usage, and the only
+difference is that the administrators back up `/lustre/backup/` off site and
+`/lustre/nobackup/` not. A backup therefore does not move data to another
+disk: it brings a copy into the administrators' backup and occupies the same
+file system (97 % full on 2026-11-02). The Git repository is protected by its
+GitHub remote and by the bare repository under the backup root.
 
 ### Status
 
-The approved backup root is
-`/lustre/backup/WUR/ESG/liu297/isimip4b/workdir/`, inside the user's existing
-directory `/lustre/backup/WUR/ESG/liu297/`. It is created when the first
-production object is backed up. The backup procedure is not yet implemented,
-so **no workdir content is currently backed up**. Update this status when the
-procedure becomes operational.
+Backup root `/lustre/backup/WUR/ESG/liu297/isimip4b/` (`ISIMIP4B_BACKUP`),
+procedure `workflow/09_backup/`, decided by D13 on 2026-11-02
+(`docs/decisions/D13-backup-procedure.md`). First snapshot: not yet written;
+update this line with the date of the first snapshot and of the schedule.
 
-### Backup copy
+### Principle
+
+Back up everything that cannot be recomputed from the raw data and the code,
+or only at a cost of weeks or hundreds of node hours; back up nothing that
+can. The backup is a dated snapshot of the workdir and of the repository,
+not a list of objects: what the rules select is copied as it is, with the
+same relative paths.
+
+### Backup root
 
 ```text
 /lustre/backup/WUR/ESG/liu297/isimip4b/
-├── workdir/<same relative path as in the workdir>
-└── staging/<staging-id>/
+├── archive/
+│   ├── <YYYY-MM-DD>/              one complete snapshot per date
+│   │   ├── workdir/<relative path as in the workdir>
+│   │   ├── repo/<relative path as in the repository, without .git/>
+│   │   ├── backup-manifest.json   what was selected, the rules, the commit, the verification
+│   │   └── backup-checksums.sha256
+│   └── <YYYY-MM-DD>.staging/      a snapshot being written, or left by a failed one
+├── current -> archive/<YYYY-MM-DD>  the newest complete snapshot (the pointer is never named "latest")
+└── repo.git/                      bare repository with every branch and tag
 ```
 
-The backup copy uses the same relative paths as the workdir, and its
-protected content equals the selected workdir content at the time of
-copying. It is a backup, not a
-mirror: a protected backup object may outlive or restore its workdir object,
-and it is never deleted or changed because the workdir object was deleted or
-changed. `staging/` holds objects that are being copied and have not been
-published. The `workdir/` root is available to workflow code as
-`ISIMIP4B_BACKUP`.
+The `workdir/` and `repo/` subtrees of a snapshot are available to workflow
+code through `ISIMIP4B_BACKUP` plus `current/`. Unchanged files of
+consecutive snapshots are hard links of one copy (`rsync --link-dest`), so a
+snapshot costs only the changed and new files.
 
-A **backup object** is one directory-level unit that is copied and published
-atomically. There are exactly five kinds, listed in the table below.
+### What a snapshot contains
 
-### What is backed up
+Everything under the workdir and the repository working tree, except:
 
-Only content of formally accepted production campaigns and parameter sets.
-Smoke, trial, debug, and failed runs are never backed up.
+- the directories `raw/` (immutable sources, acquired again from DKRZ or the
+  external source) and `scratch/` at the workdir top level, every directory
+  named `output/` at any depth (model output of runs and chunks), and the
+  repository's `.git/` (the bare repository holds the history);
+- the file types of the `.gitignore` sections "Scientific data" (`*.nc`,
+  `*.tif`, `*.npy`, `*.zarr/`, …), "Logs and scheduler output" (`*.log`,
+  `*.out`, `*.err`, `slurm-*.out`), "Build products" (`*.exe`, `*.o`, …) and
+  "Python and notebook caches"; the rules read the patterns from the
+  repository's `.gitignore`, so the two lists cannot drift apart. The
+  exclusion is by type, not by directory: the job records under `logs/`
+  (`job.sbatch`, `job.yaml`), provenance records, QC reports, manifests and
+  every other text file are kept, only the data and log files they describe
+  are dropped.
 
-| Backup object | Object root | Selected content |
-|---|---|---|
-| One production parameter set | `parameters/production/<parameter-set-id>/` | the whole directory |
-| One accepted production run | `runs/<campaign-id>/<run-id>/` | `config/`, `states/`, `run_manifest.json`, and `config/` and `states/` of every `chunks/<start-year>-<end-year>/` |
-| One production build | `builds/vic/<model-commit>/` | the whole directory |
-| One postprocessed product set | `postprocessed/<product-set-id>/` | the whole directory |
-| One delivery | `delivery/<delivery-id>/` | the whole directory. Once upload to DKRZ is confirmed, DKRZ holds the reference copy and the user may delete the backup object |
+Three kinds of data are kept whatever their type, because recomputing them
+costs weeks or hundreds of node hours:
 
-A run backup deliberately excludes `output/` and `logs/`, also inside
-chunks. Raw model output is reproducible from the backed-up configuration,
-states, build, and parameters; the postprocessed products are the protected
-form of the model results.
+1. `parameters/production/<parameter-set-id>/`, the whole directory;
+2. the `states/` directories, at run level and in every chunk, of an
+   **accepted production run**: its `run_manifest.json` says `production`
+   and `completed`, and its run check or convergence test has written
+   `qc/runs/<campaign-id>/<run-id>/summary.json`. The states of a run that is
+   not yet accepted are taken by the first snapshot after its acceptance;
+3. `postprocessed/` and `delivery/`, the whole directories, until DKRZ holds
+   the delivery (then the user may let the products out of later snapshots
+   by a change of this rule).
 
-Never backed up: `raw/`, `intermediate/`, `forcing/`, `parameters/candidates/`,
-`qc/`, `analysis/`, `logs/`, `scratch/`, and non-production runs.
+Never backed up: raw files, scratch, model output, the data files of forcing
+units (recomputed from `raw/` and the code in days), candidate parameter
+sets, caches, executables (rebuilt from the model commit in minutes),
+scheduler output and logs, and the states of smoke, trial, debug and
+non-production runs.
 
-### How content is backed up
+The repository is protected twice: `git push --all` and `git push --tags`
+into `repo.git/` keep every commit of every branch (never `--mirror`, so a
+branch deleted in the working repository stays in the backup; the push
+touches no working tree), and the working tree is copied under the same
+exclusion rules, which keeps uncommitted edits.
 
-*Design status: this procedure is specified before any backup code exists. It
-is refined through the change procedure when the backup procedure is
-implemented. What is backed up and the permissions are binding now.*
+### How a snapshot is written
 
-- No scientific processing or primary project work occurs in the backup area.
-  Only copied payload, copied manifests, checksums, and staging metadata are
-  created there, and only by the backup procedure.
-- An object is copied only after it is complete and accepted, and each backed
-  up object is treated as write-once: existing files in the backup copy are
-  never modified. A changed object gets a new identity in the workdir first.
-- Each object is backed up in a staging, verify, publish sequence, so that a
-  published object never changes afterwards:
-  1. copy the payload (the selected content of the object except its
-     manifest) to `staging/<staging-id>/`;
-  2. verify every staged payload file against the workdir;
-  3. record the backup path, date, and payload verification result in the
-     object's manifest (see below for where each manifest lives);
-  4. if the manifest lives inside the object, copy the final manifest into
-     staging; a manifest that lives in the repository is committed instead;
-  5. write `backup-checksums.sha256` in the staged object, covering the
-     payload and, when present, the final manifest, but not itself, and
-     verify it;
-  6. publish by renaming the staged object to its final path under
-     `workdir/`. Publishing never replaces an existing object.
-- If any step fails, the final object must not appear, and the backup entry
-  added in step 3 is removed from the workdir manifest. The staged object
-  remains for recovery; removing it follows
-  [Deletion permissions](#deletion-permissions).
-- The manifest of an object is: `run_manifest.json` for a run,
-  `build_manifest.json` for a build, and `delivery-manifest.yaml` for a
-  delivery. A parameter set's manifest is in `manifests/parameters/` in the
-  repository; it records the backup there, is protected by Git, and is not
-  copied. A postprocessed product set records its backup in its product-set
-  manifest, which is defined when postprocessing is implemented.
-- The backup procedure is implemented as workflow code when the first
-  production object is accepted; its location requires an update to this
-  contract first.
-- Copying into the backup copy uses paid storage. A coding agent proposes the
-  list of objects, file counts, and sizes, and copies only after user approval.
-  Deleting from the backup copy follows
-  [Deletion permissions](#deletion-permissions).
+`workflow/09_backup/backup_snapshot.py`, as a Slurm job on a compute node
+(`submit_backup.py`, job record `logs/09_backup/`):
+
+1. the selected files are listed (`--dry-run` prints the list and the
+   file counts and sizes per category: workdir text, states, parameter sets,
+   products, repository);
+2. they are copied to `archive/<date>.staging/` with `rsync -a` and
+   `--link-dest` against the current snapshot;
+3. the branches and tags are pushed into `repo.git/`;
+4. every copied file is compared with its source by sha256 (a symbolic link
+   by its target); a difference stops the snapshot and leaves the staging
+   directory with a manifest of status `failed`;
+5. `backup-checksums.sha256` (every regular file of the snapshot) and
+   `backup-manifest.json` are written, the staging directory is renamed to
+   `archive/<date>/` and `current` is pointed at it. The current snapshot is
+   therefore complete at any time.
+
+A snapshot is never changed after it is published and never replaced; a
+second snapshot on one day needs another snapshot id. The procedure deletes
+nothing: old snapshots and failed staging directories are removed only under
+[Deletion permissions](#deletion-permissions). `backup_snapshot.py --verify`
+hashes a published snapshot against its checksums file; a restore copies
+from `archive/<date>/workdir/<path>` back into the workdir, with the user's
+authorization like any other write into an accepted location.
+
+### When a snapshot is written
+
+- Every two weeks by the schedule recorded in `workflow/09_backup/README.md`
+  (a Slurm job started from the user's `scrontab`), under the user's standing
+  approval of these rules (D13, 2026-11-02).
+- By hand after a production run is accepted, a parameter set promoted, a
+  product set or delivery completed, or an important commit, with the same
+  script. Copying into the backup root needs the user's approval of the
+  listed content (`submit_backup.py --list` shows it; `--approved` records
+  the approval in the job record); a coding agent never starts a snapshot on
+  its own.
+
+### Permissions
+
+Nothing writes into the backup root except the backup procedure. Deleting or
+changing anything under it follows [Deletion permissions](#deletion-permissions)
+and needs the user's explicit authorization; the administrators' off-site copy
+of `/lustre/backup/` is outside the project's control.
 
 ## Directory density and depth
 

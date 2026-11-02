@@ -51,4 +51,4 @@ Every environment used to run workflow or analysis code sets:
 
 The backup procedure additionally uses:
 
-- `ISIMIP4B_BACKUP`: absolute path of the backup copy of the workdir, `/lustre/backup/WUR/ESG/liu297/isimip4b/workdir`.
+- `ISIMIP4B_BACKUP`: absolute path of the backup root, `/lustre/backup/WUR/ESG/liu297/isimip4b` (snapshots under `archive/`, pointer `current`, bare repository `repo.git`; contract "Data protection").

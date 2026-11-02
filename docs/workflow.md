@@ -48,6 +48,7 @@ DKRZ ISIMIP4b inputs ──01──▶ raw/ISIMIP4b ──02──▶ intermedia
 | `06_postprocessing` | aggregate 5′ output to the 0.5° ISIMIP grid (D07), derive protocol variables, split files per variable and period, name per protocol (D09, D10) | `runs/` | `postprocessed/<product-set>/`, `qc/postprocessed/` | nothing yet; D07, D09, D10, D11 open |
 | `07_quality_control` | ISIMIP QC tool checks plus project checks on inputs, forcing, runs, products | any workdir object | `qc/<object path>/summary.json` | input QA of 2026-09-21 under `qc/raw/`; per-object checks live with their producers (forcing verifiers, parameter verifiers, run checks); no central code yet |
 | `08_delivery` | assemble accepted products, inventory, checksums, delivery manifest, upload to DKRZ | `postprocessed/`, `qc/` | `delivery/<id>/`, `manifests/deliveries/` | nothing yet |
+| `09_backup` | dated snapshot of the workdir (text, metadata, job records, production parameter sets, states of accepted production runs, products, deliveries) and of the repository (working tree, and every branch and tag into a bare repository) into the backup root; verification by sha256; `current` pointer (D13) | `workdir/`, `repo/` | `/lustre/backup/WUR/ESG/liu297/isimip4b/` | code written 2026-11-02 (task Y); first snapshot pending the user's approval of the listed content |
 
 ## 3. Order of work
 
@@ -98,8 +99,8 @@ DKRZ ISIMIP4b inputs ──01──▶ raw/ISIMIP4b ──02──▶ intermedia
   (to be implemented in `workflow/common/cache.py`).
 - A stage does not start production work while a decision due at or before
   it is open (`decisions/open-decisions.md`); the layout check warns.
-- Backups of accepted objects follow `directory-contracts.md`, "Data
-  protection" (not yet operational).
+- Backups follow `directory-contracts.md`, "Data protection": dated
+  snapshots written by `workflow/09_backup/` (D13, 2026-11-02).
 
 ## 5. History
 

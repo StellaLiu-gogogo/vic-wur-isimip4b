@@ -44,6 +44,7 @@ PERIODS = {"spinup", "pre-industrial", "historical", "future"}
 STAGES = [
     "01_acquisition", "02_preprocessing", "03_parameters", "04_forcing",
     "05_simulation", "06_postprocessing", "07_quality_control", "08_delivery",
+    "09_backup",
 ]
 REPO_TOP = {
     ".githooks", ".gitignore", "AGENTS.md", "CLAUDE.md", "README.md",
@@ -305,7 +306,8 @@ def check_open_decisions(repo: Path, files: list[str],
               if f.startswith("workflow/0") and PurePosixPath(f).name
               != "README.md"}
     for stage in STAGES:
-        if stage not in active:
+        # 09_backup copies what the other stages produced; no decision is due before it
+        if stage not in active or stage == "09_backup":
             continue
         ids = [d for d, s in due if STAGES.index(s) <= STAGES.index(stage)]
         if ids:

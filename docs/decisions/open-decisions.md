@@ -8,7 +8,7 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-11-01.
+Last reviewed: 2026-11-02.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
@@ -76,7 +76,7 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | D10 | VIC-WUR model name and version suffix for ISIMIP4b filenames | 06_postprocessing | | user | open |
 | D11 | Structure of the postprocessed product-set manifest | 06_postprocessing | | user | open |
 | D12 | Whether `2021co2` experiments are reported (VIC-WUR has no CO₂ response) | 08_delivery | | sector coordinators | open |
-| D13 | Location and implementation of the backup procedure | - | first production object accepted | user | open (trigger reached 2026-10-30: `parameters/production/vic-global-5arcmin-version-a` promoted; the user deferred the backup procedure, so no production object is backed up yet) |
+| D13 | Location and implementation of the backup procedure | - | first production object accepted | user | decided 2026-11-02 ([D13-backup-procedure.md](D13-backup-procedure.md)): dated snapshots of everything that cannot be recomputed (workdir without raw, scratch, output and data/log file types; production parameter sets, states of accepted production runs, products and deliveries kept whole; bare repository with every branch and tag), hard links between snapshots, `current` pointer, every two weeks by `scrontab` and by hand, stage `workflow/09_backup/` (task Y). Trigger reached 2026-10-30 (parameter set promoted) and 2026-10-31 (production build); nothing backed up until the first snapshot |
 | D14 | Include the ensemble member in project identifiers | - | a second ensemble member is used | user | open |
 | D15 | Migration of the legacy `vic_global/isimip4b/` area into this project | - | approved 2026-09-29 | user | decided ([D15-legacy-migration.md](D15-legacy-migration.md)) |
 | D16 | Elevation correction of downward longwave radiation (`lwdown`) in the climate forcing, consistent with the lapse-rate correction of `tair` | 04_forcing | | user | decided 2026-10-01 ([D16-lwdown-elevation-correction.md](D16-lwdown-elevation-correction.md)): option A, ratio method of Cosgrove et al. (2003) as in WATCH/WFDE5 |
@@ -149,8 +149,10 @@ uncovered cells are reported as missing.
 
 **D12 — `2021co2`.** See `glossary.md`, "Sensitivity scenario".
 
-**D13 — Backup procedure.** See `directory-contracts.md`, "Data protection";
-its location requires a contract change.
+**D13 — Backup procedure.** See `directory-contracts.md`, "Data protection".
+Decided 2026-11-02: the five-object model of the first contract is replaced
+by dated snapshots of all non-recomputable content and a bare repository;
+see the record.
 
 **D14 — Ensemble member.** See `glossary.md`, "Ensemble member".
 
@@ -191,7 +193,8 @@ passed one dam file to every segment; the `smoke-nonrenewable` warm start kept
 the dams of 2012–2020 active from 2011. Extended on 2026-10-09 by the DOR
 selection rule of the dam file. Decided 2026-10-11 after the analyses
 `dam-distribution-review` and `dam-nservice-test` and a source review of the
-state restore; see the record.
+state restore; see the record. Amended 2026-10-16, 2026-10-22 and
+2026-11-02 (convergence test per grid cell over the 25 years of a block).
 
 **D20 — First-year files outside a unit's years.** Raised 2026-10-07 by the
 cross-module review (P2-1). VIC checks the first time of the climate file and
@@ -202,7 +205,8 @@ only the years of their scenario; the `2021soc` historical segments, the
 rendered. Widened on 2026-10-11 to the spin-up climate (a spin-up labelled
 1551–1600 would link 1551 to the 1601 climate file). Decided 2026-10-11:
 the units' own producers write the start years as extension years; see the
-record.
+record. Amended 2026-10-17, 2026-10-22 and 2026-11-01; note of 2026-11-02 on
+the years the `1850soc` spin-up reads under the cycle rule.
 
 **D16 — `lwdown` elevation correction.** The climate forcing corrects `tair`,
 `psurf`, and `vp` from the ERA5 0.5° orography to the 5′ VIC cell
