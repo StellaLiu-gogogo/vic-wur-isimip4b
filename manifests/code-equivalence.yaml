@@ -330,10 +330,14 @@ equivalences:
       job record files under a temporary name and renames them. No line that computes, writes or names a data file
       changed; the record of a unit extended by one job at a time is identical. Method unchanged.
     evidence: >-
-      Unit tests of 2026-11-02 (tests/unit/test_common_unit_extension.py WriteTest, test_common_provenance.py,
-      test_common_jobrecord.py, test_climate_extension.py): the record written by one job equals the record written
-      before the change; two jobs on one unit keep both records' files. No scratch producer run was made for this
-      entry (the change does not touch the data path); the user decides whether a before/after scratch run is wanted.
+      Scratch test on 2026-11-02, ec-earth3-esm-1-1 esm-hist lwdown 2015, same inputs: before = worktree of bd1b247
+      (common and producer as main 4211488; Slurm job 43539428), after = 3494fbd (job 43539425), comparison job
+      43539551 (scratch/review-fixes/compare-x-climate.log, script compare_x.py): the data file is identical in
+      every variable (raw bytes, dtype, dimensions, chunking, filters) and every attribute except code_commit and
+      created_at; provenance.yaml differs only in code_commit, files[].code_commit, files[].created_at,
+      files[].sha256, fingerprint.code_tree and the paths that carry the scratch label; both verifier reports passed,
+      differing only in the file SHA-256 and the verifier commit and tree. Unit tests of the lock and the merge
+      (tests/unit/test_common_unit_extension.py WriteTest, test_common_provenance.py, test_common_jobrecord.py).
     approved: user, 2026-11-02 (task X, "Yes, commit both")
   - id: unit-lock-landuse
     producer: workflow/04_forcing/landuse/isimip_landuse_to_vic_annual.py
@@ -349,8 +353,12 @@ equivalences:
       common/unit_extension.write (unit lock, merge with a concurrent job's record); common changes as there. Only the
       last lines of the producer changed; method unchanged.
     evidence: >-
-      Unit tests of 2026-11-02 (tests/unit/test_common_unit_extension.py WriteTest, test_landuse_forcing.py). No
-      scratch producer run was made for this entry; the user decides whether a before/after scratch run is wanted.
+      Scratch test on 2026-11-02, landuse histsoc 2015, same inputs: before = worktree of bd1b247 (job 43539429),
+      after = 3494fbd (job 43539426), comparison job 43539551 (scratch/review-fixes/compare-x-landuse.log): the
+      coverage file is identical in every variable and attribute except code_commit and created_at; ledger_2015.csv,
+      summary.json and the figure byte-identical; qa_2015.json differs only in runtime_s; provenance.yaml differs
+      only in code_commit, files[].code_commit, files[].sha256, fingerprint.code_tree and the scratch paths; both
+      verifier reports passed. Unit tests as in unit-lock-climate.
     approved: user, 2026-11-02 (task X, "Yes, commit both")
   - id: unit-lock-water-use
     producer: workflow/04_forcing/water_use/downscale_water_use.py
@@ -366,6 +374,11 @@ equivalences:
       common/unit_extension.write (unit lock, merge with a concurrent job's record); common changes as there. Only the
       last lines of the producer changed; method unchanged.
     evidence: >-
-      Unit tests of 2026-11-02 (tests/unit/test_common_unit_extension.py WriteTest, test_water_use_forcing.py). No
-      scratch producer run was made for this entry; the user decides whether a before/after scratch run is wanted.
+      Scratch test on 2026-11-02, water use histsoc 2015, same inputs: before = worktree of bd1b247 (job 43539430),
+      after = 3494fbd (job 43539427), comparison job 43539551 (scratch/review-fixes/compare-x-water_use.log): all
+      six files identical in every variable and attribute except code_commit and created_at; lost_demand_ledger.csv,
+      lost_parents_2015.csv and the figure byte-identical; qa_2015.json differs only in runtime_s; provenance.yaml
+      differs only in code_commit, files[].code_commit, files[].sha256, fingerprint.code_tree and the scratch paths;
+      both verifier reports passed (the job's exit status 4 is the unit summary not_checked of a one-year scratch
+      unit, the same before and after). Unit tests as in unit-lock-climate.
     approved: user, 2026-11-02 (task X, "Yes, commit both")

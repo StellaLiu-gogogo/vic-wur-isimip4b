@@ -79,6 +79,8 @@ class RerenderJobTest(unittest.TestCase):
             return types.SimpleNamespace(returncode=0, stdout=f'{next(self.next_id)}\n', stderr='')
         if cmd[0] == 'scontrol':
             return types.SimpleNamespace(returncode=0, stdout='', stderr='')
+        if cmd[0] == 'sacct':                  # the reconciliation before a retry: the job is unknown to sacct
+            return types.SimpleNamespace(returncode=0, stdout='', stderr='')
         raise AssertionError(f'unexpected command {cmd}')
 
     def retry(self, rerender=True):
@@ -119,7 +121,7 @@ class RerenderJobTest(unittest.TestCase):
         self.assertEqual([(a['attempt'], a['status']) for a in m['attempts']], [(1, 'failed'), (2, 'submitted')])
         self.assertEqual(m['attempts'][1]['slurm_job_id'], 201)
         self.assertEqual(m['attempts'][1]['inputs_fingerprint'], before['inputs_fingerprint'])
-        self.assertEqual(self.calls, ['conda', 'sbatch', 'scontrol'])
+        self.assertEqual([c for c in self.calls if c != 'sacct'], ['conda', 'sbatch', 'scontrol'])
 
     def test_second_rerender_keeps_both_job_files(self):
         self.retry()

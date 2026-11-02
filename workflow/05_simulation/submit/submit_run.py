@@ -246,6 +246,9 @@ def update_ledger(W, campaign_id, run_dirs):
             changed.append({'run_dir': os.path.relpath(rd, W), **rec})
             print(f'{os.path.relpath(rd, W)}' + (f' chunk {rec["chunk"]}' if rec['chunk'] else '') +
                   f' attempt {rec["attempt"]} job {rec["slurm_job_id"]}: {rec["state"]} -> {rec["status"]} ({rec["reason"]})')
+        # the final scheduler rows of attempts the job itself recorded (a TERM, a VIC error): the check job that would
+        # store them was cancelled with the chain (R16)
+        rm.record_scheduler(rd, [a['slurm_job_id'] for a in rm.load(rd)['attempts'] if a['status'] in rm.ENDED_BADLY])
         m = rm.load(rd)
         for a in m['attempts']:
             if a['status'] in rm.ENDED_BADLY:
