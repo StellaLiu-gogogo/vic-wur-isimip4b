@@ -4,6 +4,7 @@ Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 Tests that compare with cdo are skipped when cdo is not on PATH.
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import importlib.util, os, shutil, subprocess, tempfile, unittest
 
 import numpy as np

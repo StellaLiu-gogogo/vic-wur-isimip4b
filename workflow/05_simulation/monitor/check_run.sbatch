@@ -9,6 +9,7 @@
 #SBATCH --mem={{MEM}}
 #SBATCH --output={{STAGE_LOGS}}/slurm-%j.out
 #SBATCH --error={{STAGE_LOGS}}/slurm-%j.err
+{{DEPENDENCY_LINES}}
 set -eo pipefail
 
 JOB_DIR={{STAGE_LOGS}}/{{JOB_NAME}}_${SLURM_JOB_ID}

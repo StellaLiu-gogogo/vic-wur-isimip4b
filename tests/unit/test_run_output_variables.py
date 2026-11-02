@@ -5,6 +5,7 @@ the variables of the stream's output files; a missing variable fails the attempt
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import os, tempfile, types, unittest
 from unittest import mock
 

@@ -5,6 +5,7 @@ harness of test_simulation_render.py (temporary workdir, build/parameter/forcing
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import json, os, sys, unittest
 from unittest import mock
 

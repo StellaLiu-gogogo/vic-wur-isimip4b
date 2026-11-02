@@ -255,7 +255,7 @@ over the steps O3, O5 and O6 of task O). Steps and their state:
 | P1 | climate `esm-picontrol` 1601–1610 for ec-earth3-esm-1-1 (existing producer) | done 2026-10-17 (job 43339587, 70 files passed, commit `bb8cd76`); the other years in P5 |
 | P2 | climate producer: spin-up start years copied from the cycle year (`--start-years`, `--cycle-window`), verifier check `start_year` (`workflow/04_forcing/climate/README.md`); start year 1591 of the natural-run spin-up | code `a86aaf9`; code-equivalence entry `start-years-climate` (user, 2026-10-20); start year 1591 added to the units (user, 2026-10-20) |
 | P3a | renderer: climate start years in the cycle rule, spin-up output (`output.spinup`), no run check for spin-ups | code `e3ec0f3` |
-| P3b | production spin-ups: continuation blocks (run ID `<segment-id>__block-<n>`, user 2026-10-17), convergence test of D19 (rules: user, 2026-10-22), warm start from a chunked run | code `30d4ff6`; tried on the natural-run spin-up (not converged after 10 years, as expected). One climate window per spin-up chain (D19 amendment of 2026-10-22: `2021soc` cycles 1800–1849): done in task S |
+| P3b | production spin-ups: continuation blocks (run ID `<segment-id>__block-<n>`, user 2026-10-17), convergence test of D19 (rules: user, 2026-10-22; amended 2026-11-02, task X), warm start from a chunked run | code `30d4ff6`; tried on the natural-run spin-up (not converged after 10 years, as expected). One climate window per spin-up chain (D19 amendment of 2026-10-22: `2021soc` cycles 1800–1849): done in task S |
 | P4 | natural-run spin-up of task L: campaign `natural-spinup` (1591–1600, cycle 1601–1610, `1850soc` land use, routing and land use only) | done 2026-10-22 (job 43374681, 8.2 h, 45 min per model year; renderer fix `9bdd46a`); its end state starts the natural run of task Q |
 | P5 | climate for the production campaign of D02 (released by the user in batches, 2026-10-22 and 2026-10-25): `esm-picontrol` 1611–1650, start years 1551 and 1576, 1800–1849, 1651–1799, 1850–2100; `esm-scen7-vl` and `esm-scen7-h` 2022–2100 | done 2026-10-30: `esm-picontrol` 1551, 1576, 1591 and 1601–2100 (503 years per variable, 6.2 TB) and both futures 2022–2100 passed, all seven variables (jobs 43423709, 43424190, 43424270, 43427422, 43440164, 43426662, 43431185); lwdown range of the verifier raised to 650 W m-2 (`20a59d4`, code-equivalence entry `lwdown-range-climate`), lwdown verified again with it (vl 43432908, h 43433722, picontrol 43518194, 43518409, 43519881) |
 
@@ -286,19 +286,31 @@ manifest; the D19 dam checks apply). Each call of the renderer (`submit_run.py -
 disk (`render_run.spinup_next`): no block → block 1 (cold start or `initialisation.state_of_run`); the last block
 completed and its convergence test `failed` → the next block; `passed` → no block, and the children of the
 spin-up (pre-industrial, or the `2021soc` historical segments) start from that block's end state; the last block not
-completed, its test missing (or, in a production campaign, run from code that was not committed), or
+completed, its test not run, or its test `not_checked` (it could not be evaluated: a short file, a missing value) → the
+spin-up and its children are left out of the call with a note and the other runs of the call go on (review 2026-11-01
+R3, R6: before, the render stopped after earlier runs of the call were already written, which the next call refused
+as existing); a test run from code that was not committed (production campaign), an unknown test status or
 `max_blocks` reached → the render stops with the reason. Children of a spin-up that has not converged, and their
 children, are left out of the call with a note. Each next block is submitted by hand (user, 2026-10-22).
 
-**Convergence test (`monitor/check_spinup.py`, D19; rules chosen by the user on 2026-10-22).** Submitted by
-`submit_run.py` after the last job of every spin-up block (`submit_check.py --spinup`, job `spinup-check-...`). Over
-the last 10 annual values of the block, for soil moisture of layers 2 and 3 (global and the 20 largest river basins of
-the routing network), December snow water equivalent without the perennial-snow cells (monthly snow water equivalent
-never below 1 mm in those 10 years; they stand in for the glacier cells of D18), river storage, reservoir storage
-(dams on) and, for `2021soc`, irrigation withdrawal: the least-squares trend per year must not exceed 0.1 times the
-standard deviation of the detrended values. Results in `qc/runs/<campaign>/<run-id>/` (`summary.json`,
-`reports/convergence.json`, `reports/convergence_annual.csv`, `figures/convergence_{global,basins}.png`); from a
-repository that is not clean they go to `scratch/spinup-check/uncommitted/` and the block has no test.
+**Convergence test (`monitor/check_spinup.py`, D19 spin-up rule 3 as amended on 2026-11-02; the rules of 2026-10-22
+could not pass on a converged spin-up, review 2026-11-01 R1).** Submitted by `submit_run.py` after the last job of every
+spin-up block (`submit_check.py --spinup`, job `spinup-check-...`). Window: the 25 annual values of the block (the last
+25 years of the first, 50-year block). Per active grid cell, for soil moisture of layers 2 and 3 (annual means),
+December snow water equivalent without the perennial-snow cells (monthly snow water equivalent never below 1 mm in the
+window years; they stand in for the glacier cells of D18) and river storage: the least-squares slope of the 25 values
+divided by the standard deviation of the detrended values (ddof 2) must not exceed 0.1 per year (a constant cell passes
+when its slope is zero); a quantity passes when at least 80 % of its active cells pass. Reservoir storage (dams on)
+and, for `2021soc`, irrigation withdrawal are tested as global totals under the same rule and must pass. The block has
+converged (`passed`, exit status 0) when every one of these quantities passes, has not converged (`failed`, exit status
+3, a warning in Slurm: the next block follows) otherwise; a test that could not be evaluated (a short file, a missing
+variable or value) is `not_checked` (exit status 4) and the chain is not continued until the block has been looked at.
+The global area-weighted series of the per-cell quantities and the 20 largest river basins of the routing network are
+diagnostics in the CSV and figures only. Results in `qc/runs/<campaign>/<run-id>/` (`summary.json` with the fraction
+of cells passed per quantity, `reports/convergence.json`, `reports/convergence_annual.csv`,
+`figures/convergence_{global,basins}.png`, `figures/convergence_map_soil_moisture_layer3.png` with the per-cell slope
+ratio, where the slow drift of arid regions shows); from a repository that is not clean they go to
+`scratch/spinup-check/uncommitted/` and the block has no test.
 
 **Outputs by period (D03 decision 2, task S).** `output.period_outputs` (`{stream: {period: [OUTVAR]}}`) adds VIC
 outputs to a stream of the runs of the named periods only (`pre-industrial`, `historical`, `future`; spin-ups write
@@ -353,12 +365,63 @@ the dam service maps (D19; mean 1992–2021) and multi-year daily means of disch
 without the variables of the plugins that are off (listed under `not_provided`); `check_run.py` skips the water-use
 checks of such a run. The `esm-hist` climate unit was extended with 2021 for this run (user, 2026-10-22).
 
+## Pre-production review fixes (task X)
+
+Classification: production workflow code (user, 2026-11-02). Implements the fixes of the read-only pre-production code
+review of `workflow/05_simulation` and `workflow/common` of 2026-11-01 (findings R1–R20; the user decided on
+2026-11-02 how each is handled). Branch `task-x-review-fixes`, worktree `scratch/review-fixes/repo`. Steps and their
+state:
+
+| Step | Finding | Content | State |
+|---|---|---|---|
+| X1 | R3 (P1) | `render_run.spinup_next`: a spin-up whose latest block has not completed, whose test has not run or could not be evaluated is left out of the call (with its children) instead of stopping the render after earlier runs were written; `max_blocks`, an uncommitted test and an unknown status still stop | done; test with two spin-ups in different states |
+| X2 | R6, R17 (P2/P3) | `check_spinup.py`: a test that cannot be evaluated is `not_checked` (exit 4), not `failed`; not converged exits 3 (warning), 1 only for errors of the test | done |
+| X3 | R7 (P2) | `run_manifest.py`: `verify-inputs`, `complete` and `rescan-logs` change the manifest under the run lock (blocking flock on the run directory), so a submission of a later chunk cannot write over them; `complete` gathers everything first and holds the lock only for the write | done; write-order tests |
+| X4 | R15 (P3) | `submit_run.submit`: any error between `sbatch` and the release cancels the held job | done |
+| X5 | R5 (P2) | `--retry` refuses a dirty repository for a production run; `verify-inputs` and `complete` record (commit, dirty); `check_run.py` records (commit, dirty), writes to `scratch/run-check/uncommitted/` when dirty, binds `summary.json` and `reports/check.json` to the attempt (number, job id, status) and the sha256 of the end state, takes its note from `production`, writes both files atomically (`common.qc.write_json`); the whole-run check counts a chunk summary only when bound to the chunk's completed attempt | done |
+| X6 | R4 (P2) | `submit_check.py`: wall time of a check scaled with its years (chunk check and unchunked run 1 h + 15 min/year, whole-run check of a chunked run 1 h + 2 min/year, never below 4 h; measured: natural-run chunk checks 50–83 min for 20 years without water use, production-config-check 13.7 min for 2 years with water use, natural-run whole-run check 2:49 h for 172 years) | done |
+| X7 | R2 (P1), R16, R18 | recovery after a failed job: `run_manifest.reconcile` (attempts still `submitted`/`running` compared with `sacct`; ended jobs get `timeout`/`cancelled`/`failed` with the final rows and a reason; pending jobs with `DependencyNeverSatisfied` are cancelled and recorded); `submit_run.py --reconcile`, `--resume`, `--retry --dependency`, reconciliation before every retry; the campaign ledger `runs/<campaign-id>/recovery.json` (contract change proposed to the user: the only file at the campaign level); every submission with a dependency uses `--kill-on-invalid-dep=yes` (run jobs through `sbatch`, check jobs as an `#SBATCH` line: R18 covered); `vic_run.sbatch` gets `--signal=B:TERM@900` and a trap that stops VIC and runs `complete --exit-code 143 --reason "signal TERM: time limit or cancel"` (the completion step reads `sacct`, the logs and the output file names: well within 900 s); R16: the job records its own `sacct` rows as `scheduler_at_completion`, the check job and the reconciliation store the final rows as `scheduler` under the run lock | code and unit tests done; the real time-out test on the smoke campaign (short wall time) waits for the user's go-ahead |
+| X8 | R8 (P2) | `check_run.py`: over every active cell and month of a chunk or unchunked run the 99th percentile of \|`OUT_WATER_ERROR`\| (monthly mean, mm) must not exceed 1 mm (user, 2026-11-02; task T outlier rule); p99, p99.9, the maximum and the count of cell-months above 1 mm are recorded, per year the maximum, the count and the closure P − ET − qtot − dS (dS from the December monthly-mean storage of consecutive years, approximate); part of the check status | done; needed before the first reported segment, not for the spin-ups |
+| X9 | R11 (P3, user) | `verify-inputs` checksums only the forcing files of the chunk's own years (the links of its forcing view) plus the parameters, the executable and the parent or previous-chunk state; the whole-run set stays in the render fingerprint | done |
+| X10 | R19 (P3, common) | `common.provenance.unit_lock` (flock on the unit directory) around `set_qc`; `common.unit_extension.write` (the producer's final write of a unit record under the lock, merged with what another job wrote meanwhile) used by the climate, land-use and water-use producers; `common.jobrecord` writes `job.sbatch` and `job.yaml` atomically; `submit_check.py` submits through `jobrecord` | done; code-equivalence entries `unit-lock-{climate,landuse,water-use}` (approval and the before/after evidence are the user's call) |
+| X11 | R20 (P3) | `tests/unit/workflow_paths.py` puts `workflow/` on the module path for every test module (`python -m unittest discover -s tests/unit` without `PYTHONPATH`); tests for R3, R5, R7; the pre-commit hook warns when `workflow/common` or a forcing producer changes without a new code-equivalence entry | done |
+| X12 | R9 (docs) | operation rule: the forcing units of a campaign are frozen while its chains run (below) | done |
+| X13 | R1 (P1) | `check_spinup.py` under the D19 amendment of 2026-11-02 (25-year window, per-cell slope ratio with ddof 2, 80 % of the cells, global totals for reservoir storage and irrigation withdrawal, basins diagnostic only, map of the layer-3 ratio) | done; unit tests with synthetic fields |
+| — | R10, R12, R13, R14 | not changed (user, 2026-11-02): non-unique job names are not important; a changed executable or parameter set between renders means rerunning everything by hand anyway; `check_nonrenewable_output` ignoring `output.spinup` has no effect on this campaign; `conda deactivate` under `set -u` was tested on 2026-11-02 in a clean environment (`env -i`) and in the login environment and succeeds after a `set +u`-wrapped `conda activate` | not changed |
+
+**Operation of a campaign (R9, user's rules).** The forcing units of a campaign are frozen while its chains run: any
+extension or re-verification of a land-use, water-use or climate unit puts the unit at `not_checked` until its verifier
+passes (`common/unit_extension.py`, `run_manifest.units_not_accepted`), and a chunk that starts in that window fails its
+input check and strands its chain. Extensions and re-verifications (e.g. the UKESM start years later, which touch the
+shared land-use and water-use units) happen only before a campaign starts or after it ends. The production campaign
+starts only after task W is fully accepted.
+
+**Recovery after a failed job (R2).** A chunk that fails, times out or is cancelled leaves the chain behind it
+pending (Anunna's Slurm has `DependencyParameters=(null)`); since task X a dependent of a failed job is cancelled by
+Slurm (`--kill-on-invalid-dep=yes`), and a time limit or cancel is recorded by the job itself (TERM trap, exit code 143).
+Procedure:
+
+1. `submit_run.py --reconcile <campaign-id>` (or one run directory): every attempt still `submitted` or `running` is
+   compared with `sacct`; ended jobs are recorded with their state and reason, jobs waiting forever are cancelled; the
+   ledger `runs/<campaign-id>/recovery.json` lists every attempt that ended without completing (run, chunk, years, job,
+   state, reason, the jobs cancelled after it, the resume command) and which attempt resumed it.
+2. Read the reason in the ledger or in the attempt (`failure_reason`, `scheduler`, `log_scan`, the job's `slurm-<id>.err`).
+   A time-out of a chunk whose wall time was too short is retried with `--rerender-job` after the resources were
+   changed; an input mismatch or a VIC error needs the user first.
+3. `submit_run.py --resume <campaign-id>`: every stranded run (an attempt that ended without completing, nothing
+   running) is resubmitted from its first incomplete chunk, parents first; a run whose parent has not completed waits
+   for the parent's job (its running job, or the job resubmitted in the same call). Single runs:
+   `submit_run.py --retry runs/<campaign-id>/<run-id> [--dependency <job-id>]`; a production run only from a clean
+   repository.
+4. The check of a resumed run follows as usual; the convergence test of a spin-up block is submitted by the retry of
+   its last chunk.
+
 ## Submit (`submit/`)
 
 | File | Role |
 |---|---|
-| `submit_run.py` | renders the runs of a campaign (label), or the next block of a spin-up, and submits each job on hold (a spin-up with the convergence test instead of the run check), records the attempt, releases it (the run directory is locked meanwhile, so a second submission of the same run stops, and a manifest write never drops a recorded attempt); a run whose parent is submitted in the same call waits for it (`afterok`); `--retry <run-dir>` resubmits an unchanged run as a new attempt; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files`; the new job file is checked like a render (resources modules = build `runtime_modules`, MPI tasks ≤ the decomposition groups recorded in `resolved.yaml`) |
-| `run_manifest.py` | `verify-inputs` (job step before VIC: checksums of parameters, forcing files, executable and parent state file; every forcing unit still accepted; every forcing-view link points to its recorded source) and `complete` (job step after VIC, also on failure; every OUTVAR of `vic_global.txt` must be in the output files of its stream, since VIC drops an unknown OUTVAR with only a warning; exit status 1 when the attempt failed) |
+| `submit_run.py` | renders the runs of a campaign (label), or the next block of a spin-up, and submits each job on hold (a spin-up with the convergence test instead of the run check), records the attempt, releases it (the run directory is locked meanwhile, so a second submission of the same run stops, and a manifest write never drops a recorded attempt; any error between `sbatch` and the release cancels the held job); a run whose parent is submitted in the same call waits for it (`afterok`, with `--kill-on-invalid-dep=yes`, so a dependent of a failed job is cancelled by Slurm instead of waiting forever); `--retry <run-dir>` reconciles the run with the scheduler (below) and resubmits an unchanged run as a new attempt (a production run only from a clean repository), `--dependency <job-id>` lets its first job wait for that job; `--retry <run-dir> --rerender-job` first renders only the Slurm job file again from the current template and resources (how the run is executed, not what it simulates), keeping the previous one as `config/job.attempt-<n>.sbatch` and recording it under `job_files`; the new job file is checked like a render (resources modules = build `runtime_modules`, MPI tasks ≤ the decomposition groups recorded in `resolved.yaml`); `--reconcile <campaign-id or run-dir>` and `--resume <campaign-id>`: recovery after a failed job (below) |
+| `run_manifest.py` | `verify-inputs` (job step before VIC: checksums of the parameters, the executable, the forcing files of the chunk's own years and the parent or previous-chunk state file; every forcing unit still accepted; every forcing-view link of the chunk points to its recorded source; records the commit and Git state of the code) and `complete` (job step after VIC, also on failure and after the TERM signal of a time limit or cancel; every OUTVAR of `vic_global.txt` must be in the output files of its stream, since VIC drops an unknown OUTVAR with only a warning; exit status 1 when the attempt failed); both change the manifest under the run lock, so a submission of a later chunk never writes over them; `reconcile` and `record_scheduler` (used by `submit_run.py` and the check job) store the final scheduler rows of ended jobs |
 
 ```bash
 conda activate isimip4b
@@ -381,12 +444,12 @@ VIC starts.
 
 | File | Role |
 |---|---|
-| `check_run.py` | for a chunked run `--chunk <id>` checks one chunk (its years and end state, no GRDC), and the check without `--chunk` covers the whole run (GRDC comparison of all years, end state, every chunk check passed); checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, zonal means, `OUT_WATER_ERROR` as a monthly mean), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), the non-renewable deficit at the end of each month when `OUT_NONREN_DEFICIT` is written, end state; GRDC comparison for the whole run. The water-use parts (budget, sectors, derived file, water-use figures) run only when the run's water-use plugin is on and the irrigation results only when its irrigation plugin is also on (`config/resolved.yaml`; a natural run has neither and writes none of their outputs) |
+| `check_run.py` | for a chunked run `--chunk <id>` checks one chunk (its years and end state, no GRDC), and the check without `--chunk` covers the whole run (GRDC comparison of all years, end state, every chunk check passed, each counted only when its summary is bound to the chunk's completed attempt); the summary names the attempt, its job and the sha256 of the end state it checked, the commit and whether the repository was clean (from a repository that is not clean the results go to `scratch/run-check/uncommitted/` and do not count), and the check job stores the final scheduler rows of the run job in the attempt; checks of a finished run per year: coverage of active cells, annual `qtot`, water balance (global P, ET, qtot, monthly storage, the closure P − ET − qtot − dS from the December storage of consecutive years, zonal means, `OUT_WATER_ERROR` as a monthly mean: its largest value and the cell-months above 1 mm), and over the whole chunk or run the 99th percentile of |`OUT_WATER_ERROR`| over all active cells and months, which must not exceed 1 mm (the task T outlier rule; user 2026-11-02; p99, p99.9, the maximum and the count above 1 mm are recorded; part of the check status), largest outlets, irrigation (withdrawal, requirement, received), municipal and manufacturing demand (forcing and VIC) and withdrawal, water-use budget per cell and month (withdrawn ≤ demand, consumed ≤ withdrawn, GW + SURF + DAM + TREM + NREN = `OUT_WITHDRAWN`, the definition of `wu_output.c` under GWM FALSE; a missing monthly water-use value on an active cell fails it and stays missing, not zero, in the derived file), the non-renewable deficit at the end of each month when `OUT_NONREN_DEFICIT` is written, end state; GRDC comparison for the whole run. The water-use parts (budget, sectors, derived file, water-use figures) run only when the run's water-use plugin is on and the irrigation results only when its irrigation plugin is also on (`config/resolved.yaml`; a natural run has neither and writes none of their outputs) |
 | `run_figures.py` | the derived file `reports/water_use_by_sector_<year>.nc` (monthly withdrawal per sector municipal, manufacturing, irrigation and its sources groundwater, surface, dam, remote, nonrenewable; VIC demand and estimated consumption for municipal and manufacturing; VIC-WUR writes the sources per sector but no sector total) and the figures of water use by sector and source, source shares, sector maps, distributions of withdrawal/demand and of remote and groundwater shares, and the water balance |
 | `grdc.py` | GRDC daily export (`raw/external/grdc/export-2024-11`, `manifests/inputs/grdc.yaml`): station files, upstream area along the routing network, station-to-cell mapping (closest upstream area within 3 cells, area error ≤ 30 %), monthly means (≥ 20 valid days) and climatology (≥ 5 years per month) |
 | `compare_runs.py`, `compare_runs.sbatch` | compares the output (every variable, time step and active cell) and the end states of two completed runs over their common years, chunked or not (`--submit`: Slurm job with job record under `logs/05_simulation/`); report `qc/<run>/reports/compare_<other run-id>.json`, status passed when bitwise identical, warning with the size of the differences otherwise; used for campaign `chunk-test` (a chunked run against the same run in one job) |
-| `check_spinup.py`, `check_spinup.sbatch` | convergence test of a spin-up block (D19; see "Spin-up runs (task P)"), submitted with `submit_check.py --spinup` |
-| `check_run.sbatch`, `submit_check.py` | Slurm job of the check (one core, about 7 min and 13 GB for one year), job record under `logs/05_simulation/<job-name>_<slurm-job-id>/`; `submit_run.py` submits it after every run job, to start when the run has succeeded; job name `run-check-<campaign>-<label>`, or the run ID with hyphens for a production run; the job ends FAILED when the check fails (exit status 1) |
+| `check_spinup.py`, `check_spinup.sbatch` | convergence test of a spin-up block (D19 as amended 2026-11-02; see "Spin-up runs (task P)"), submitted with `submit_check.py --spinup`; exit status 0 converged, 3 not converged, 4 not evaluable |
+| `check_run.sbatch`, `submit_check.py` | Slurm job of the check (one core, about 7 min and 13 GB for one year), rendered and submitted through `common.jobrecord` with the job record under `logs/05_simulation/<job-name>_<slurm-job-id>/`; the dependency is an `#SBATCH` line of the job file with `--kill-on-invalid-dep=yes`; `submit_run.py` submits it after every run job, to start when the run has succeeded; job name `run-check-<campaign>-<label>`, or the run ID with hyphens for a production run; wall time scaled with the years of the check (chunk check and unchunked run 1 h + 15 min per year, whole-run check of a chunked run 1 h + 2 min per year, never below 4 h; `--time` overrides it; the convergence test keeps 4 h); the job ends FAILED when the check fails (exit status 1) |
 
 Output in `qc/runs/<campaign>/<run-id>/`: `summary.json`, `reports/check.json`, `reports/grdc_stations.csv`,
 `reports/water_use_by_sector_<year>.nc`, `figures/`. GRDC comparison: the runs are driven by GCM climate, so
@@ -400,7 +463,7 @@ catchment of at least 10 000 km2; daily series of the same dates are drawn for v
 | Key | Content |
 |---|---|
 | `campaign_id`, `run_id`, `segment_id`, `label`, `production`, `run_dir`, `period` | identity |
-| `status` | `rendered`, `submitted`, `running`, `completed` or `failed` (of the last attempt; a chunked run is `completed` when every chunk is, `failed` when the latest attempt of a chunk failed) |
+| `status` | `rendered`, `submitted`, `running`, `completed` or `failed` (of the last attempt; a chunked run is `completed` when every chunk is, `failed` when the latest attempt of a chunk failed, timed out or was cancelled) |
 | `end_state` | run-relative path of the end state (in the last chunk of a chunked run) |
 | `chunk_years`, `chunks[]` | chunked runs: per chunk `id` (`<start>-<end>`), years, `dir`, `init_state`, `job_file`, `expected_outputs`, `end_state`, `wall_time_hours` |
 | `parent` | parent segment, `init_state` (workdir path) or `cold_start`; a warm start (`state_of_run`) has `segment_id` null, `protocol_parent_segment` and the earlier run's `run_dir`; with a state: parent `run_id`, its completed `attempt` and the state's `state_sha256` (null when the parent was rendered in the same call; the attempt's `input_verification.parent_state` then records them) |
@@ -414,11 +477,13 @@ catchment of at least 10 000 km2; daily series of the same dates are drawn for v
 | `inputs_fingerprint` | sha256 over executable, inputs, forcing view, rendered model files (not the Slurm job file) and, for a run with an initial state, `parent` |
 | `job_files` | earlier Slurm job files of the run kept by `--rerender-job`, with sha256, time, commit and resources |
 | `expected_outputs` | output files per year and the end state |
-| `attempts[]` | `chunk` (chunked runs), `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches, `parent_state`, for a later chunk `chunk_state`: the previous chunk's end state and its sha256), `output_variables` (per stream: requested OUTVARs and the missing ones), `started_at`, `ended_at`, `vic_exit_code`, `scheduler` (sacct rows: state, exit code, elapsed, MaxRSS, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `status`, `failure_reason` |
+| `attempts[]` | `chunk` (chunked runs), `attempt`, `slurm_job_id`, `submitted_at`, `submitted_by_commit`, `code_dirty`, `dependency`, `inputs_fingerprint`, `input_verification` (files, mismatches, `verified_by_commit`, `verified_by_code_dirty`, `parent_state`, for a later chunk `chunk_state`: the previous chunk's end state and its sha256), `output_variables` (per stream: requested OUTVARs and the missing ones), `started_at`, `ended_at`, `vic_exit_code`, `scheduler_at_completion` (sacct rows as seen by the job itself: state RUNNING, partial elapsed time), `scheduler` (the final sacct rows: state, exit code, elapsed, MaxRSS, nodes, written by the check job or by a reconciliation; manifests before 2026-11-02 hold the rows seen by the job under this name until a reconciliation moves them), `reconciled` (when a reconciliation set the status: time, state, end, elapsed, nodes), `vic_timing` (VIC timing table and model cost), `log_scan` (warning and error lines by category), `outputs_present`, `outputs_complete`, `output_bytes`, `completed_by_commit`, `completed_by_code_dirty`, `status` (`submitted`, `running`, `completed`, `failed`, `timeout`, `cancelled`), `failure_reason` |
 
 Tests: `tests/unit/test_simulation_resolve.py`, `tests/unit/test_simulation_render.py`,
-`tests/unit/test_simulation_submit.py`, `tests/unit/test_run_check_water_use.py`,
-`tests/unit/test_simulation_promote_build.py`.
+`tests/unit/test_simulation_submit.py`, `tests/unit/test_simulation_retry.py`, `tests/unit/test_simulation_chunks.py`,
+`tests/unit/test_simulation_recovery.py`, `tests/unit/test_run_check.py`, `tests/unit/test_run_check_job.py`,
+`tests/unit/test_run_check_water_use.py`, `tests/unit/test_simulation_promote_build.py` (run with
+`python -m unittest discover -s tests/unit`; `tests/unit/workflow_paths.py` puts `workflow/` on the module path).
 
 ## Allowed content
 

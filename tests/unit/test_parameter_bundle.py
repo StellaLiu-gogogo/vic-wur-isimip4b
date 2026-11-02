@@ -4,6 +4,7 @@ synthetic NetCDF files) and for the soil and snow-band value checks of verify_bu
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import importlib.util, os, tempfile, unittest
 from unittest import mock
 

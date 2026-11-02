@@ -6,6 +6,7 @@ sizes. Both scripts run as the user runs them, in temporary directories; nothing
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import csv, os, subprocess, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -12,6 +12,7 @@ stand-ins. The resources file and the job template are read from the repository.
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import contextlib, copy, datetime, hashlib, io, json, os, shutil, sys, tempfile, types, unittest
 from unittest import mock
 
@@ -178,6 +179,32 @@ class RerenderJobTest(unittest.TestCase):
         self.assertEqual(self.read(rm.JOB_FILE), 'old job\n')
         self.assertEqual(self.read('config/job.attempt-1.sbatch'), 'an earlier file\n')
         self.assertEqual(rm.load(self.rd), before)
+
+    def test_dirty_repository_refused_for_a_production_run(self):
+        """Review 2026-11-01 R5: a production run is retried only from a clean repository, like its render."""
+        m = rm.load(self.rd); m['production'] = True; rm.save(self.rd, m)
+        argv = ['submit_run', '--retry', 'runs/c/r', '--no-check']
+        for dirty, ok in ((True, False), (False, True)):
+            with mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': self.W}), mock.patch.object(sys, 'argv', argv), \
+                    mock.patch.object(sr.subprocess, 'run', side_effect=self.fake_run), \
+                    mock.patch.object(sr.rr, 'git_state', return_value=('c' * 40, dirty)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                if ok:
+                    sr.main()
+                else:
+                    with self.assertRaises(SystemExit) as cm:
+                        sr.main()
+                    self.assertIn('clean repository', str(cm.exception))
+                    self.assertNotIn('sbatch', self.calls)
+        self.assertEqual(len(rm.load(self.rd)['attempts']), 2)
+        # a non-production run may be retried from a repository that is not clean (the attempt records code_dirty)
+        m = rm.load(self.rd); m['production'] = False; m['attempts'][1]['status'] = 'failed'; rm.save(self.rd, m)
+        with mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': self.W}), mock.patch.object(sys, 'argv', argv), \
+                mock.patch.object(sr.subprocess, 'run', side_effect=self.fake_run), \
+                mock.patch.object(sr.rr, 'git_state', return_value=('c' * 40, True)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            sr.main()
+        self.assertTrue(rm.load(self.rd)['attempts'][2]['code_dirty'])
 
     def test_completed_run_not_retried(self):
         m = rm.load(self.rd); m['attempts'][0]['status'] = 'completed'; rm.save(self.rd, m)

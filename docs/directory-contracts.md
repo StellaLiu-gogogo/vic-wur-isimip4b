@@ -960,6 +960,7 @@ Canonical layout:
 ```text
 runs/
 └── <campaign-id>/
+    ├── recovery.json
     └── <run-id>/
         ├── config/
         ├── logs/
@@ -970,6 +971,14 @@ runs/
 ```
 
 - `<campaign-id>` identifies the campaign defined in `configs/campaigns/`.
+- `recovery.json` (created when used, user 2026-11-02, task X) is the
+  campaign's recovery ledger, written only by
+  `workflow/05_simulation/submit/submit_run.py` (`--reconcile`, `--resume`,
+  before a `--retry`): one entry per attempt that ended without completing
+  (run, chunk, years, Slurm job, scheduler state, reason, the jobs cancelled
+  after it, the command that resumes it, and the attempt that resumed it).
+  It summarises what the run manifests record and never replaces them; it is
+  the only file at the campaign level.
 - `<run-id>` is the segment ID defined in `glossary.md`:
   `<climate-forcing>_<climate-scenario>_<soc-scenario>_<sens-scenario>_<period>`.
   Runs of non-production campaigns (smoke, debug, trial) that cover only part
