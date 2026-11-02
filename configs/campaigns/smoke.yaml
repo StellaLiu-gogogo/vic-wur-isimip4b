@@ -63,6 +63,14 @@ restriction:
       years: [2015, 2015]
     smoke2011-2020:
       years: [2011, 2020]
+    # time-out test of task X (review 2026-11-01, R2): two one-year chunks with a 1 h wall time, so that the first
+    # chunk gets the TERM signal of the job template, its attempt is recorded (exit code 143), the dependent chunk and
+    # the check jobs are cancelled by Slurm, and submit_run.py --reconcile writes the recovery ledger
+    timeout-test:
+      years: [2015, 2016]
+      chunk_years: 1
+      resources:
+        wall_time_hours: 1
 
 initialisation:
   # a run whose parent segment is not simulated in this campaign starts from the parameter file's initial

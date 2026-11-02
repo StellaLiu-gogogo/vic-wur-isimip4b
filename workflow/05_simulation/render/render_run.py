@@ -671,7 +671,8 @@ def render_job(W, rdir, campaign_id, run_id, start_year, end_year, resources, mo
     and its wall time in hours."""
     nyears = end_year - start_year + 1
     wt = resources['wall_time']
-    hours = min(math.ceil(wt['setup_hours'] + wt['hours_per_model_year'] * nyears), wt['max_hours'])
+    hours = resources.get('wall_time_hours') or \
+        min(math.ceil(wt['setup_hours'] + wt['hours_per_model_year'] * nyears), wt['max_hours'])
     conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
         os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
     sched = ([f'#SBATCH --constraint={resources["constraint"]}'] if resources.get('constraint') else []) + \
@@ -709,8 +710,8 @@ def end_state_rel(start_year, end_year, chunk_years):
 
 
 def run_resources(run, resources):
-    """Resources of a run: the campaign's resources file with a restriction run's own ntasks, cpus_per_task, mem and
-    exclusive (resolve_campaign.run_resources_override; non-production tests)."""
+    """Resources of a run: the campaign's resources file with a restriction run's own ntasks, cpus_per_task, mem,
+    exclusive and wall_time_hours (resolve_campaign.run_resources_override; non-production tests)."""
     return {**resources, **(run.get('resources_override') or {})}
 
 
