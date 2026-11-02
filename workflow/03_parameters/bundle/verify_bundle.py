@@ -12,8 +12,10 @@ Checks (each with its own status):
   latlon          lat and lon equal the domain file exactly
   vegetation      every variable of the vegetation component is bitwise equal to the component (stored values,
                   dtype, dimensions)
-  natural         every other variable is bitwise equal to the natural bundle, and no variable of the file
-                  comes from anywhere else
+  natural         every other variable is bitwise equal to the source of the non-vegetation variables named in
+                  the file's provenance.yaml (inputs.natural_bundle, the adopted natural bundle, or
+                  inputs.soil_component, the soil component of the set), and no variable of the file comes from
+                  anywhere else
   tiles           on active cells: Nveg <= number of classes with Cv > 0 <= Nveg + 1 (vic_init.c), and the
                   int-read overstory is 0 or 1 on every tile
   soil            on active cells, failed when a rule of vic_init.c is broken (no fill or NaN, except in annual_prec,
@@ -216,8 +218,13 @@ def main():
     if uncommitted:
         qc = f'{W}/{ab.SCRATCH}/verify-uncommitted/qc/{rel_pset}/bundle'
     os.makedirs(f'{qc}/reports', exist_ok=True)
-    out = nc.Dataset(f'{bdir}/{ab.OUT_NAME}'); nat = nc.Dataset(f'{pset}/{ab.NATURAL}')
-    veg = nc.Dataset(f'{pset}/{ab.VEGETATION}')
+    out = nc.Dataset(f'{bdir}/{ab.OUT_NAME}'); veg = nc.Dataset(f'{pset}/{ab.VEGETATION}')
+    bprov = yaml.safe_load(open(f'{bdir}/provenance.yaml'))
+    source_keys = [k for k in ab.SOURCE_KEYS if k in (bprov.get('inputs') or {})]
+    if len(source_keys) != 1:
+        raise SystemExit(f'{bdir}/provenance.yaml must name exactly one of {ab.SOURCE_KEYS} under inputs')
+    source_rel = bprov['inputs'][source_keys[0]]
+    nat = nc.Dataset(f'{W}/{source_rel}')
     with nc.Dataset(f'{pset}/{ab.DOMAIN}') as d:
         mask = np.asarray(d['mask'][:]).astype(bool); dlat = np.asarray(d['lat'][:]); dlon = np.asarray(d['lon'][:])
     checks = {}
@@ -247,7 +254,7 @@ def main():
     differ_n = [v for v in nat_vars if v not in nat.variables or not bitwise(out, nat, v)]
     checks['vegetation'] = {'variables': len(veg_vars), 'differ_or_missing': differ_v,
                             'status': 'passed' if not differ_v else 'failed'}
-    checks['natural'] = {'variables': len(nat_vars), 'differ_or_foreign': differ_n,
+    checks['natural'] = {'variables': len(nat_vars), 'source': source_rel, 'differ_or_foreign': differ_n,
                          'status': 'passed' if not differ_n else 'failed'}
 
     # ---- tiles

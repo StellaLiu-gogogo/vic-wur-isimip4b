@@ -111,6 +111,21 @@ class SourcesTest(unittest.TestCase):
             os.remove(f'{d}/vegetation/provenance.yaml')
             self.assertIn('no provenance', ab.vegetation_not_accepted(d))
 
+    def test_soil_component_source(self):
+        """Task Z: with --soil-component the non-vegetation variables come from soil/<file> of the set, which must be
+        accepted like the vegetation component."""
+        self.assertEqual(ab.soil_source(None), ab.NATURAL)
+        self.assertEqual(ab.soil_source('vic_global_5min_soil_calibration-smoothed.nc'),
+                         'soil/vic_global_5min_soil_calibration-smoothed.nc')
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(f'{d}/soil')
+            with open(f'{d}/soil/provenance.yaml', 'w') as fh:
+                fh.write('code_dirty: false\nqc:\n  status: passed\n')
+            self.assertIsNone(ab.component_not_accepted(d, 'soil/x.nc', 'soil component'))
+            with open(f'{d}/soil/provenance.yaml', 'w') as fh:
+                fh.write('code_dirty: false\nqc:\n  status: failed\n')
+            self.assertIn('soil component not accepted', ab.component_not_accepted(d, 'soil/x.nc', 'soil component'))
+
     def test_restrictions_carried(self):
         with tempfile.TemporaryDirectory() as d:
             make(f'{d}/nat.nc', 14)

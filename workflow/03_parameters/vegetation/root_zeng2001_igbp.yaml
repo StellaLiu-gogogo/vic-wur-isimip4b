@@ -1,0 +1,32 @@
+# Root-zone rule of the vegetation component (Root-B, Zeng 2001), as used by vic_parameter for the base bundle of
+# vic-global-5arcmin-version-a (vic_parameter configs/root_zeng2001_igbp_v1.yaml, product root_zeng2001_igbp_v1) and
+# reproduced exactly by workflow/03_parameters/vegetation/recompute_roots.py on the base tiles of every class below
+# (task Z, 2026-11-02). Classes follow the 16-class contract of the component (1-11 natural, 12 rainfed crop, 13 urban,
+# 14 irrigated non-paddy, 15 irrigated paddy, 16 barren).
+equation:
+  cumulative_fraction: "Y(d) = 1 - 0.5 * (exp(-a d) + exp(-b d))"   # d in m, a and b in m-1
+  root_zone_depth: the thickness of the three soil layers of the cell
+  root_zone_fraction: >-
+    Y integrated between the layer interfaces (Y(bottom) - Y(top) of each layer), divided by Y(soil bottom):
+    the roots below the modelled soil column are discarded and the fractions in the column sum to 1
+reference: "Zeng, X. (2001), Journal of Hydrometeorology 2, 525-530, DOI 10.1175/1525-7541(2001)002<0525:GVRDFL>2.0.CO;2"
+# classes with the Zeng rule: a, b (m-1) of the IGBP class
+zeng:
+  1: {name: evergreen needleleaf forest, a: 6.706, b: 2.175}
+  2: {name: evergreen broadleaf forest, a: 7.344, b: 1.303}
+  3: {name: deciduous needleleaf forest, a: 7.066, b: 1.953}
+  4: {name: deciduous broadleaf forest, a: 5.990, b: 1.955}
+  5: {name: mixed forest, a: 4.453, b: 1.631}
+  6: {name: closed shrublands, a: 6.326, b: 1.567}
+  7: {name: open shrublands, a: 7.718, b: 1.262}
+  8: {name: woody savannas, a: 7.604, b: 2.300}
+  9: {name: savannas, a: 8.235, b: 1.627}
+  10: {name: grasslands, a: 10.740, b: 2.608}
+  13: {name: urban (crop analogue of vic_parameter, coefficients of IGBP croplands), a: 5.558, b: 2.614}
+# classes whose root zones do not depend on the soil layers: copied unchanged from the base component
+unchanged:
+  11: permanent wetlands, no tile in the base component
+  12: rainfed crop, constant root zones (depth 0.3, 0.7, 0 m; fraction 0.46, 0.54, 0)
+  14: irrigated non-paddy crop, the same constants
+  15: irrigated paddy, the same constants
+  16: barren (bare soil of VIC), root zones 0

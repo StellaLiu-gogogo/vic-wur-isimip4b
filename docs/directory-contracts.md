@@ -435,7 +435,9 @@ its README states that the component is adopted and has no producer here. Do
 not add a language layer such as `python/` or `shell/`. `bundle/` assembles the image-driver
 parameter file of the `bundle` component from other components. The stage directory itself may hold,
 besides its README, the scripts that promote a whole parameter set from `parameters/candidates/` to
-`parameters/production/` and verify the promoted copy, with their Slurm template.
+`parameters/production/` and verify the promoted copy, and the scripts that copy the unchanged components of
+one candidate set into a new candidate set as verified copies (`copy_components.py`, task Z), with their Slurm
+templates.
 
 #### `workflow/04_forcing/`
 

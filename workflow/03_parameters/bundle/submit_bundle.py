@@ -8,7 +8,8 @@ then released; the job moves its scheduler output into the record when it starts
 the producer writes to scratch (a repository that is not clean) and passes the decision on; a producer started for
 the parameter set stops when the repository is no longer clean at the submitted commit.
 
-Usage: submit_bundle.py [--scratch] [--verify-only] [--time 02:00:00] [--mem 64G] [--partition main] [--dry-run]
+Usage: submit_bundle.py [--parameter-set ID] [--soil-component FILE] [--scratch] [--verify-only] [--time 02:00:00]
+       [--mem 64G] [--partition main] [--dry-run]
 """
 import argparse, datetime, os, subprocess, sys
 
@@ -25,6 +26,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates'])
+    ap.add_argument('--soil-component', default=None, metavar='FILE',
+                    help='assemble the non-vegetation variables from soil/FILE of the set (workflow/03_parameters/soil/)')
     ap.add_argument('--scratch', action='store_true')
     ap.add_argument('--verify-only', action='store_true', help='run only the verifier on the existing output')
     ap.add_argument('--time', default='02:00:00')
@@ -40,7 +43,8 @@ def main():
     job_name = f'parameter-bundle-{a.parameter_set}' + ('-scratch' if to_scratch or dirty else '') + \
         ('-verify' if a.verify_only else '')
     params = f'--parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
-    producer = params + (' --scratch' if to_scratch else f' --expect-commit {commit}')
+    producer = params + (f' --soil-component {a.soil_component}' if a.soil_component else '') + \
+        (' --scratch' if to_scratch else f' --expect-commit {commit}')
     # a verifier from a repository that is not clean checks the output in place but keeps its results in scratch and
     # never changes the output's status (--qc-to-scratch); otherwise it stops if the repository changes (--expect-commit)
     verifier = params + (f' --bundle-dir {out}' if to_scratch else (' --qc-to-scratch' if dirty else f' --expect-commit {commit}'))
@@ -80,7 +84,7 @@ def main():
         'resources': {'partition': a.partition, 'time': a.time, 'cpus_per_task': 1, 'mem': a.mem},
         'commands': {'producer': None if a.verify_only else f'python3 {ab.CREATED_BY} {producer}',
                      'verifier': f'python3 workflow/03_parameters/bundle/verify_bundle.py {verifier}'},
-        'inputs': [f'{pset}/{ab.NATURAL}', f'{pset}/{ab.VEGETATION}', f'{pset}/{ab.DOMAIN}'],
+        'inputs': [f'{pset}/{ab.soil_source(a.soil_component)}', f'{pset}/{ab.VEGETATION}', f'{pset}/{ab.DOMAIN}'],
         'outputs': [os.path.relpath(out, W)],
         'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'{ab.SCRATCH}/verify-uncommitted/qc/{rel_obj}' if dirty
         else f'qc/{rel_obj}'}

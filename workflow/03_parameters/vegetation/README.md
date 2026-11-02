@@ -16,6 +16,10 @@ Classification: production workflow code (user, 2026-10-01).
 | `verify_vegetation.py` | independent verification; writes `summary.json`, `reports/verify.json`, `figures/added_tiles.png` under `qc/parameters/<status>/<set>/vegetation/` and sets `qc.status` in `provenance.yaml` |
 | `vegetation_component.sbatch` | Slurm template: producer, then verifier, in one job |
 | `submit_vegetation_component.py` | renders and submits the job, job record under `logs/03_parameters/<job-name>_<slurm-job-id>/` |
+| `recompute_roots.py` | producer of the vegetation component of a set whose soil differs from the base set (task Z): every variable copied bitwise from the base component, `root_depth` and `root_fract` recomputed with the layer depths of the set's soil component (`root_zeng2001_igbp.yaml`) |
+| `verify_roots.py` | independent verification of such a component (bitwise copy, root rule, donors, reproduction of the base component after float32 rounding, land-use files of the base QC unchanged); writes `qc/parameters/<status>/<set>/vegetation/` with `checked_files` for `render_run.py` |
+| `root_zeng2001_igbp.yaml` | the Zeng (2001) coefficients per class and the classes whose root zones do not depend on the soil |
+| `roots.sbatch`, `submit_roots.py` | Slurm template and submit script of the root recomputation (producer, then verifier) |
 
 Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary and verifier exit status, job records) come from `workflow/common/` (see its README); the verifier exits with 0 only for `passed` (1 failed, 3 warning, 4 not_checked).
 
@@ -95,6 +99,38 @@ directory, and outside scratch it requires every land-use unit to be
 accepted (`code_dirty: false`, `qc.status: passed`). The submit script decides this once, at submission, and passes it to the producer (`--scratch`, or `--expect-commit <commit>`); a producer submitted for the component stops when the repository is no longer clean at that commit when the job starts, so the producer and the verifier never look at different places. `--verify-only` submits a job that runs only the verifier on the existing component (it updates `qc.status`; a repository that is not clean does not redirect it, but its results then go to `scratch/<stage scratch>/verify-uncommitted/qc/...` and the status is not changed; results of uncommitted verifier code are never moved from there: commit, then verify again). The verifier records every land-use file its `forcing_tiles` check read, with the sha256 of the unit's
 `provenance.yaml` (`checked_files` in `reports/verify.json`); `render_run.py` renders a run only when the land-use
 files it reads are among them, so the QC has to be run again (`--verify-only`) after a land-use unit changes.
+
+## Root zones recomputed for another soil (task Z)
+
+`vic-global-5arcmin-version-b` keeps the tiles and every vegetation parameter of the version-a component but
+smooths the depth of soil layer 2 (`workflow/03_parameters/soil/`). Its vegetation component is written by
+`recompute_roots.py` from the version-a component and the version-b soil component: every variable except
+`root_depth` and `root_fract` is copied bitwise, `backfill_tiles.csv` is copied unchanged, and the root zones follow
+the rule vic_parameter used for the base bundle, reproduced exactly on the version-a base tiles (every class 1–10
+and 13, 100 % of the base tiles, after rounding to float32; checked again by `verify_roots.py`):
+
+- classes 1–10 and 13 (13 with the crop coefficients of IGBP croplands, as in vic_parameter): on every active cell
+  `root_depth` = the three layer thicknesses of the cell and `root_fract` = the Zeng (2001) cumulative distribution
+  Y(d) = 1 − 0.5 (e^(−a d) + e^(−b d)) integrated between the layer interfaces and divided by Y(soil bottom) (the
+  roots below the soil column are discarded), in double precision (user, 2026-11-02; the base holds float32
+  values); an added tile takes the values of its donor cell of `backfill_tiles.csv`, as every other parameter of
+  an added tile;
+- classes 11 (no tile), 12, 14, 15 (constant crop root zones 0.3/0.7/0 m, 0.46/0.54/0) and 16 (bare soil, 0) are
+  copied bitwise.
+
+The verifier does not re-read the land-use files: the tiles (`Cv`) are bitwise those of the base component, whose
+`forcing_tiles` check read them; it checks that the base QC passed and that the land-use units still hold exactly
+the files that QC recorded (same sha256), and records them as `checked_files`. After a land-use unit changes, the
+base component's QC has to be run again first (`submit_vegetation_component.py --verify-only`), then this one
+(`submit_roots.py --verify-only`).
+
+```bash
+python3 workflow/03_parameters/vegetation/submit_roots.py --scratch --soil-dir <scratch soil component>   # test
+python3 workflow/03_parameters/vegetation/submit_roots.py   # candidate component of vic-global-5arcmin-version-b
+```
+
+Outside scratch the producer takes only an accepted base component and an accepted soil component of the set.
+Tests: `tests/unit/test_vegetation_roots.py`.
 
 ## Decisions
 

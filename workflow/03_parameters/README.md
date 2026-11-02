@@ -14,8 +14,9 @@ This stage may include domain, soil, vegetation, land-use, routing, reservoir, i
 
 | Directory | Component | State |
 |---|---|---|
-| `vegetation/` | `parameters/<status>/<set>/vegetation/`: 16-class vegetation variables with the full land-use tile union (D04) and donor backfill of added tiles | producer, verifier, Slurm template and unit tests implemented (method 1.0) |
-| `bundle/` | `parameters/<status>/<set>/bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc`: the image-driver file VIC reads with `PARAMETERS`, assembled from the natural bundle (soil, snow bands, `elev`) and the vegetation component, every variable bitwise equal to its source | producer, verifier, Slurm template and unit tests implemented (method 1.0) |
+| `soil/` | `parameters/<status>/<set>/soil/vic_global_5min_soil_calibration-smoothed.nc`: every non-vegetation variable of the base set's assembled bundle with the 2-degree calibration fields `depth[2]`, `Ds`, `Dsmax`, `Ws`, `c` smoothed and `max_moist[2]`, `init_moist[2]` recomputed (task Z) | producer, verifier, Slurm template and unit tests implemented (method 1.0) |
+| `vegetation/` | `parameters/<status>/<set>/vegetation/`: 16-class vegetation variables with the full land-use tile union (D04) and donor backfill of added tiles; `recompute_roots.py` writes the component of a set with another soil (root zones recomputed, task Z) | producer, verifier, Slurm template and unit tests implemented (method 1.0); root recomputation producer, verifier and tests (task Z) |
+| `bundle/` | `parameters/<status>/<set>/bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc`: the image-driver file VIC reads with `PARAMETERS`, assembled from the natural bundle (soil, snow bands, `elev`), or from the soil component with `--soil-component` (task Z), and the vegetation component, every variable bitwise equal to its source | producer, verifier, Slurm template and unit tests implemented (method 1.0) |
 | `dams/` | `parameters/<status>/<set>/dams/vic_global_5min_dam_parameters_isimip4b_{histsoc,1850soc,2021soc}.nc` (D19): the ISIMIP4b dams located with GDW v1.0 plus the SSP future river-power dams, snapped on the routing of the set, one dam list, `year` per DHF scenario; dam list and source tables | producer, verifier, Slurm template and unit tests implemented (method 1.0); built 2026-10-30 from the natural run (c327675), qc passed; manifest entry `dams_isimip4b` |
 | `domain/` | adopted `domain` component (no producer): `verify_domain.py`, plus `adopted.py`, `adopted_qc.sbatch` and `submit_adopted_qc.py` shared by the verifiers of the four adopted components | verifier, Slurm template and unit tests implemented (task R) |
 | `routing/` | adopted routing file (no producer): `verify_routing.py`; generated FILE decomposition `routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc` keeping every water-use and D19 dam service link inside one group: `build_decomposition.py`, `verify_decomposition.py` | routing verifier (task R); decomposition producer, verifier, Slurm template and unit tests implemented (method 1.0, task L3); built 2026-10-30 (f6d850f), qc passed; manifest entry `decomposition_isimip4b` |
@@ -88,6 +89,13 @@ Such an entry keeps `qc_status: not_checked`; every other entry needs `qc_status
 
 Tests: `tests/unit/test_parameter_promotion.py`. Classification: production workflow code (user, 2026-10-30, task R).
 
+| File | Role |
+|---|---|
+| `copy_components.py` | copies the unchanged components of a candidate set into a new candidate set (every file of the manifest entries of the component, excluded entries included, checked against the manifest and after the copy; a `provenance.yaml` is renamed to the new set, its `qc` set to `not_checked`, `copied_from` added); writes the record of the copy |
+| `copy_components.sbatch`, `submit_copy_components.py` | Slurm template and submit script; the record of the copy is in the job's output in its job record |
+
+Tests: `tests/unit/test_copy_components.py`. Classification: production workflow code (user, 2026-11-02, task Z).
+
 The promotion copies, never moves: the candidate set stays, because earlier runs record its paths. Before copying it
 checks that every promoted entry has `qc_status: passed`, that every candidate file has the md5 (and sha256) of the
 manifest, and it lists the restriction attributes (`not_authorized_for_global_production`, `product_stage`) of the
@@ -112,3 +120,30 @@ python3 workflow/03_parameters/submit_parameter_promotion.py --authorised "user,
 `--scratch` promotes into `scratch/parameter-promotion/production/` (QC under `scratch/parameter-promotion/qc/`).
 One core, a few GB of memory; the copy of `vic-global-5arcmin-version-a` is 27 files, 4.9 GB.
 
+## Soil calibration fields smoothed (task Z)
+
+Classification: production workflow code of `03_parameters` (user, 2026-11-02). Parameter set
+`vic-global-5arcmin-version-b` = `vic-global-5arcmin-version-a` with the five 2-degree calibration fields of the
+soil (`depth[2]`, `Ds`, `Dsmax`, `Ws`, `c`) smoothed by bilinear interpolation between the block centres, the
+dependent `max_moist[2]`, `init_moist[2]` and the root zones of the vegetation recomputed, everything else identical
+value for value (`manifests/parameters/vic-global-5arcmin-version-b.yaml`, version-a named as base). Facts found on
+version-a (2026-11-02): the block edges lie on even latitudes and on even longitudes east of 0 but odd longitudes
+west of 0; with that rule `depth[2]` has 4895 uniform, 192 mixed (all coastal) and 7583 empty blocks of 12 670, `Ds`
+4462/625/7583; `max_moist` equals `depth × porosity × 1000` only within 2.5e-7 (float32 history); the Zeng 2001 root
+rule reproduces `root_fract` of every base tile of classes 1–10 and 13 exactly after float32 rounding. Decisions of
+the user (2026-11-02): mode of the active cells for mixed blocks, nearest land block for empty blocks, bilinear
+interpolation periodic in longitude; the block-mean criterion is a report, the area-weighted global mean may change
+by at most 2 %, the largest cell-to-cell jump may not exceed the largest block difference over the cells between
+block centres; new values in double precision; unchanged components copied from version-a and verified again;
+the comparison runs are two non-production campaigns and their figures and tables an analysis task
+(`analysis/soil-comparison/`).
+
+| Step | Content | State |
+|---|---|---|
+| Z1 | soil component: `soil/smooth_calibration_fields.py`, `verify_soil.py`, Slurm template, submit script, tests | scratch run passed (job 43542531: 11 checks, global area means −0.04 % … +0.004 %) |
+| Z2 | vegetation component with recomputed roots: `vegetation/recompute_roots.py`, `verify_roots.py`, `root_zeng2001_igbp.yaml`, tests | scratch run passed (job 43542532: 6 checks; version-a roots reproduced on 100 % of the base tiles of classes 1–10 and 13) |
+| Z3 | bundle assembled from the soil component (`--soil-component`), verifier compares with the source named in the provenance | code written |
+| Z4 | unchanged components copied and verified again: `copy_components.py`, adopted QC, dams and decomposition verifiers with `--parameter-set vic-global-5arcmin-version-b`; manifest | scratch copy passed (job 43541855, 26 files); candidate copy and QC open |
+| Z5 | QC of the set and promotion to `production/` | open |
+| Z6 | comparison campaigns `soil-comparison-version-a`, `soil-comparison-version-b` (historical histsoc 2011–2020), analysis `analysis/soil-comparison/` | open |
+| Z7 | change of `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml` (user's decision after the comparison) | open |

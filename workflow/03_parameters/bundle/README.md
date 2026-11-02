@@ -27,6 +27,11 @@ Tests: `tests/unit/test_parameter_bundle.py`.
   `month` and `root_zone` coordinates and the bookkeeping variables `landuse_union_bits`,
   `added_tile_bits`, `backfill_level` (VIC ignores them).
 - `domain/vic_global_5min_domain_nogl.nc` (lat and lon must be equal).
+- With `--soil-component <file>` (task Z, `vic-global-5arcmin-version-b`): the non-vegetation variables come
+  from `soil/<file>` of the set (`workflow/03_parameters/soil/`, the base set's assembled file with the
+  calibration fields smoothed) instead of the natural bundle; the soil component must be accepted like the
+  vegetation component, and the provenance names it under `inputs.soil_component` (the verifier compares the
+  non-vegetation variables with the source the provenance names).
 
 ## Method (version 1.0)
 
@@ -73,6 +78,8 @@ export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
 export PYTHONPATH=$PWD/workflow
 python3 workflow/03_parameters/bundle/submit_bundle.py --scratch   # test, scratch/parameter-bundle/bundle/
 python3 workflow/03_parameters/bundle/submit_bundle.py             # candidate file in the bundle component
+python3 workflow/03_parameters/bundle/submit_bundle.py --parameter-set vic-global-5arcmin-version-b \
+    --soil-component vic_global_5min_soil_calibration-smoothed.nc   # version-b: soil component instead of the natural bundle
 ```
 
 One core and about 10 GB; the copy writes about 4 GB. From a repository that is not clean, or with

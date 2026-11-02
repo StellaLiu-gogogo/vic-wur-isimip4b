@@ -3,7 +3,9 @@
 
 The file VIC reads with PARAMETERS combines
   * every non-vegetation variable (soil, snow bands, elev, run_cell, ...) of the adopted natural bundle
-    bundle/vic_global_5min_natural_static_root-b-zeng2001.nc, copied bitwise, and
+    bundle/vic_global_5min_natural_static_root-b-zeng2001.nc, copied bitwise (or, with --soil-component, of the
+    soil component soil/<file> of the set, written by workflow/03_parameters/soil/ from the base set's assembled
+    file with the calibration fields smoothed; task Z), and
   * every variable of the 16-class vegetation component
     vegetation/vic_global_5min_vegetation_16class_root-b-zeng2001.nc (workflow/03_parameters/vegetation/),
     copied bitwise; it replaces the 14-class vegetation of the natural bundle.
@@ -17,7 +19,7 @@ bundle/provenance.yaml (for this file only; the other files of the bundle compon
 in manifests/parameters/<set>.yaml). From a repository that is not clean, or with --scratch, everything goes
 to scratch/parameter-bundle/bundle/.
 
-Usage: assemble_bundle.py [--parameter-set ID] [--parameter-status candidates] [--scratch]
+Usage: assemble_bundle.py [--parameter-set ID] [--parameter-status candidates] [--soil-component FILE] [--scratch]
 """
 import argparse, datetime, hashlib, os, subprocess, sys
 
@@ -107,20 +109,31 @@ def copy_variable(src, out, name):
 
 
 RESTRICTIONS = ('not_authorized_for_global_production', 'product_stage')   # of the natural bundle, carried over
+SOURCE_KEYS = ('natural_bundle', 'soil_component')   # the provenance key of the source of the non-vegetation variables
 
 
-def vegetation_not_accepted(pset):
-    """None when the vegetation component of the parameter set is accepted (provenance.yaml: code_dirty false,
-    qc.status passed), else the reason."""
-    p = f'{pset}/{os.path.dirname(VEGETATION)}/provenance.yaml'
+def component_not_accepted(pset, rel, what='vegetation component'):
+    """None when the component holding the file `rel` of the parameter set is accepted (its provenance.yaml:
+    code_dirty false, qc.status passed), else the reason."""
+    p = f'{pset}/{os.path.dirname(rel)}/provenance.yaml'
     if not os.path.exists(p):
         return f'{p}: no provenance record'
     with open(p) as fh:
         prov = yaml.safe_load(fh) or {}
     status = (prov.get('qc') or {}).get('status')
     if prov.get('code_dirty') is not False or status != 'passed':
-        return f'vegetation component not accepted (code_dirty {prov.get("code_dirty")}, qc.status {status})'
+        return f'{what} not accepted (code_dirty {prov.get("code_dirty")}, qc.status {status})'
     return None
+
+
+def vegetation_not_accepted(pset):
+    return component_not_accepted(pset, VEGETATION)
+
+
+def soil_source(soil_component):
+    """Workdir-relative path inside the set of the file the non-vegetation variables come from: the adopted natural
+    bundle, or the soil component file named with --soil-component."""
+    return f'soil/{os.path.basename(soil_component)}' if soil_component else NATURAL
 
 
 def source_restrictions(nat):
@@ -132,6 +145,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--parameter-set', default='vic-global-5arcmin-version-a')
     ap.add_argument('--parameter-status', default='candidates', choices=['candidates'])
+    ap.add_argument('--soil-component', default=None, metavar='FILE',
+                    help='take the non-vegetation variables from soil/FILE of the set instead of the natural bundle')
     ap.add_argument('--scratch', action='store_true')
     ap.add_argument('--expect-commit', default=None,
                     help='set by the submit script for an accepted output: stop unless the repository is clean and at '
@@ -149,17 +164,20 @@ def main():
         sys.exit(f'{out} exists; an assembled file is never overwritten')
     if dirty and not a.scratch:
         print('repository is not clean: writing to scratch (docs/directory-contracts.md, rule 14)')
-    problem = vegetation_not_accepted(pset)
-    if problem and not to_scratch:
-        sys.exit(f'{problem}; an accepted bundle is assembled only from an accepted vegetation component')
-    if problem:
+    source = soil_source(a.soil_component)
+    problems = [vegetation_not_accepted(pset)]
+    if a.soil_component:
+        problems.append(component_not_accepted(pset, source, 'soil component'))
+    for problem in filter(None, problems):
+        if not to_scratch:
+            sys.exit(f'{problem}; an accepted bundle is assembled only from accepted components')
         print(f'warning: {problem}')
     os.makedirs(out_dir, exist_ok=True)
-    nat = nc.Dataset(f'{pset}/{NATURAL}'); veg = nc.Dataset(f'{pset}/{VEGETATION}')
+    nat = nc.Dataset(f'{pset}/{source}'); veg = nc.Dataset(f'{pset}/{VEGETATION}')
     with nc.Dataset(f'{pset}/{DOMAIN}') as d:
         for c in COORDS:
             if not np.array_equal(np.asarray(d[c][:]), np.asarray(nat[c][:])):
-                sys.exit(f'{c} of the natural bundle differs from the domain file')
+                sys.exit(f'{c} of {source} differs from the domain file')
     split, dims = plan(nat, veg)
     restrictions = source_restrictions(nat)
     print(f'{len(split["natural"])} natural variables, {len(split["vegetation"])} vegetation variables, '
@@ -177,27 +195,29 @@ def main():
     o.setncatts({
         'title': 'VIC-WUR 5 arcmin image-driver parameters, 16 vegetation classes with the land-use tile union',
         'parameter_set': a.parameter_set,
-        'sources': f'non-vegetation variables: {pset_rel}/{NATURAL}; vegetation variables: {pset_rel}/{VEGETATION}',
+        'sources': f'non-vegetation variables: {pset_rel}/{source}; vegetation variables: {pset_rel}/{VEGETATION}',
         'created_by': CREATED_BY, 'code_commit': commit, 'code_dirty': str(dirty).lower(),
         'created_at': t0, 'method_version': METHOD_VERSION,
         'object': os.path.relpath(out, W), **restrictions})
     o.close(); nat.close(); veg.close()
     os.replace(part, out)
     info = {'path': OUT_NAME, 'size_bytes': os.path.getsize(out), 'sha256': file_hash(out), 'md5': file_hash(out, 'md5')}
+    source_key = 'soil_component' if a.soil_component else 'natural_bundle'
     prov = {
         'object': os.path.relpath(out, W), 'created_by': CREATED_BY, 'code_commit': commit, 'code_dirty': dirty,
         'created_at': t0, 'method_version': METHOD_VERSION,
-        'inputs': {'natural_bundle': f'{pset_rel}/{NATURAL}', 'vegetation_component': f'{pset_rel}/{VEGETATION}',
+        'inputs': {source_key: f'{pset_rel}/{source}', 'vegetation_component': f'{pset_rel}/{VEGETATION}',
                    'domain': f'{pset_rel}/{DOMAIN}'},
-        'input_sha256': {'natural_bundle': file_hash(f'{pset}/{NATURAL}'),
+        'input_sha256': {source_key: file_hash(f'{pset}/{source}'),
                          'vegetation_component': file_hash(f'{pset}/{VEGETATION}'),
                          'domain': file_hash(f'{pset}/{DOMAIN}')},
         'method': {'natural_variables': split['natural'], 'vegetation_variables': split['vegetation'],
                    'replaced_natural_variables': split['replaced'], 'coordinates': split['coords'],
                    'dimensions': dims, 'copy': 'stored values, dtype, fill value, chunking and compression unchanged'},
-        'rebuild_command': f'python3 {CREATED_BY} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status}',
+        'rebuild_command': f'python3 {CREATED_BY} --parameter-set {a.parameter_set} --parameter-status {a.parameter_status}'
+                           + (f' --soil-component {os.path.basename(source)}' if a.soil_component else ''),
         'files': [info],
-        'restrictions': {**restrictions, 'source': f'{pset_rel}/{NATURAL}'} if restrictions else {},
+        'restrictions': {**restrictions, 'source': f'{pset_rel}/{source}'} if restrictions else {},
         'note': 'This record covers the assembled file only; the adopted files of the bundle component are '
                 f'recorded in manifests/parameters/{a.parameter_set}.yaml.',
         'qc': {'status': 'not_checked'}}
