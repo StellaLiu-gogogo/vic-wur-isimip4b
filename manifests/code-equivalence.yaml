@@ -313,3 +313,59 @@ equivalences:
       in code_commit, files[].code_commit, files[].sha256, fingerprint.code_tree and the paths that carry the scratch
       label; both verifier reports passed, differing only in the file SHA-256 and the verifier commit and tree.
     approved: user, 2026-11-01
+  - id: unit-lock-climate
+    producer: workflow/04_forcing/climate/downscale_climate.py
+    method_version: '1.1'
+    from:
+      workflow/04_forcing/climate: bf115993a04bfeeef6217d19a5ea0ba300277ab4
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    to:
+      workflow/04_forcing/climate: 2b27e232e4c80fdd642b4cad9f55911e01932dfb
+      workflow/common: 9c419306473ee8e5e0ad03cf6bc0f68986a33517
+    change: >-
+      task X (pre-production review of 2026-11-01, finding R19): the producer's final write of an extended unit's
+      provenance.yaml goes through common/unit_extension.write, which holds a lock on the unit directory and merges
+      the record with what another job on the same unit wrote meanwhile (files, inputs, years, start years, extended
+      entries) instead of writing over it; common/provenance.set_qc holds the same lock; common/jobrecord writes the
+      job record files under a temporary name and renames them. No line that computes, writes or names a data file
+      changed; the record of a unit extended by one job at a time is identical. Method unchanged.
+    evidence: >-
+      Unit tests of 2026-11-02 (tests/unit/test_common_unit_extension.py WriteTest, test_common_provenance.py,
+      test_common_jobrecord.py, test_climate_extension.py): the record written by one job equals the record written
+      before the change; two jobs on one unit keep both records' files. No scratch producer run was made for this
+      entry (the change does not touch the data path); the user decides whether a before/after scratch run is wanted.
+    approved: user, 2026-11-02 (task X, "Yes, commit both")
+  - id: unit-lock-landuse
+    producer: workflow/04_forcing/landuse/isimip_landuse_to_vic_annual.py
+    method_version: '1.4'
+    from:
+      workflow/04_forcing/landuse: c719a06569fbe8d79260ec49aa6b7d70ddfa45e4
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    to:
+      workflow/04_forcing/landuse: 6ff3c143ef0ff52990e5e278b7631d51bfacf213
+      workflow/common: 9c419306473ee8e5e0ad03cf6bc0f68986a33517
+    change: >-
+      task X (review finding R19), as unit-lock-climate: the final write of an extended unit's record through
+      common/unit_extension.write (unit lock, merge with a concurrent job's record); common changes as there. Only the
+      last lines of the producer changed; method unchanged.
+    evidence: >-
+      Unit tests of 2026-11-02 (tests/unit/test_common_unit_extension.py WriteTest, test_landuse_forcing.py). No
+      scratch producer run was made for this entry; the user decides whether a before/after scratch run is wanted.
+    approved: user, 2026-11-02 (task X, "Yes, commit both")
+  - id: unit-lock-water-use
+    producer: workflow/04_forcing/water_use/downscale_water_use.py
+    method_version: '1.0'
+    from:
+      workflow/04_forcing/water_use: 4328fa729e9e83ba4ceb13a7daf66d388b5d4c82
+      workflow/common: 762b6f88c068abbcf589439191329f7403bf4f80
+    to:
+      workflow/04_forcing/water_use: b615c7a698ba0d3bafc6b6eb22941a3dc9decc34
+      workflow/common: 9c419306473ee8e5e0ad03cf6bc0f68986a33517
+    change: >-
+      task X (review finding R19), as unit-lock-climate: the final write of an extended unit's record through
+      common/unit_extension.write (unit lock, merge with a concurrent job's record); common changes as there. Only the
+      last lines of the producer changed; method unchanged.
+    evidence: >-
+      Unit tests of 2026-11-02 (tests/unit/test_common_unit_extension.py WriteTest, test_water_use_forcing.py). No
+      scratch producer run was made for this entry; the user decides whether a before/after scratch run is wanted.
+    approved: user, 2026-11-02 (task X, "Yes, commit both")

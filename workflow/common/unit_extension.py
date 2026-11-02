@@ -107,6 +107,44 @@ def file_record(path, year, commit, created_at=None):
             'sha256': hashing.sha256(path), 'created_at': created_at or provenance.utcnow(), 'code_commit': commit}
 
 
+def write(unit_dir, prov, prev):
+    """Write the record of a unit a producer has just made (`prev` None) or extended (`prev` the record prepare()
+    returned, hours earlier). Under the unit lock the record on disk is read again: when another job extended the
+    unit meanwhile (its `files` differ from `prev`), that record is kept and this job's addition is merged into it
+    (files by path, inputs, years, `extended` entries, start years; qc not_checked), instead of being written over
+    (review 2026-11-01, R19). A unit that appeared on disk while a new unit was being made stops: the user decides."""
+    path = f'{unit_dir}/provenance.yaml'
+    with provenance.unit_lock(unit_dir):
+        disk = provenance.read(path) if os.path.exists(path) else None
+        if prev is None and disk is not None:
+            raise SystemExit(f'{path} was written by another job while this unit was being made; nothing written')
+        if prev is not None and disk is not None and (disk.get('files') != prev.get('files') or
+                                                      disk.get('extended') != prev.get('extended')):
+            prov = merge(disk, prov, prev)
+        provenance.write(path, prov)
+    return prov
+
+
+def merge(disk, prov, prev):
+    """`prov` (written from `prev`) merged into `disk`, the record another job wrote after `prev` was read: the
+    files of both (by path), the union of inputs and start years, the span of years, every `extended` entry, qc
+    not_checked; the other keys come from `prov`."""
+    seen = {f['path'] for f in disk.get('files') or []}
+    files = sorted(list(disk.get('files') or []) + [f for f in prov.get('files') or [] if f['path'] not in seen],
+                   key=lambda f: f['path'])
+    sha = dict(disk.get('input_sha256') or {}); sha.update(prov.get('input_sha256') or {})
+    out = dict(prov)
+    out['files'] = files
+    out['inputs'] = sorted(sha); out['input_sha256'] = dict(sorted(sha.items()))
+    out['years'] = years_span(unit_years({'files': [f for f in files if 'year' in f]}))
+    own = (prov.get('extended') or [])[len(prev.get('extended') or []):]
+    out['extended'] = list(disk.get('extended') or []) + own
+    if 'start_years' in disk or 'start_years' in prov:
+        out['start_years'] = {**(disk.get('start_years') or {}), **(prov.get('start_years') or {})}
+    out['qc'] = {'status': 'not_checked', 'evidence': (prov.get('qc') or disk.get('qc') or {}).get('evidence')}
+    return out
+
+
 def extend(prev, new_files, input_sha256, code_tree, producer, method_version, commit, at, years, details=None):
     """The keys of provenance.yaml that an extension changes, for `prov.update()`: `files` (the existing entries
     unchanged, the new ones added, sorted by name), `inputs` and `input_sha256` (the union of the recorded and the

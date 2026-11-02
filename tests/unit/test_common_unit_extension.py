@@ -10,6 +10,7 @@ except for one test that reads the repository's own record (its climate entry).
 Run from the repository root in the isimip4b environment (PYTHONPATH including workflow/):
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import hashlib, os, tempfile, unittest
 from unittest import mock
 
@@ -250,6 +251,63 @@ class ExtendTest(Base):
         self.assertEqual(upd['extended'][1], {'at': 'now', 'code_commit': 'n' * 40, 'years': [2016]})
         self.assertEqual(upd['input_sha256'], self.recorded)
         self.assertEqual(upd['years'], '2015-2016')
+
+
+class WriteTest(Base):
+    """Review 2026-11-01 R19: the record is written under the unit lock; when another job extended the unit after
+    this job read it, that job's record is kept and this job's files are merged in."""
+
+    def prov_with(self, year, at):
+        """The record this job would write: the unit extended with one file of `year`."""
+        p = write(os.path.join(self.unit, f'prec_x_y_{year}.nc'), f'new {year}')
+        new = [ue.file_record(p, year, 'n' * 40, created_at=at)]
+        prov = dict(self.prov)
+        prov.update(ue.extend(self.prov, new, {f'raw/src_{year}.nc': 's' * 64}, dict(T0), PRODUCER, VERSION,
+                              'n' * 40, at, [year], details={'start_years': {year: 2015}} if year == 2017 else None))
+        if year == 2017:
+            prov['start_years'] = {2017: 2015}
+        return prov
+
+    def test_unchanged_unit_is_written_as_is(self):
+        prov = self.prov_with(2016, 't1')
+        got = ue.write(self.unit, prov, self.prov)
+        self.assertEqual(got, prov)
+        self.assertEqual(provenance.read(f'{self.unit}/provenance.yaml'), prov)
+
+    def test_other_job_extended_the_unit_meanwhile(self):
+        a = self.prov_with(2016, 't1')                 # job A read self.prov, made 2016
+        b = self.prov_with(2017, 't2')                 # job B read self.prov too, made 2017 (a start year)
+        ue.write(self.unit, a, self.prov)
+        got = ue.write(self.unit, b, self.prov)        # B writes after A: A's record is kept, B's file added
+        disk = provenance.read(f'{self.unit}/provenance.yaml')
+        self.assertEqual(disk, got)
+        self.assertEqual([f['path'] for f in disk['files']], ['prec_x_y_2015.nc', 'prec_x_y_2016.nc', 'prec_x_y_2017.nc'])
+        self.assertEqual(disk['years'], '2015-2017')
+        self.assertEqual([e['at'] for e in disk['extended']], ['t1', 't2'])
+        self.assertEqual(disk['start_years'], {2017: 2015})
+        self.assertIn('raw/src_2016.nc', disk['input_sha256']); self.assertIn('raw/src_2017.nc', disk['input_sha256'])
+        self.assertEqual(disk['inputs'], sorted(disk['input_sha256']))
+        self.assertEqual(disk['qc']['status'], 'not_checked')
+
+    def test_new_unit_written_by_another_job_stops(self):
+        prov = self.prov_with(2016, 't1')
+        with self.assertRaises(SystemExit):
+            ue.write(self.unit, prov, None)            # a record exists although this job made a new unit
+        os.remove(f'{self.unit}/provenance.yaml')
+        ue.write(self.unit, prov, None)
+        self.assertEqual(provenance.read(f'{self.unit}/provenance.yaml'), prov)
+
+    def test_write_waits_for_the_unit_lock(self):
+        import threading, time
+        order = []
+
+        def holder():
+            with provenance.unit_lock(self.unit):
+                order.append('locked'); time.sleep(0.5); order.append('released')
+        t = threading.Thread(target=holder); t.start(); time.sleep(0.1)
+        ue.write(self.unit, self.prov_with(2016, 't1'), self.prov); order.append('written')
+        t.join()
+        self.assertEqual(order, ['locked', 'released', 'written'])
 
 
 if __name__ == '__main__':

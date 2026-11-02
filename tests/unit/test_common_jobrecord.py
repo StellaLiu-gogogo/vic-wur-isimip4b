@@ -3,6 +3,7 @@
 Run from the repository root in the isimip4b environment (PYTHONPATH including workflow/):
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import os, subprocess, tempfile, unittest
 from unittest import mock
 
@@ -55,6 +56,16 @@ class JobRecordTest(unittest.TestCase):
         self.assertEqual(list(rec), ['slurm_job_id', 'job_name', 'rendered_by', 'template', 'code_commit', 'code_dirty',
                                      'submitted_at', 'resources', 'outputs'])
         self.assertEqual((rec['slurm_job_id'], rec['code_dirty']), (4242, True))
+        self.assertEqual(sorted(os.listdir(job_dir)), ['job.sbatch', 'job.yaml'])      # R19: no .part file left
+
+    def test_write_text_leaves_no_partial_file(self):
+        p = f'{self.d}/job.yaml'
+        jobrecord.write_text(p, 'a: 1\n')
+        self.assertEqual(open(p).read(), 'a: 1\n')
+        with mock.patch.object(jobrecord.os, 'replace', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                jobrecord.write_text(p, 'a: 2\n')
+        self.assertEqual(open(p).read(), 'a: 1\n')                                        # the old file is intact
 
     def test_sbatch_failure_writes_no_record(self):
         slurm = FakeSlurm(rc=1); logs = f'{self.d}/logs/03_parameters'

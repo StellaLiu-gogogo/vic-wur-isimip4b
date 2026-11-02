@@ -645,7 +645,10 @@ def write_start_years(a, W, commit, dirty, to_scratch, variables, unit, out_dir)
             prov['start_years_command'] = (f'python3 {CREATED_BY} --gcm {a.gcm} --alias {a.alias} --variables {v} '
                                            f'--start-years {",".join(str(y) for y in sorted(prov["start_years"]))} '
                                            f'--cycle-window <window of each year in cycle_windows>')
-        provenance.write(f'{out_dir[v]}/provenance.yaml', prov)
+        if to_scratch:
+            provenance.write(f'{out_dir[v]}/provenance.yaml', prov)
+        else:       # under the unit lock, merged with what another job wrote meanwhile (R19)
+            unit_extension.write(out_dir[v], prov, existing[v])
     print(f'done: start years {plan} of {len(variables)} variable(s)')
 
 
@@ -804,7 +807,10 @@ def main():
         for k in START_YEAR_KEYS:          # the start years of the unit stay recorded (D20)
             if prev and k in prev:
                 prov[k] = prev[k]
-        provenance.write(f'{out_dir[v]}/provenance.yaml', prov)
+        if to_scratch:
+            provenance.write(f'{out_dir[v]}/provenance.yaml', prov)
+        else:       # under the unit lock, merged with what another job wrote meanwhile (R19)
+            unit_extension.write(out_dir[v], prov, prev)
     print(f'done: {len(variables)} variable(s) x {len(years)} year(s) in {time.time() - t0:.0f} s -> {base}')
 
 
