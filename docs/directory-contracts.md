@@ -1218,8 +1218,9 @@ GitHub remote and by the bare repository under the backup root.
 
 Backup root `/lustre/backup/WUR/ESG/liu297/isimip4b/` (`ISIMIP4B_BACKUP`),
 procedure `workflow/09_backup/`, decided by D13 on 2026-11-02
-(`docs/decisions/D13-backup-procedure.md`). First snapshot: not yet written;
-update this line with the date of the first snapshot and of the schedule.
+(`docs/decisions/D13-backup-procedure.md`). First snapshot `archive/2026-11-02`
+(job 43539753: 19 871 files, 17.0 GiB, verified; `repo.git` created). Schedule:
+not yet enabled; update this line when the `scrontab` entry is in place.
 
 ### Principle
 

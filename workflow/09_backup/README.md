@@ -64,8 +64,8 @@ Copy from `$ISIMIP4B_BACKUP/archive/<date>/workdir/<path>` (or `current/workdir/
 |---|---|---|
 | Y1 | rules, snapshot script, Slurm template, submit script; unit tests on temporary directories (real rsync and git: hard links, verification failure keeps the staging directory, pointer, bare repository, rendering) | written 2026-11-02 |
 | Y2 | contract change ("Data protection", hierarchy, stage list, layout check), D13 record, open-decisions | written 2026-11-02 |
-| Y3 | listing job (`--list`) and the user's approval of the content and sizes | pending |
-| Y4 | first snapshot; contract "Status" and `workdir/README.md` updated with its date | pending |
+| Y3 | listing job (`--list`) and the user's approval of the content and sizes | done 2026-11-02: job 43539715, 19 867 files, 17.0 GiB (workdir text 12.4 GiB, of which qc/forcing/landuse csv 8.9 GiB and QC figures 2.8 GiB; parameter set 4.5 GiB; repo 3.7 MiB; no accepted production run yet), approved by the user |
+| Y4 | first snapshot; contract "Status" and `workdir/README.md` updated with its date | done 2026-11-02: job 43539753 from main `d1a6c54`, 12 min 49 s on one core-set of node213, `archive/2026-11-02` with 19 871 files verified, `current` set, `repo.git` holds every branch and tag |
 | Y5 | `scrontab` entry shown to the user and enabled | pending |
 
 ## Allowed content
