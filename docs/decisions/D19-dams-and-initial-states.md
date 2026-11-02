@@ -2,7 +2,8 @@
 
 Status: **decided 2026-10-11** by the user (decisions taken 2026-10-09 to 2026-10-11); amended 2026-10-16
 (dam-list comparison, implementation choices of task L; see "Amendment 2026-10-16") and 2026-10-22 (climate cycle
-per spin-up chain, `picontrol` production; see "Amendment 2026-10-22").
+per spin-up chain, `picontrol` production; see "Amendment 2026-10-22") and 2026-11-02 (convergence test per
+grid cell over the 25 years of a block; see "Amendment 2026-11-02").
 Due stage: `05_simulation`.
 
 ## Context
@@ -160,7 +161,8 @@ in the same order; only `year` differs:
    December snow water equivalent (without the glacier cells of D18), total
    reservoir storage and river storage, and for `2021soc` also irrigation
    withdrawal. A spin-up writes only these annual diagnostics; its output is not
-   reported.
+   reported. Amended 2026-11-02: the test is made per grid cell over the 25
+   annual values of the block (see "Amendment 2026-11-02").
 4. Start: the first GCM's `1850soc` spin-up is a cold start; the `2021soc`
    spin-up may start from the end state of the `1850soc` spin-up, and the
    spin-ups of a further GCM from the end states of the first GCM's spin-ups with
@@ -278,3 +280,46 @@ Consequences:
 - D20: the climate start years 1800 and 1825 are no longer needed; see the D20
   amendment of 2026-10-22. The climate producer's refusal to write a start year
   that the input contains stays.
+
+
+## Amendment 2026-11-02
+
+Decided by the user on 2026-11-02 after the pre-production code review of
+`05_simulation` (finding R1 of the review of 2026-11-01):
+
+- **Spin-up rule 3 (convergence test).** The test of 2026-10-11 (over the last
+  10 years, the trend of the annual values below 0.1 interannual standard
+  deviations for every quantity, global and per basin) cannot pass on a
+  converged spin-up: the least-squares slope of 10 annual values of a
+  stationary series has a standard error of about 0.11 standard deviations,
+  so each quantity passes with a probability of 0.25–0.58 only, and about 45
+  quantities had to pass at once. The amended test:
+  1. Window: the 25 annual values of the block (the last 25 years of the
+     first, 50-year block).
+  2. Per active grid cell and quantity: the least-squares slope of the 25
+     annual values, divided by the standard deviation of the detrended values
+     (two fitted parameters, ddof 2), is at most 0.1 per year, i.e. the change
+     over a decade is at most one interannual standard deviation. A cell whose
+     values are constant passes when the slope is zero. Simulated stationary
+     series pass with 100 % (no autocorrelation) to 95 % (lag-1
+     autocorrelation 0.5); a cell drifting one standard deviation per decade
+     passes with 48 %, half a standard deviation per decade with 94 %.
+  3. A quantity passes when at least 80 % of the active cells pass: soil
+     moisture of layers 2 and 3 (annual means), December snow water
+     equivalent (without the perennial-snow cells, as before) and river
+     storage.
+  4. Global totals under the same rule (slope at most 0.1 of the detrended
+     standard deviation over the 25 annual values) must pass: reservoir
+     storage, and for `2021soc` irrigation withdrawal.
+  5. The 20 largest basins are shown in the figures only; they no longer
+     decide.
+  6. The block has converged when every quantity of 3 and 4 passes. A test
+     that cannot be evaluated (missing months, missing values, missing
+     variables) is `not_checked`, not `failed`, and the chain stops for the
+     user (review finding R6).
+- Reason for the fraction rule: a 20 % allowance keeps cells with a tiny
+  interannual variability (deep soil moisture of arid regions), which drift by
+  small absolute amounts over centuries, from blocking the chain; the user
+  chose 80 %.
+- Implementation: task X (`monitor/check_spinup.py`). No block of the
+  production campaign has been tested under the old rule.
