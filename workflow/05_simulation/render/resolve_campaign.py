@@ -400,12 +400,14 @@ def runs(campaign, segments, label=None):
 # Resources a restriction run of a non-production campaign may set for itself (tests of ranks, threads and memory;
 # exclusive false lets a run that only compares values share a node, user 2026-10-31); everything else comes from the
 # campaign's resources file.
-RUN_RESOURCE_KEYS = ('ntasks', 'cpus_per_task', 'mem', 'exclusive')
+RUN_RESOURCE_KEYS = ('ntasks', 'cpus_per_task', 'mem', 'exclusive', 'wall_time_hours')
 
 
 def run_resources_override(label, value):
-    """{key: value} of a restriction run's `resources` ({} when absent); stops on another key, a count that is not a
-    positive integer, a memory that is not like 450G, or an exclusive that is not true or false."""
+    """{key: value} of a restriction run's `resources` ({} when absent); stops on another key, a count or a wall time
+    (hours) that is not a positive integer, a memory that is not like 450G, or an exclusive that is not true or
+    false. `wall_time_hours` replaces the wall time computed from the resource file (a test of the time-out
+    handling, task X)."""
     if value is None:
         return {}
     if not isinstance(value, dict) or not value:
@@ -413,7 +415,7 @@ def run_resources_override(label, value):
     other = sorted(set(value) - set(RUN_RESOURCE_KEYS))
     if other:
         raise CampaignError(f'restriction run {label}: resources may set only {list(RUN_RESOURCE_KEYS)}, not {other}')
-    for k in ('ntasks', 'cpus_per_task'):
+    for k in ('ntasks', 'cpus_per_task', 'wall_time_hours'):
         if k in value and not (isinstance(value[k], int) and not isinstance(value[k], bool) and value[k] >= 1):
             raise CampaignError(f'restriction run {label}: resources.{k} must be a positive integer')
     if 'mem' in value and not re.fullmatch(r'[1-9][0-9]*[MGT]', str(value['mem'])):

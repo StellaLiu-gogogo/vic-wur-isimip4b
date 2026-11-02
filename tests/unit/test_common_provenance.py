@@ -5,6 +5,7 @@ record").
 Run from the repository root in the isimip4b environment (PYTHONPATH including workflow/):
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import os, re, tempfile, unittest
 from unittest import mock
 
@@ -44,6 +45,20 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(list(got), ['forcing_unit', 'qc', 'files'])
         self.assertEqual(got['qc'], {'status': 'passed', 'evidence': 'qc/forcing/u'})
         self.assertEqual(got['files'], rec['files'])
+
+    def test_set_qc_holds_the_unit_lock(self):
+        import threading, time
+        rec = {'forcing_unit': 'u', 'qc': {'status': 'not_checked', 'evidence': 'old'}}
+        provenance.write(self.path, rec); order = []
+
+        def holder():
+            with provenance.unit_lock(self.tmp.name):
+                order.append('locked'); time.sleep(0.4); order.append('released')
+        t = threading.Thread(target=holder); t.start(); time.sleep(0.1)
+        provenance.set_qc(self.path, 'passed', 'e'); order.append('set')
+        t.join()
+        self.assertEqual(order, ['locked', 'released', 'set'])
+        self.assertEqual(provenance.read(self.path)['qc'], {'status': 'passed', 'evidence': 'e'})
 
     def test_fingerprint_and_time(self):
         sw = provenance.software_versions()

@@ -11,8 +11,11 @@ Checks per calendar year (the plugins of the run are read from its config/resolv
 plugin, e.g. a natural run, has no water-use output and gets no water-use checks)
   coverage        active cells (domain mask) without a finite qtot or discharge value
   qtot            annual qtot = sum of daily OUT_RUNOFF + OUT_BASEFLOW (mm/yr), map and global volume (km3/yr)
-  water_balance   OUT_WATER_ERROR (monthly mean per cell, VIC's default aggregation): largest absolute value; global
-                  P, ET, qtot
+  water_balance   OUT_WATER_ERROR (monthly mean per cell, VIC's default aggregation): largest absolute value and the
+                  number of cell-months above WATER_ERROR_LIMIT_MM; global P, ET, qtot, and the closure
+                  P - ET - qtot - dS with dS the change of the December monthly-mean storage (soil, snow, canopy,
+                  surface) from the previous year of the check (approximate: monthly means, no river or reservoir
+                  storage; None for the first year)
   outlets         mean discharge at the river outlets (routing downstream equal to the cell's own downstream_id)
   irrigation      irrigation withdrawal (sector 4), requirement, received water (water-use and irrigation plugins on)
   sectors         municipal (0) and manufacturing (2): forcing demand (mm/day x days), VIC demand, withdrawal
@@ -26,6 +29,15 @@ plugin, e.g. a natural run, has no water-use output and gets no water-use checks
                   each month (km3), water taken as non-renewable and not yet repaid from the baseflow; OUT_BASEFLOW
                   (and so qtot) still contains the repaid water (plugins/routing/src/rout_run.c)
   state           the end-state file exists
+Water balance of the check (chunk or unchunked run; review 2026-11-01 R8, user's rule of 2026-11-02): over every
+  active cell and month of its years, the 99th percentile of |OUT_WATER_ERROR| must not exceed WATER_ERROR_LIMIT_MM
+  (1 mm, the task T rule): status passed or failed, part of the check status; p99, p99.9, the largest value and the
+  number of cell-months above the limit are recorded (percentiles from a histogram of WATER_ERROR_BIN_MM resolution).
+Binding (review 2026-11-01 R5): summary.json and reports/check.json name the attempt (number, Slurm job id, status)
+  and the sha256 of the end state they checked, the code commit and whether the repository was clean; from a
+  repository that is not clean the results go to scratch/run-check/uncommitted/qc/runs/... and do not count. The
+  whole-run check of a chunked run counts a chunk summary only when it is bound to the chunk's completed attempt.
+  The check job also stores the final sacct rows of the run job in the attempt (`scheduler`, R16).
 GRDC comparison (whole run)
   The run is driven by GCM climate, so its days and months do not correspond to observed weather: the main
   comparison is climatological, the simulated monthly-mean seasonal cycle of the run years (the first year
@@ -53,14 +65,22 @@ import matplotlib.pyplot as plt
 from matplotlib import colors
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, '..', 'submit'))
 import grdc          # noqa: E402
 import run_figures   # noqa: E402
-from common import qc as qc_status   # noqa: E402  (exit status of a check)
+import run_manifest as rm   # noqa: E402  (attempts, end-state checksum, final scheduler rows under the run lock)
+from common import gitstate, qc as qc_status   # noqa: E402  (exit status of a check)
 
+CHECKED_BY = 'workflow/05_simulation/monitor/check_run.py'
 SECTORS = {'municipal': 0, 'energy': 1, 'manufacturing': 2, 'livestock': 3, 'irrigation': 4}
 WI = ('OUT_WI_GW_SECT', 'OUT_WI_SURF_SECT', 'OUT_WI_DAM_SECT', 'OUT_WI_TREM_SECT', 'OUT_WI_NREN_SECT')
 ABS_TOL, REL_TOL = 1e-4, 1e-5
+WATER_ERROR_LIMIT_MM = 1.0        # task T rule (2026-10-30): |monthly mean OUT_WATER_ERROR| above it is an outlier
+WATER_ERROR_BIN_MM = 1e-4         # histogram resolution of the percentiles
+WATER_ERROR_TOP_MM = 10.0         # values above it share the last bin (the maximum is exact)
+UNCOMMITTED = 'scratch/run-check/uncommitted'
 read = run_figures.read
 km3 = run_figures.km3
 draw = run_figures.draw_map
@@ -70,10 +90,52 @@ def workdir():
     return os.environ.get('ISIMIP4B_WORKDIR') or sys.exit('set ISIMIP4B_WORKDIR')
 
 
+class WaterError:
+    """|OUT_WATER_ERROR| over every active cell and month of the check: a histogram of WATER_ERROR_BIN_MM bins up to
+    WATER_ERROR_TOP_MM (the last bin holds everything above), the exact maximum and the count above the limit."""
+
+    def __init__(self, limit=WATER_ERROR_LIMIT_MM):
+        self.nbin = int(round(WATER_ERROR_TOP_MM / WATER_ERROR_BIN_MM))
+        self.counts = np.zeros(self.nbin + 1, 'i8')
+        self.limit = limit; self.max = 0.0; self.above = 0; self.n = 0; self.missing = 0
+
+    def add(self, values):
+        """Add the |values| of one month (active cells); returns (largest value, count above the limit)."""
+        v = np.abs(np.asarray(values, 'f8')); ok = np.isfinite(v); v = v[ok]
+        self.missing += int((~ok).sum()); self.n += int(v.size)
+        if not v.size:
+            return 0.0, 0
+        idx = np.minimum((v / WATER_ERROR_BIN_MM).astype('i8'), self.nbin)
+        self.counts += np.bincount(idx, minlength=self.nbin + 1)
+        vmax = float(v.max()); above = int((v > self.limit).sum())
+        self.max = max(self.max, vmax); self.above += above
+        return vmax, above
+
+    def percentile(self, q):
+        """Upper edge (mm) of the bin in which the cumulative share reaches q (0-100); None without values."""
+        if not self.n:
+            return None
+        rank = int(np.ceil(round(q / 100.0 * self.n, 6)))           # the rank-th smallest value (1-based)
+        k = int(np.searchsorted(np.cumsum(self.counts), rank, side='left'))
+        return float('inf') if k >= self.nbin else (k + 1) * WATER_ERROR_BIN_MM
+
+    def summary(self):
+        p99 = self.percentile(99)
+        return {'cell_months': self.n, 'cell_months_missing': self.missing, 'limit_mm': self.limit,
+                'p99_abs_monthly_mean_water_error_mm': p99, 'p99.9_abs_monthly_mean_water_error_mm': self.percentile(99.9),
+                'max_abs_monthly_mean_water_error_mm': self.max, 'cell_months_above_limit': self.above,
+                'percentile_resolution_mm': WATER_ERROR_BIN_MM,
+                'status': 'passed' if p99 is not None and p99 <= self.limit else 'failed',
+                'rule': 'p99 of |OUT_WATER_ERROR| (monthly mean per cell) over all active cells and months of the check '
+                        '<= limit (user, 2026-11-02; task T outlier rule)'}
+
+
 # ------------------------------------------------------------------------------------------------ per year
-def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_cells, provenance, qc, plugins):
+def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_cells, provenance, qc, plugins,
+               werr=None):
     """`plugins`: {plugin: on} of the run. The water-use checks need the water-use plugin and the irrigation
-    results also the irrigation plugin; a natural run has neither, and VIC writes none of their outputs."""
+    results also the irrigation plugin; a natural run has neither, and VIC writes none of their outputs. `werr`
+    accumulates |OUT_WATER_ERROR| over the years of the check (WaterError)."""
     out = {}; figs_made = []
     daily = nc.Dataset(f'{rd}/output/daily.{year}-01-01.nc'); monthly = nc.Dataset(f'{rd}/output/monthly.{year}-01.nc')
     nd = len(daily.dimensions['time']); nm = len(monthly.dimensions['time'])
@@ -104,9 +166,14 @@ def check_year(year, rd, mask, area, lat, lon, own, figs, forcing_view, station_
         wu, wu_figs = check_water_use(year, monthly, nd, nm, mask, area, lat, lon, figs, forcing_view, provenance, qc,
                                       plugins['irrigation'])
         out.update(wu); figs_made += wu_figs
-    wb_err = max(float(np.nanmax(np.abs(read(monthly, 'OUT_WATER_ERROR', t))[mask], initial=0)) for t in range(nm))
+    werr = werr if werr is not None else WaterError()
+    wb_err, above = 0.0, 0
+    for t in range(nm):
+        vmax, n = werr.add(read(monthly, 'OUT_WATER_ERROR', t)[mask])
+        wb_err = max(wb_err, vmax); above += n
     wb, f = run_figures.water_balance(year, monthly, mask, area, lat, figs)
     wb['max_abs_monthly_mean_water_error_mm'] = wb_err
+    wb['cell_months_above_limit'] = above
     out['water_balance'] = wb; figs_made.append(f)
     out['figures'] = figs_made
     daily.close(); monthly.close()
@@ -329,6 +396,77 @@ def year_dirs(rd, man):
     return {y: f'{rd}/{c["dir"]}' for c in chunks for y in range(c['start_year'], c['end_year'] + 1)}
 
 
+# ------------------------------------------------------------------------------------------------ binding
+def plain(obj):
+    """The record with every numpy number turned into a plain Python number (for qc.write_json)."""
+    return json.loads(json.dumps(obj, default=float))
+
+
+def latest_attempt(man, chunk=None):
+    at = [x for x in man.get('attempts') or [] if x.get('chunk') == chunk]
+    return at[-1] if at else {}
+
+
+def bind(rd, man, chunk, state):
+    """What the check looked at (review 2026-11-01 R5): the attempt that made the output (of the chunk, of the
+    unchunked run, or of the last chunk of a whole chunked run, with the attempt of every chunk), its Slurm job id
+    and status, and the sha256 of the end-state file."""
+    chunks = man.get('chunks') or []
+    last = latest_attempt(man, chunk or (chunks[-1]['id'] if chunks else None))
+    out = {'attempt': last.get('attempt'), 'slurm_job_id': last.get('slurm_job_id'),
+           'attempt_status': last.get('status'), 'end_state': os.path.relpath(state[0], rd) if state else None,
+           'end_state_sha256': rm.file_hash(state[0], 'sha256') if state else None}
+    if chunks and not chunk:
+        out['chunk_attempts'] = {c['id']: latest_attempt(man, c['id']).get('attempt') for c in chunks}
+    return out
+
+
+def chunk_statuses(W, man):
+    """Status of every chunk check of a chunked run, read from its summary; a summary not bound to the chunk's
+    completed attempt (an earlier attempt, a summary written before the binding existed) counts as not_checked."""
+    out = {}
+    for c in man.get('chunks') or []:
+        p = f'{W}/qc/{man["run_dir"]}/chunks/{c["id"]}/summary.json'
+        if not os.path.exists(p):
+            out[c['id']] = 'not_checked'; continue
+        with open(p) as fh:
+            summ = json.load(fh)
+        b = summ.get('binding') or {}
+        want = latest_attempt(man, c['id'])
+        bound = want.get('status') == 'completed' and b.get('attempt') == want.get('attempt') and \
+            b.get('slurm_job_id') == want.get('slurm_job_id') and summ.get('code_dirty') is False
+        out[c['id']] = summ.get('status', 'not_checked') if bound else 'not_checked'
+    return out
+
+
+def record_scheduler(rd, man, chunk):
+    """Store the final sacct rows of the run job(s) the check looks at in their attempts (review 2026-11-01 R16: the
+    job itself can only record itself as RUNNING, kept as scheduler_at_completion). Nothing is changed when sacct is
+    not available or the attempt has final rows already."""
+    chunks = man.get('chunks') or []
+    ids = [c['id'] for c in chunks] if (chunks and not chunk) else [chunk]
+    jobs = [latest_attempt(man, c).get('slurm_job_id') for c in ids]
+    try:
+        rm.record_scheduler(rd, [j for j in jobs if j])
+    except Exception as e:                                   # noqa: BLE001  (the check does not depend on it)
+        print(f'final scheduler rows not recorded: {e!r}')
+
+
+def closure(results, years):
+    """Global closure P - ET - qtot - dS per year of the check (km3), dS from the December monthly-mean storage of
+    the year and of the previous year of the check (approximate; None for the first year)."""
+    prev = None
+    for y in years:
+        wb = results[y].get('water_balance') or {}
+        stor = wb.get('storage_monthly_mean_km3') or []
+        dec = stor[-1] if stor else None
+        ds = (dec - prev) if (dec is not None and prev is not None) else None
+        wb['storage_change_km3'] = ds
+        wb['closure_p_minus_et_minus_qtot_minus_ds_km3'] = (wb['p_minus_et_minus_qtot_km3'] - ds) \
+            if (ds is not None and 'p_minus_et_minus_qtot_km3' in wb) else None
+        prev = dec
+
+
 # ------------------------------------------------------------------------------------------------ main
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -347,7 +485,10 @@ def main():
         res = yaml.safe_load(fh)
     params = res['parameters']
     plugins = {k: v['enabled'] for k, v in res['campaign']['plugins'].items()}
-    qc = f'{W}/qc/{man["run_dir"]}' + (f'/chunks/{a.chunk}' if a.chunk else '')
+    commit, dirty = gitstate.state(REPO)
+    # results of code that is not committed never stand as the check of a run: they go to scratch (rule 14)
+    qc = (f'{W}/{UNCOMMITTED}/qc/{man["run_dir"]}' if dirty else f'{W}/qc/{man["run_dir"]}') + \
+        (f'/chunks/{a.chunk}' if a.chunk else '')
     figs = f'{qc}/figures'; os.makedirs(figs, exist_ok=True); os.makedirs(f'{qc}/reports', exist_ok=True)
     with nc.Dataset(f'{W}/{params["domain"]["path"]}') as d:
         mask = np.asarray(d['mask'][:]).astype(bool); area = np.where(mask, np.asarray(d['area'][:], 'f8'), 0.0)
@@ -358,56 +499,61 @@ def main():
     view = {k: {y: f'{W}/{v["source"]}' for y, v in m.items()} for k, m in man['forcing_view'].items()}
     ydirs = year_dirs(rd, man)
     years = sorted(ydirs) if not a.chunk else list(range(chunks[a.chunk]['start_year'], chunks[a.chunk]['end_year'] + 1))
-    commit = os.popen(f'git -C {os.path.dirname(os.path.dirname(os.path.dirname(HERE)))} rev-parse HEAD').read().strip()
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    whole_chunked = bool(chunks) and not a.chunk
+    end_state = chunks[a.chunk]['end_state'] if a.chunk else man.get('end_state')
+    state = [f'{rd}/{end_state}'] if end_state else sorted(glob.glob(f'{rd}/states/state.*.nc'))
+    state = [x for x in state if os.path.isfile(x)]
+    binding = bind(rd, man, a.chunk, state)
+    record_scheduler(rd, man, a.chunk)
     prov = {'title': 'withdrawal per water-use sector, derived from VIC-WUR output', 'run': man['run_dir'],
             'created_by': 'workflow/05_simulation/monitor/run_figures.py (check_run.py)', 'code_commit': commit,
-            'created_at': now}
+            'code_dirty': 'true' if dirty else 'false', 'created_at': now}      # a NetCDF attribute: no bool
     mapped, files, ref, _ = grdc_compare(W, rd, years, mask, area, lat, lon, f'{W}/{params["routing"]["path"]}',
                                          figs, qc, a.min_area, a.panels)
     cells = (mapped['row'].values.astype(int), mapped['col'].values.astype(int))
-    whole_chunked = bool(chunks) and not a.chunk
-    results, st_daily, chunk_status = {}, [], {}
+    results, st_daily, chunk_status, werr = {}, [], {}, WaterError()
     if whole_chunked:          # per-year results are in the chunk checks; their status is required here
-        for cid in chunks:
-            p = f'{W}/qc/{man["run_dir"]}/chunks/{cid}/summary.json'
-            chunk_status[cid] = json.load(open(p))['status'] if os.path.exists(p) else 'not_checked'
+        chunk_status = chunk_statuses(W, man)
         for y in years:
             st_daily.append(station_daily(ydirs[y], y, cells))
     else:
         for y in years:
-            results[y], d = check_year(y, ydirs[y], mask, area, lat, lon, own, figs, view, cells, prov, qc, plugins)
+            results[y], d = check_year(y, ydirs[y], mask, area, lat, lon, own, figs, view, cells, prov, qc, plugins,
+                                       werr)
             st_daily.append(d)
+        closure(results, years)
     st_daily = np.concatenate(st_daily)
     grdc_summary, grdc_figs = {}, []
     if not a.chunk:
         cold_start = not (man.get('parent') or {}).get('init_state')
         grdc_summary, grdc_figs = grdc_figures(W, lambda y: ydirs[y], years, mapped, files, ref, st_daily, mask, figs,
                                                qc, a.panels, cold_start)
-    end_state = chunks[a.chunk]['end_state'] if a.chunk else man.get('end_state')
-    state = [f'{rd}/{end_state}'] if end_state else sorted(glob.glob(f'{rd}/states/state.*.nc'))
-    state = [x for x in state if os.path.isfile(x)]
     report = {'run': man['run_dir'], **({'chunk': a.chunk} if a.chunk else {}), 'checked_at': now,
-              'checked_by': 'workflow/05_simulation/monitor/check_run.py',
-              'code_commit': commit, 'years': results, 'grdc': grdc_summary | {'figures': grdc_figs},
+              'checked_by': CHECKED_BY, 'code_commit': commit, 'code_dirty': dirty, 'binding': binding,
+              'years': results, **({'water_balance': werr.summary()} if not whole_chunked else {}),
+              'grdc': grdc_summary | {'figures': grdc_figs},
               **({'chunk_checks': chunk_status} if whole_chunked else {}),
               'state_files': [{'path': os.path.relpath(s, rd), 'size_bytes': os.path.getsize(s)} for s in state]}
     statuses = [v[k]['status'] for v in results.values() for k in ('coverage', 'budget') if k in v] + \
-        list(chunk_status.values())
+        ([report['water_balance']['status']] if not whole_chunked else []) + list(chunk_status.values())
     report['status'] = 'passed' if all(s == 'passed' for s in statuses) and state else 'failed'
-    with open(f'{qc}/reports/check.json', 'w') as fh:
-        json.dump(report, fh, indent=1, default=float)
-    with open(f'{qc}/summary.json', 'w') as fh:
-        json.dump({'object': man['run_dir'] + (f'/chunks/{a.chunk}' if a.chunk else ''), 'status': report['status'],
-                   'checked_at': now, 'checked_by': report['checked_by'],
-                   **({'chunk_checks': chunk_status} if whole_chunked else {}),
-                   'note': 'sanity checks of a smoke run, not acceptance of a production run'}, fh, indent=1)
+    qc_status.write_json(f'{qc}/reports/check.json', plain(report))
+    qc_status.write_json(f'{qc}/summary.json', plain({
+        'object': man['run_dir'] + (f'/chunks/{a.chunk}' if a.chunk else ''), 'status': report['status'],
+        'checked_at': now, 'checked_by': CHECKED_BY, 'code_commit': commit, 'code_dirty': dirty, 'binding': binding,
+        **({'water_balance': report['water_balance']['status']} if not whole_chunked else {}),
+        **({'chunk_checks': chunk_status} if whole_chunked else {}),
+        'note': ('sanity checks of a production run; its acceptance is the user\'s decision'
+                 if man.get('production') else 'sanity checks of a non-production run, not acceptance')}))
     print(json.dumps({y: {k: v[k] for k in ('coverage', 'qtot', 'budget', 'withdrawal_by_sector_km3') if k in v}
                       for y, v in results.items()}, indent=1, default=float))
+    if not whole_chunked:
+        print('water balance', json.dumps(report['water_balance'], indent=1, default=float))
     print(json.dumps({k: v for k, v in grdc_summary.items() if k != 'largest'}, indent=1, default=float))
     if chunk_status:
         print('chunk checks', json.dumps(chunk_status))
-    print('status', report['status'])
+    print('status', report['status'], '->', qc)
     qc_status.exit_with(report['status'])        # the check job ends FAILED unless passed
 
 

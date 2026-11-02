@@ -7,6 +7,7 @@ transfer. Nothing outside the temporary directory is read or written; no network
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import hashlib, os, shutil, stat, subprocess, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))

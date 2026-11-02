@@ -671,7 +671,8 @@ def render_job(W, rdir, campaign_id, run_id, start_year, end_year, resources, mo
     and its wall time in hours."""
     nyears = end_year - start_year + 1
     wt = resources['wall_time']
-    hours = min(math.ceil(wt['setup_hours'] + wt['hours_per_model_year'] * nyears), wt['max_hours'])
+    hours = resources.get('wall_time_hours') or \
+        min(math.ceil(wt['setup_hours'] + wt['hours_per_model_year'] * nyears), wt['max_hours'])
     conda_base = subprocess.run(['conda', 'info', '--base'], capture_output=True, text=True).stdout.strip() or \
         os.path.dirname(os.path.dirname(os.environ['CONDA_EXE']))
     sched = ([f'#SBATCH --constraint={resources["constraint"]}'] if resources.get('constraint') else []) + \
@@ -709,8 +710,8 @@ def end_state_rel(start_year, end_year, chunk_years):
 
 
 def run_resources(run, resources):
-    """Resources of a run: the campaign's resources file with a restriction run's own ntasks, cpus_per_task, mem and
-    exclusive (resolve_campaign.run_resources_override; non-production tests)."""
+    """Resources of a run: the campaign's resources file with a restriction run's own ntasks, cpus_per_task, mem,
+    exclusive and wall_time_hours (resolve_campaign.run_resources_override; non-production tests)."""
     return {**resources, **(run.get('resources_override') or {})}
 
 
@@ -771,8 +772,12 @@ def spinup_blocks(base, segment_id):
 def spinup_next(W, base, campaign, segment_id):
     """What the spin-up segment needs (D19 spin-up rule 3, D20 decision 3): ('render', 1, None) when no block exists;
     ('render', k + 1, dir of block k) when block k has completed and failed its convergence test; ('converged', k, dir)
-    when block k passed it. Stops when block k has not completed, its test has not run (or ran from code that was not
-    committed, in a production campaign), or spinup.max_blocks blocks did not converge."""
+    when block k passed it; ('wait', k, dir) when block k has not completed, its test has not run, or its test could
+    not be evaluated (status not_checked, e.g. a short file or a missing value): the segment and its children are left
+    out of this call and the other runs of the call go on (review 2026-11-01, R3: the 1850soc chain converges while
+    the 2021soc block still runs). Stops (RenderError) when the test ran from code that was not committed in a
+    production campaign, when its status is unknown, or when spinup.max_blocks blocks did not converge: these need
+    the user."""
     blocks = spinup_blocks(base, segment_id)
     if not blocks:
         return 'render', 1, None
@@ -781,16 +786,22 @@ def spinup_next(W, base, campaign, segment_id):
     import run_manifest as rm
     m = manifest_of(bdir)
     if not rm.is_completed(m):
-        raise RenderError(f'{segment_id}: block {k} ({os.path.basename(bdir)}) has not completed (status '
-                          f'{m.get("status")}); wait for it or retry it (submit_run.py --retry)')
+        print(f'{segment_id}: block {k} ({os.path.basename(bdir)}) has not completed (status {m.get("status")}); '
+              'wait for it or retry it (submit_run.py --retry)')
+        return 'wait', k, bdir
     s = spinup_check(W, bdir)
     if s is None:
-        raise RenderError(f'{segment_id}: the convergence test of block {k} has not run '
-                          f'(monitor/submit_check.py --spinup --run-dir {os.path.relpath(bdir, W)})')
+        print(f'{segment_id}: the convergence test of block {k} has not run '
+              f'(monitor/submit_check.py --spinup --run-dir {os.path.relpath(bdir, W)})')
+        return 'wait', k, bdir
     if campaign['production'] and s.get('code_dirty') is not False:
         raise RenderError(f'{segment_id}: the convergence test of block {k} ran from code that was not committed')
     if s.get('status') == 'passed':
         return 'converged', k, bdir
+    if s.get('status') == 'not_checked':
+        print(f'{segment_id}: the convergence test of block {k} could not be evaluated (status not_checked: '
+              f'{"; ".join(s.get("problems") or [])}); look at the block before it is continued')
+        return 'wait', k, bdir
     if s.get('status') != 'failed':
         raise RenderError(f'{segment_id}: the convergence test of block {k} has status {s.get("status")}')
     if k + 1 > rc.max_blocks(campaign['spinup']):
@@ -843,6 +854,9 @@ def render(campaign_path, label=None, run_id=None, scratch=False, W=None):
             if action == 'converged':
                 print(f'{run["segment_id"]}: block {n} passed the convergence test; no further block')
                 continue
+            if action == 'wait':        # its children are left out below (parent in left_out)
+                print(f'{run["run_id"]}: not rendered, block {n} is not ready for the next block')
+                left_out.add(run['segment_id']); continue
             if n > 1:
                 y0, y1 = rc.block_years(campaign['spinup'], run['start_year'], run['end_year'], n)
                 run = dict(run, run_id=rc.block_run_id(run['segment_id'], n), start_year=y0, end_year=y1)

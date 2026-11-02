@@ -29,6 +29,14 @@ def render(template, values):
     return text
 
 
+def write_text(path, text):
+    """Write a file of the job record completely under a temporary name, then rename it into place (never a partial
+    file; review 2026-11-01, R19)."""
+    with open(path + '.part', 'w') as fh:
+        fh.write(text)
+    os.replace(path + '.part', path)
+
+
 def submit(text, stage_logs, job_name, rendered_by, template, code_commit, code_dirty, details):
     """Submit `text` on hold, write job.sbatch and job.yaml, release the job. `details` holds the stage-specific
     keys of job.yaml (resources, commands, inputs, outputs, qc), written after the common ones.
@@ -40,12 +48,10 @@ def submit(text, stage_logs, job_name, rendered_by, template, code_commit, code_
     job_id = r.stdout.strip().split(';')[0]
     job_dir = f'{stage_logs}/{job_name}_{job_id}'
     os.makedirs(job_dir, exist_ok=True)
-    with open(f'{job_dir}/job.sbatch', 'w') as fh:
-        fh.write(text)
+    write_text(f'{job_dir}/job.sbatch', text)
     record = {'slurm_job_id': int(job_id), 'job_name': job_name, 'rendered_by': rendered_by, 'template': template,
               'code_commit': code_commit, 'code_dirty': code_dirty, 'submitted_at': provenance.utcnow(), **details}
-    with open(f'{job_dir}/job.yaml', 'w') as fh:
-        yaml.safe_dump(record, fh, sort_keys=False)
+    write_text(f'{job_dir}/job.yaml', yaml.safe_dump(record, sort_keys=False))
     subprocess.run(['scontrol', 'release', job_id], check=True)
     print(f'submitted {job_id}; job record {job_dir}')
     return job_id, job_dir

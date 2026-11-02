@@ -5,9 +5,11 @@ Python modules shared by two or more workflow stages (docs/directory-contracts.m
 Classification: production workflow code (user, 2026-10-05, task G). The modules were taken out of the
 producers, submit scripts, and verifiers of `03_parameters/vegetation/` and `04_forcing/{climate,landuse,water_use}/`,
 which each carried their own copy; the producers' results are unchanged (scratch tests before and after,
-recorded in `manifests/code-equivalence.yaml`). `03_parameters/dams/` uses them too. `03_parameters/bundle/` and
-`05_simulation/` keep their own helpers (workdir, checksums, Git state, job records) and do not import this
-directory; the unit-extension module was added on 2026-10-12 (task O, D20).
+recorded in `manifests/code-equivalence.yaml`). `03_parameters/dams/` uses them too. `03_parameters/bundle/` keeps
+its own helpers; `05_simulation/` keeps its run manifest and checksums but uses `gitstate`, `qc` and `jobrecord`
+(check jobs, run comparison). The unit-extension module was added on 2026-10-12 (task O, D20); the unit lock, the
+merging writer of an extended unit's record and the atomic job-record files on 2026-11-02 (task X, review finding
+R19; code-equivalence entries `unit-lock-{climate,landuse,water-use}`).
 
 ## Admission
 
@@ -23,10 +25,10 @@ file formats, checks, which keys a record contains) stays in the stages.
 | `workdir.py` | `root()`: the workdir from `ISIMIP4B_WORKDIR` (stops when unset); `logs(stage)`: `logs/<stage>/` | the producers, verifiers and submit scripts of `03_parameters/{vegetation,dams}` and `04_forcing` |
 | `hashing.py` | `sha256`, `md5`, `file_hashes` (both in one pass), read in 16 MiB blocks | producers, `qc.py` |
 | `gitstate.py` | `state(repo)`: full HEAD commit and whether the repository is not clean (`git status --porcelain`); `tree_hashes(repo, dirs)`: Git tree hashes at HEAD (the code fingerprint) | producers, `qc.py` |
-| `provenance.py` | `utcnow`; `read`/`write` of `provenance.yaml` (written whole, then renamed); `set_qc`; `software_versions` and `fingerprint` (the fingerprint block); `code_equivalence`: the chain of entries of `manifests/code-equivalence.yaml` that connects a recorded code fingerprint with the current one | producers, verifiers, `jobrecord.py` |
-| `unit_extension.py` | the contract's rules for extending a yearly forcing unit: `year_of` (year from `<...>_<year>.nc`), `unit_years`, `years_span`; `existing` (the unit's record; stops on files without `provenance.yaml`); `check` (violations of the conditions: method version, code tree or code-equivalence chain, software versions, inputs used again, existing files' SHA-256); `prepare` (new unit, extension, or refused, before anything is written); `file_record`; `extend` (the record keys an extension changes: files, inputs, years, `qc.status` back to `not_checked`, the `extended` entry with the code-equivalence chain and the producer's details) | `04_forcing/climate` (landuse and water_use follow in task O2) |
+| `provenance.py` | `utcnow`; `read`/`write` of `provenance.yaml` (written whole, then renamed); `unit_lock` (flock on the unit or component directory, held around every read-modify-write of its record, as the run lock of `05_simulation`); `set_qc` (under the lock); `software_versions` and `fingerprint` (the fingerprint block); `code_equivalence`: the chain of entries of `manifests/code-equivalence.yaml` that connects a recorded code fingerprint with the current one | producers, verifiers, `jobrecord.py` |
+| `unit_extension.py` | the contract's rules for extending a yearly forcing unit: `year_of` (year from `<...>_<year>.nc`), `unit_years`, `years_span`; `existing` (the unit's record; stops on files without `provenance.yaml`); `check` (violations of the conditions: method version, code tree or code-equivalence chain, software versions, inputs used again, existing files' SHA-256); `prepare` (new unit, extension, or refused, before anything is written); `file_record`; `extend` (the record keys an extension changes: files, inputs, years, `qc.status` back to `not_checked`, the `extended` entry with the code-equivalence chain and the producer's details); `write` (the producer's final write of the record under the unit lock: when another job extended the unit after this job read its record, that record is kept and this job's files, inputs, years, start years and `extended` entry are merged into it, `merge`; a new unit whose record appeared meanwhile stops) | `04_forcing/{climate,landuse,water_use}` |
 | `qc.py` | status vocabulary and `combine` (failed > not_checked > warning > passed; a missing part counts as not_checked); `write_summary`, `write_json`; `exit_with` (verifier exit status); `verifier_state`, `binding`, `report_status` (per-file reports bound to their data files and verifier version) | verifiers |
-| `jobrecord.py` | `render` a Slurm template, `conda_base`, `submit`: on hold, then `job.sbatch` and `job.yaml` in `logs/<stage>/<job-name>_<slurm-job-id>/`, then release | submit scripts |
+| `jobrecord.py` | `render` a Slurm template, `conda_base`, `submit`: on hold, then `job.sbatch` and `job.yaml` in `logs/<stage>/<job-name>_<slurm-job-id>/` (each written whole under a temporary name and renamed, `write_text`), then release | submit scripts, `05_simulation/monitor/{submit_check,compare_runs}.py` |
 
 ### Verifier exit status
 
@@ -59,5 +61,5 @@ Stage code imports the modules as
 from common import gitstate, hashing, provenance, qc, workdir
 ```
 
-with `PYTHONPATH` including `repo/workflow` (environments/README.md); the Slurm templates set it. Tests:
-`tests/unit/test_common_*.py`.
+with `PYTHONPATH` including `repo/workflow` (environments/README.md); the Slurm templates set it, and the unit tests
+put it on the module path themselves (`tests/unit/workflow_paths.py`). Tests: `tests/unit/test_common_*.py`.

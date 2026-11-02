@@ -6,6 +6,7 @@ directories); nothing under the workdir is read or written.
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import json, os, subprocess, sys, tempfile, types, unittest
 from unittest import mock
 
@@ -156,6 +157,18 @@ class ConcurrentSubmitTest(unittest.TestCase):
         self.assertTrue(str(self.inner[0]).startswith('refused'))
         self.assertEqual([a['slurm_job_id'] for a in rm.load(self.rd)['attempts']], [101])
 
+    def test_held_job_cancelled_on_any_error(self):
+        """Review 2026-11-01 R15: an error between sbatch and the release (not only a manifest conflict) cancels the
+        held job, so no job without an attempt is ever released."""
+        with mock.patch.object(sr.subprocess, 'run', side_effect=self.fake_run), \
+                mock.patch.object(sr.rr, 'git_state', side_effect=OSError('git not found')):
+            self.next_id = iter((102,))
+            with self.assertRaises(SystemExit) as cm:
+                sr.submit(self.rd)
+        self.assertIn('job 102 cancelled', str(cm.exception))
+        self.assertEqual((self.cancelled, self.released), (['102'], []))
+        self.assertEqual(rm.load(self.rd)['attempts'], [])
+
     def test_save_keeps_newer_attempts(self):
         a, b = rm.load(self.rd), rm.load(self.rd)                      # two readers of the same manifest
         a['attempts'].append({'attempt': 1, 'slurm_job_id': 101, 'status': 'submitted'})
@@ -208,7 +221,11 @@ class InputCheckTest(unittest.TestCase):
                               'status': 'submitted'})
         rm.save(self.rd, m)
 
+        self.git = ('c' * 40, False)
+        self.git_patch = mock.patch.object(rm, 'git_state', side_effect=lambda: self.git); self.git_patch.start()
+
     def tearDown(self):
+        self.git_patch.stop()
         self.tmp.cleanup()
 
     def verify(self, stops=False):
@@ -284,6 +301,90 @@ class InputCheckTest(unittest.TestCase):
             v = self.verify()
         self.assertTrue(v['passed'], v)
         self.assertEqual(rm.load(self.rd)['attempts'][1], later)
+
+    def test_write_waits_for_a_submission_that_holds_the_lock(self):
+        """Review 2026-11-01 R7: the submission of a later chunk loads the manifest before sbatch and saves after;
+        when verify-inputs wrote in between, the save put the attempt back to 'submitted' without its
+        input_verification (lost update). The job's write now holds the run lock, so it waits for the submission and
+        then reads the manifest the submission saved."""
+        import threading, time
+        order = []; real_save = rm.save
+
+        def submission():
+            with rm.run_lock(self.rd):                      # as submit_run.submit(): lock, load, sbatch, save, release
+                m = rm.load(self.rd); order.append('submit loaded')
+                time.sleep(0.6)
+                m['attempts'].append({'attempt': 2, 'slurm_job_id': 102, 'submitted_at': '2026-10-07T00:00:01Z',
+                                      'status': 'submitted', 'chunk': 'next'})
+                real_save(self.rd, m); order.append('submit saved')
+        t = threading.Thread(target=submission); t.start()
+        time.sleep(0.2)
+
+        def save_logged(run_dir, m):
+            order.append('verify saved'); real_save(run_dir, m)
+        with mock.patch.object(rm, 'save', side_effect=save_logged):
+            v = self.verify()
+        t.join()
+        self.assertTrue(v['passed'], v)
+        self.assertEqual(order, ['submit loaded', 'submit saved', 'verify saved'])
+        m = rm.load(self.rd)
+        self.assertEqual([(a['attempt'], a['status']) for a in m['attempts']], [(1, 'running'), (2, 'submitted')])
+        self.assertIn('input_verification', m['attempts'][0])
+
+    def test_complete_waits_for_the_lock_too(self):
+        """complete() changes the manifest under the same lock (the submission of the next chunk may be in flight)."""
+        import threading, time
+        self.verify()
+        for rel in rm.load(self.rd)['expected_outputs']:
+            open(os.path.join(self.rd, rel), 'w').close()
+        order = []
+
+        def submission():
+            with rm.run_lock(self.rd):
+                m = rm.load(self.rd); order.append('submit loaded'); time.sleep(0.6)
+                m['attempts'].append({'attempt': 2, 'slurm_job_id': 102, 'status': 'submitted', 'chunk': 'next'})
+                rm.save(self.rd, m); order.append('submit saved')
+        t = threading.Thread(target=submission); t.start(); time.sleep(0.2)
+        with mock.patch.object(rm, 'sacct', return_value=[]), mock.patch.object(rm, 'git_state', return_value=('c' * 40, False)):
+            rm.complete(self.rd, 101, 0, self.W); order.append('complete saved')
+        t.join()
+        self.assertEqual(order, ['submit loaded', 'submit saved', 'complete saved'])
+        m = rm.load(self.rd)
+        self.assertEqual([(a['attempt'], a['status']) for a in m['attempts']], [(1, 'completed'), (2, 'submitted')])
+        self.assertEqual((m['attempts'][0]['completed_by_commit'], m['attempts'][0]['completed_by_code_dirty']),
+                         ('c' * 40, False))
+        self.assertIn('scheduler_at_completion', m['attempts'][0])        # R16: the rows seen inside the job
+
+    def test_chunk_verifies_only_its_own_years(self):
+        """Review 2026-11-01 R11: a chunk checksums the forcing files its own links point to, not every file of the
+        run (10-17 min per chunk start for the pre-industrial run); a changed file of another chunk's years does not
+        stop it, a changed file of its own years does."""
+        W = self.W
+        m = rm.load(self.rd)
+        m['chunks'] = [{'id': '2015-2015', 'dir': 'chunks/2015-2015', 'start_year': 2015, 'end_year': 2015},
+                       {'id': '2016-2016', 'dir': 'chunks/2016-2016', 'start_year': 2016, 'end_year': 2016}]
+        m['forcing_links'] = {f'chunks/{y}-{y}/forcing/landuse/coverage_histsoc_{y}.nc':
+                              f'forcing/landuse/histsoc/coverage_histsoc_{y}.nc' for y in (2015, 2016)}
+        m['attempts'][0]['chunk'] = '2015-2015'
+        for y in (2015, 2016):
+            d = os.path.join(self.rd, 'chunks', f'{y}-{y}', 'forcing', 'landuse'); os.makedirs(d)
+            os.symlink(os.path.relpath(os.path.join(W, f'forcing/landuse/histsoc/coverage_histsoc_{y}.nc'), d),
+                       os.path.join(d, f'coverage_histsoc_{y}.nc'))
+        rm.save(self.rd, m)
+        self.assertEqual({p for p, _, _ in rm.checks(m, W, '2015-2015') if p.startswith('forcing/')},
+                         {'forcing/landuse/histsoc/coverage_histsoc_2015.nc'})
+        self.assertEqual(len([p for p, _, _ in rm.checks(m, W) if p.startswith('forcing/')]), 2)   # the whole run
+        with open(os.path.join(W, 'forcing/landuse/histsoc/coverage_histsoc_2016.nc'), 'w') as fh:
+            fh.write('changed')
+        rm.verify_inputs(self.rd, 101, W, 2, '2015-2015')
+        v = rm.load(self.rd)['attempts'][0]['input_verification']
+        self.assertTrue(v['passed'], v)
+        self.assertEqual((v['verified_by_commit'], v['verified_by_code_dirty']), (self.git[0], self.git[1]))
+        with open(os.path.join(W, 'forcing/landuse/histsoc/coverage_histsoc_2015.nc'), 'w') as fh:
+            fh.write('changed')
+        with self.assertRaises(SystemExit):
+            rm.verify_inputs(self.rd, 101, W, 2, '2015-2015')
+        self.assertFalse(rm.load(self.rd)['attempts'][0]['input_verification']['passed'])
 
     def test_parent_not_completed_fails(self):
         m = rm.load(self.rd)

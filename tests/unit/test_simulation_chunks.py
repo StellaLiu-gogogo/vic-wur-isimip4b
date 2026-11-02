@@ -5,6 +5,7 @@ harness of test_simulation_render.py (temporary workdir, build/parameter/forcing
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import json, os, sys, unittest
 from unittest import mock
 
@@ -268,15 +269,28 @@ class CompareRunsTest(unittest.TestCase):
                          {2015: '/r', 2016: '/r'})
 
 
+class WallTimeOverrideTest(unittest.TestCase):
+    def test_wall_time_override_in_the_job(self):
+        """Task X: wall_time_hours of a restriction run replaces the hours computed from the resource file."""
+        import types
+        res = rr.read_yaml(os.path.join(tsr.REPO, 'configs', 'resources', 'vic-global-5arcmin.yaml'))
+        model = {'runtime_modules': [], 'executable': 'builds/vic/m/vic.exe'}
+        with mock.patch.object(rr.subprocess, 'run', return_value=types.SimpleNamespace(stdout='/conda\n')):
+            _, hours = rr.render_job('/w', '/w/runs/c/r', 'c', 'r', 2015, 2015, res, model)
+            text, h1 = rr.render_job('/w', '/w/runs/c/r', 'c', 'r', 2015, 2015, {**res, 'wall_time_hours': 1}, model)
+        self.assertGreater(hours, 1); self.assertEqual(h1, 1)
+        self.assertIn('#SBATCH --time=1:00:00\n', text)
+
+
 if __name__ == '__main__':
     unittest.main()
 
 
 class RunResourcesTest(tsr.RenderHarness):
-    """A restriction run may set its own ntasks, cpus_per_task, mem and exclusive (task L5: rank tests); nothing
-    else."""
+    """A restriction run may set its own ntasks, cpus_per_task, mem, exclusive (task L5: rank tests) and
+    wall_time_hours (task X: time-out test); nothing else."""
 
-    def test_resolver_accepts_only_four_keys(self):
+    def test_resolver_accepts_only_the_known_keys(self):
         import resolve_campaign as rc
         c = tsr.smoke()
         seg = tsr.segment('historical', 'histsoc', 'historical', (1850, 2021), None)
@@ -289,7 +303,11 @@ class RunResourcesTest(tsr.RenderHarness):
         c['restriction']['runs']['smoke2015']['resources'] = {'ntasks': 8, 'cpus_per_task': 8, 'exclusive': False}
         run = rc.runs(c, {HIST: seg}, 'smoke2015')[0]
         self.assertFalse(rr.run_resources(run, {'ntasks': 8, 'exclusive': True})['exclusive'])
-        for bad in ({'partition': 'x'}, {'ntasks': 0}, {'ntasks': True}, {'mem': '500'}, {'exclusive': 'no'}, {}):
+        c['restriction']['runs']['smoke2015']['resources'] = {'wall_time_hours': 1}
+        run = rc.runs(c, {HIST: seg}, 'smoke2015')[0]
+        self.assertEqual(rr.run_resources(run, {'ntasks': 8})['wall_time_hours'], 1)
+        for bad in ({'partition': 'x'}, {'ntasks': 0}, {'ntasks': True}, {'mem': '500'}, {'exclusive': 'no'}, {},
+                    {'wall_time_hours': 0}, {'wall_time_hours': 1.5}):
             c['restriction']['runs']['smoke2015']['resources'] = bad
             with self.subTest(bad=bad), self.assertRaises(rc.CampaignError):
                 rc.runs(c, {HIST: seg}, 'smoke2015')

@@ -6,7 +6,9 @@ hashes of the producing code, the method version, and the key software versions.
 that leaves every result unchanged is recorded in manifests/code-equivalence.yaml; code_equivalence() follows
 those entries from a recorded tree to the current one.
 """
+import contextlib
 import datetime
+import fcntl
 import os
 import platform
 
@@ -33,11 +35,27 @@ def write(path, record):
     os.replace(path + '.part', path)
 
 
+@contextlib.contextmanager
+def unit_lock(unit_dir):
+    """Hold the lock of a unit or component directory (flock on the directory itself, as the run lock of
+    05_simulation; Lustre flock works across nodes) around a read-modify-write of its provenance.yaml, so that two
+    jobs on one unit (a producer extending it, a verifier setting its qc) never write over each other's record
+    (review 2026-11-01, R19). Waits for the other holder."""
+    fd = os.open(unit_dir, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
 def set_qc(path, status, evidence):
-    """Set qc (status, evidence) of an existing provenance.yaml; only quality-control code calls this."""
-    prov = read(path)
-    prov['qc'] = {'status': status, 'evidence': evidence}
-    write(path, prov)
+    """Set qc (status, evidence) of an existing provenance.yaml under the unit lock; only quality-control code calls
+    this."""
+    with unit_lock(os.path.dirname(os.path.abspath(path))):
+        prov = read(path)
+        prov['qc'] = {'status': status, 'evidence': evidence}
+        write(path, prov)
 
 
 def software_versions():

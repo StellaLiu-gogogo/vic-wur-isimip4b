@@ -411,6 +411,10 @@ def check_workdir(workdir: Path, repo: Path, report: Report) -> None:
         if not any((campaigns / f"{camp.name}{s}").exists()
                    for s in (".yaml", ".yml")):
             report.warn(rel, "no matching configs/campaigns/<campaign-id>.yaml")
+        for entry in children(Path(camp.path)):
+            if not entry.is_dir(follow_symlinks=False) and entry.name not in {"recovery.json", "README.md"}:
+                report.error(f"{rel}/{entry.name}",
+                             "a campaign directory holds run directories and recovery.json only")
         for run in subdirs(Path(camp.path)):
             rrel = f"{rel}/{run.name}"
             check_run_id(report, rrel, run.name)

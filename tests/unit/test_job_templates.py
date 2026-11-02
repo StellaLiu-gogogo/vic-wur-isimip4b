@@ -7,6 +7,7 @@ environment reads MAGPLUS_HOME), i.e. when the job is submitted from a shell wit
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import os, re, subprocess, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))

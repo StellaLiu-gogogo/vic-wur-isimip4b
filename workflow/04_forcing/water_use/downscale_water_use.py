@@ -726,7 +726,10 @@ def main():
     prov.update(upd)
     if prev:    # start years of the whole unit, the earlier ones and the new ones
         prov['start_years'] = {**(prev.get('start_years') or {}), **starts}
-    provenance.write(f'{out}/provenance.yaml', prov)
+    if to_scratch:
+        provenance.write(f'{out}/provenance.yaml', prov)
+    else:           # under the unit lock, merged with what another job wrote meanwhile (R19)
+        unit_extension.write(out, prov, prev)
     print(f'done: {len(all_years)} year(s) in {time.time() - t0:.0f} s -> {out}')
 
 

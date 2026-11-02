@@ -7,11 +7,12 @@ parameter manifest, forcing files with the sha256 of their unit's provenance.yam
 with its source year and rule). submit_run.py adds one attempt per submission (scheduler job id, time,
 inputs fingerprint). The job itself calls this script twice:
 
-  verify-inputs  before VIC starts: every input file must still have the recorded checksum (parallel), every
-                 forcing unit must still be accepted (qc.status passed), every
-                 link of the forcing view must point to its recorded source file, and the parent state file
-                 (INIT_STATE) must belong to a completed parent run and have the recorded checksum; the attempt
-                 records the result and the job stops on a mismatch
+  verify-inputs  before VIC starts: the parameter files, the executable and the forcing files of the chunk's own
+                 years (of the whole run when unchunked) must still have the recorded checksum (parallel), every
+                 forcing unit must still be accepted (qc.status passed), every link of the forcing view of the
+                 chunk must point to its recorded source file, and the parent state file (INIT_STATE) must belong
+                 to a completed parent run and have the recorded checksum; the attempt records the result (with the
+                 commit and Git state of the code) and the job stops on a mismatch
   complete       after VIC ends: scheduler state and exit code, elapsed time, the VIC timing table and
                  log warnings, the expected outputs and state file present, every requested OUTVAR in the output
                  files of its stream, and the run status; ends with exit
@@ -35,9 +36,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import yaml
 
-from common import qc
+from common import gitstate, qc
 
 SCHEMA = 'isimip4b-run-manifest-1'
+REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 NAME = 'run_manifest.json'
 
 
@@ -83,13 +85,17 @@ def save(run_dir, manifest):
 
 
 @contextlib.contextmanager
-def run_lock(run_dir):
-    """Hold the lock of a run directory (flock on the directory itself, so the run layout gets no extra file) for
-    one submission: check, submit, record and release. A second submission of the same run stops at once."""
+def run_lock(run_dir, wait=False):
+    """Hold the lock of a run directory (flock on the directory itself, so the run layout gets no extra file; Lustre
+    flock works across nodes). A submission holds it from the check to the release and stops at once when another
+    submission holds it (wait False). Every manifest write inside a job (verify-inputs, complete, rescan-logs) holds
+    it around load, change and save with wait True, so that a submission of a later chunk, which loads the manifest
+    before sbatch and saves after, can never overwrite what the job wrote (review 2026-11-01, R7: the attempt would
+    fall back to 'submitted' without its input_verification and be recorded failed at the end)."""
     fd = os.open(run_dir, os.O_RDONLY)
     try:
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
         except BlockingIOError:
             raise SystemExit(f'{run_dir}: another submission of this run is in progress')
         yield
@@ -165,15 +171,30 @@ def attempt(manifest, job_id):
 
 
 # ------------------------------------------------------------------------------------------- verify-inputs
-def checks(manifest, workdir):
-    """(workdir path, algorithm, expected) of every input file; the parent state file when its sha256 was recorded
-    at rendering (a parent rendered in the same call is bound by parent_state())."""
+def forcing_files_of(manifest, chunk_id=None):
+    """Workdir-relative source files of the forcing links of one chunk (its own years), or of the whole run; None
+    when the manifest records no links (rendered before 2026-10-07), meaning every forcing file."""
+    links = manifest.get('forcing_links') or {}
+    if not links:
+        return None
+    c = chunk(manifest, chunk_id) if chunk_id else None
+    prefix = c['dir'].rstrip('/') + '/' if c else ''
+    return {src for link, src in links.items() if link.startswith(prefix)}
+
+
+def checks(manifest, workdir, chunk_id=None):
+    """(workdir path, algorithm, expected) of every input file the attempt reads: the parameter files, the
+    executable, the forcing files the chunk's (or the run's) links point to (R11: a chunk verifies only its own
+    years; the whole-run set stays in the render fingerprint), and the parent state file when its sha256 was
+    recorded at rendering (a parent rendered in the same call is bound by parent_state())."""
     out = []
     for p in manifest['inputs']['parameters'].values():
         out.append((p['path'], 'md5', p['md5']))
+    wanted = forcing_files_of(manifest, chunk_id)
     for u in manifest['inputs']['forcing_units'].values():
         for f in u['files'].values():
-            out.append((f['path'], 'sha256', f['sha256']))
+            if wanted is None or f['path'] in wanted:
+                out.append((f['path'], 'sha256', f['sha256']))
     out.append((manifest['model']['executable'], 'sha256', manifest['model']['executable_sha256']))
     parent = manifest['parent']
     if parent.get('init_state') and parent.get('state_sha256'):
@@ -181,12 +202,16 @@ def checks(manifest, workdir):
     return out
 
 
-def link_mismatches(manifest, run_dir, workdir):
+def link_mismatches(manifest, run_dir, workdir, chunk_id=None):
     """Links of the forcing view (forcing_links: run-relative link -> workdir-relative source, recorded at rendering;
-    absent in manifests rendered before 2026-10-07) that are missing or do not point to their source file. VIC opens
-    the links, not the unit files."""
+    absent in manifests rendered before 2026-10-07) that are missing or do not point to their source file; of the
+    chunk's own directory for a chunk. VIC opens the links, not the unit files."""
     bad = []
+    c = chunk(manifest, chunk_id) if chunk_id else None
+    prefix = c['dir'].rstrip('/') + '/' if c else ''
     for link, source in (manifest.get('forcing_links') or {}).items():
+        if not link.startswith(prefix):
+            continue
         p = os.path.join(run_dir, link)
         if not os.path.islink(p) or os.path.realpath(p) != os.path.realpath(os.path.join(workdir, source)):
             bad.append(link)
@@ -257,7 +282,7 @@ def verify_inputs(run_dir, job_id, workdir, processes, chunk_id=None):
     m = load(run_dir); a = attempt(m, job_id)
     if a.get('chunk') != chunk_id:
         raise SystemExit(f'attempt {a["attempt"]} belongs to chunk {a.get("chunk")}, not {chunk_id}')
-    todo = checks(m, workdir)
+    todo = checks(m, workdir, chunk_id)
 
     def one(item):
         rel, algo, want = item
@@ -267,28 +292,33 @@ def verify_inputs(run_dir, job_id, workdir, processes, chunk_id=None):
     t0 = datetime.datetime.now()
     with ThreadPoolExecutor(processes) as ex:
         res = list(ex.map(one, todo))
-    bad = [rel for rel, ok in res if not ok] + link_mismatches(m, run_dir, workdir) + units_not_accepted(m, workdir)
+    bad = [rel for rel, ok in res if not ok] + link_mismatches(m, run_dir, workdir, chunk_id) + \
+        units_not_accepted(m, workdir)
     first = not m.get('chunks') or chunk_id == m['chunks'][0]['id']
     pstate, problem = parent_state(m, workdir) if first else (None, None)
     bad += [problem] if problem else []
     cstate, problem = previous_chunk_state(m, chunk_id, run_dir) if not first else (None, None)
     bad += [problem] if problem else []
-    # read the manifest again before writing: the checksums take minutes, and the submission of the later chunks of a
-    # chunked run records their attempts meanwhile (natural-run, job 43419363, 2026-10-23: the write was refused)
-    m = load(run_dir); a = attempt(m, job_id)
-    a['input_verification'] = {'files': len(res), 'mismatches': bad, 'passed': not bad, 'checked_at': utcnow(),
-                               'seconds': round((datetime.datetime.now() - t0).total_seconds(), 1)}
-    if pstate:
-        a['input_verification']['parent_state'] = pstate
-    if cstate:
-        a['input_verification']['chunk_state'] = cstate
-    if bad:
-        a['status'] = 'failed'; a['failure_reason'] = 'input checksum mismatch'
-    else:
-        a['status'] = 'running'
-    a['started_at'] = utcnow()
-    m['status'] = run_status(m)
-    save(run_dir, m)
+    # read the manifest again, under the run lock, before writing: the checksums take minutes, and the submission of
+    # the later chunks of a chunked run records their attempts meanwhile (natural-run, job 43419363, 2026-10-23: the
+    # write was refused); the lock keeps a submission from saving over this write (R7)
+    with run_lock(run_dir, wait=True):
+        m = load(run_dir); a = attempt(m, job_id)
+        commit, dirty = git_state()
+        a['input_verification'] = {'files': len(res), 'mismatches': bad, 'passed': not bad, 'checked_at': utcnow(),
+                                   'seconds': round((datetime.datetime.now() - t0).total_seconds(), 1),
+                                   'verified_by_commit': commit, 'verified_by_code_dirty': dirty}
+        if pstate:
+            a['input_verification']['parent_state'] = pstate
+        if cstate:
+            a['input_verification']['chunk_state'] = cstate
+        if bad:
+            a['status'] = 'failed'; a['failure_reason'] = 'input checksum mismatch'
+        else:
+            a['status'] = 'running'
+        a['started_at'] = utcnow()
+        m['status'] = run_status(m)
+        save(run_dir, m)
     if bad:
         sys.exit(f'{len(bad)} input files differ from the recorded checksums, e.g. {bad[:3]}')
 
@@ -325,13 +355,13 @@ def timing_table(text):
 
 
 def run_status(manifest):
-    """Run-level status: completed (every chunk), failed (the latest attempt of a chunk or of the run failed),
-    otherwise the status of the latest attempt (submitted or running)."""
+    """Run-level status: completed (every chunk), failed (the latest attempt of a chunk or of the run failed, timed
+    out or was cancelled), otherwise the status of the latest attempt (submitted or running)."""
     if is_completed(manifest):
         return 'completed'
     chunk_ids = [c['id'] for c in manifest.get('chunks') or []] or [None]
     latest = [latest_attempt(manifest, c) for c in chunk_ids]
-    if any(x.get('status') == 'failed' for x in latest):
+    if any(x.get('status') in ENDED_BADLY for x in latest):
         return 'failed'
     live = [x['status'] for x in latest if x.get('status') in ('running', 'submitted')]
     if 'running' in live:
@@ -371,11 +401,72 @@ def scan_logs(paths):
 
 
 def sacct(job_id):
-    """Scheduler state, exit code, elapsed time, MaxRSS and nodes of the job and its steps."""
-    fmt = 'JobID,State,ExitCode,Elapsed,ElapsedRaw,MaxRSS,NNodes,NCPUS,NodeList,Start,End'
+    """Scheduler state, exit code, elapsed time, MaxRSS, nodes and the last state reason of the job and its steps."""
+    fmt = 'JobID,State,ExitCode,Elapsed,ElapsedRaw,MaxRSS,NNodes,NCPUS,NodeList,Start,End,Reason'
     r = subprocess.run(['sacct', '-j', str(job_id), '-P', '-n', f'--format={fmt}'], capture_output=True, text=True)
     rows = [dict(zip(fmt.split(','), line.split('|'))) for line in r.stdout.splitlines() if line.strip()]
     return rows
+
+
+def job_row(rows, job_id):
+    """The row of the job itself (not of a step) among sacct rows, {} when absent."""
+    return next((r for r in rows if r.get('JobID') == str(job_id)), {})
+
+
+LIVE_STATES = ('RUNNING', 'PENDING', 'REQUEUED', 'SUSPENDED', 'COMPLETING', 'CONFIGURING', 'RESIZING')
+ENDED_BADLY = ('failed', 'timeout', 'cancelled')       # attempt statuses of an attempt that ended without completing
+NEVER = 'DependencyNeverSatisfied'
+
+
+def reconcile(run_dir, cancel=None):
+    """Compare every attempt that is still 'submitted' or 'running' with the scheduler (review 2026-11-01, R2): an
+    attempt whose job has ended gets the status of what happened (timeout for TIMEOUT, cancelled for CANCELLED,
+    failed otherwise, with the final sacct rows as `scheduler` and a reason: the completion step never ran after a
+    time limit, scancel or node failure, so the manifest still said 'running'); a job waiting on a dependency that
+    can never be met (DependencyNeverSatisfied: Anunna's Slurm leaves it pending forever) is cancelled (`cancel`,
+    scancel by default) and recorded as cancelled; a job still running or waiting normally is left alone. Returns the
+    attempts changed, as records {attempt, chunk, slurm_job_id, status, state, reason}. Holds the run lock."""
+    cancel = cancel or (lambda job_id: subprocess.run(['scancel', str(job_id)]))
+    changed = []
+    with run_lock(run_dir, wait=True):
+        m = load(run_dir)
+        for a in m['attempts']:
+            if a.get('status') not in ('submitted', 'running'):
+                continue
+            rows = sacct(a['slurm_job_id']); row = job_row(rows, a['slurm_job_id'])
+            state = (row.get('State') or '').split()[0] if row else ''
+            if not row:
+                print(f'attempt {a["attempt"]} job {a["slurm_job_id"]}: not known to sacct; left as {a["status"]}')
+                continue
+            if state == 'PENDING' and row.get('Reason') == NEVER:
+                cancel(a['slurm_job_id'])
+                rows = sacct(a['slurm_job_id']) or rows; row = job_row(rows, a['slurm_job_id']) or row
+                status = 'cancelled'
+                reason = f'cancelled by reconciliation: its dependency {a.get("dependency")} can never be met ({NEVER})'
+            elif state in LIVE_STATES:
+                continue
+            elif state == 'TIMEOUT':
+                status, reason = 'timeout', 'job TIMEOUT (wall time) and the completion step did not record it'
+            elif state.startswith('CANCELLED'):
+                status, reason = 'cancelled', f'job {row["State"]} and the completion step did not record it'
+            elif state == 'COMPLETED':
+                status = 'failed'
+                reason = ('job COMPLETED but the manifest was not completed (run_manifest.py complete did not '
+                          'write); look at the logs, then complete by hand or retry')
+            else:
+                status, reason = 'failed', f'job {state} (exit code {row.get("ExitCode")}) and the completion step did not record it'
+            if a.get('scheduler') and 'scheduler_at_completion' not in a:
+                a['scheduler_at_completion'] = a['scheduler']
+            a['scheduler'] = rows; a['status'] = status; a['failure_reason'] = reason
+            a['reconciled'] = {'at': utcnow(), 'state': row.get('State'), 'end': row.get('End'),
+                               'elapsed': row.get('Elapsed'), 'nodes': row.get('NodeList')}
+            changed.append({'attempt': a['attempt'], 'chunk': a.get('chunk'), 'slurm_job_id': a['slurm_job_id'],
+                            'status': status, 'state': row.get('State'), 'reason': reason,
+                            'end': row.get('End'), 'elapsed': row.get('Elapsed'), 'nodes': row.get('NodeList')})
+        if changed:
+            m['status'] = run_status(m)
+            save(run_dir, m)
+    return changed
 
 
 def requested_outputs(vic_global):
@@ -409,56 +500,98 @@ def output_variables(run_dir, present, config_dir=None):
     return out
 
 
+def git_state():
+    """(commit, dirty) of the repository this script belongs to."""
+    return gitstate.state(REPO)
+
+
 def complete(run_dir, job_id, exit_code, workdir, reason=None, chunk_id=None):
+    """Record the end of an attempt: the scheduler rows as seen from inside the job (scheduler_at_completion: State
+    RUNNING and a partial Elapsed; the check job and submit_run.py --reconcile store the final sacct rows as
+    `scheduler`, R16), the VIC timing table and log scan, the outputs present and the status. Everything is gathered
+    first; the manifest is then changed under the run lock (R7)."""
     m = load(run_dir); a = attempt(m, job_id)
     if a.get('chunk') != chunk_id:
         raise SystemExit(f'attempt {a["attempt"]} belongs to chunk {a.get("chunk")}, not {chunk_id}')
     cdir = chunk_dir(run_dir, m, chunk_id)
     c = chunk(m, chunk_id)
+    rec = {'ended_at': utcnow(), 'vic_exit_code': int(exit_code), 'scheduler_at_completion': sacct(job_id)}
     if reason:
-        a['failure_reason'] = reason
-    a['ended_at'] = utcnow(); a['vic_exit_code'] = int(exit_code)
-    a['scheduler'] = sacct(job_id)
+        rec['failure_reason'] = reason
     logs = attempt_logs(cdir, a)
     text = ''
     for p in logs:
         with open(p, errors='replace') as fh:
             text += fh.read()
-    a['vic_timing'] = timing_table(text)
-    a['log_scan'] = {'files': [os.path.relpath(p, run_dir) for p in logs], 'categories': scan_logs(logs)}
+    rec['vic_timing'] = timing_table(text)
+    rec['log_scan'] = {'files': [os.path.relpath(p, run_dir) for p in logs], 'categories': scan_logs(logs)}
     present = {}
     for rel in (c['expected_outputs'] if c else m['expected_outputs']):
         hits = sorted(glob.glob(os.path.join(run_dir, rel)))
         present[rel] = [{'path': os.path.relpath(h, run_dir), 'size_bytes': os.path.getsize(h)} for h in hits]
-    a['outputs_present'] = present
-    a['outputs_complete'] = all(present.values())
-    a['output_variables'] = output_variables(run_dir, present, cdir)
-    dropped = {s: v['missing'] for s, v in a['output_variables'].items() if v['missing']}
-    a['output_bytes'] = sum(f['size_bytes'] for v in present.values() for f in v)
-    a['completed_by_commit'] = subprocess.run(['git', '-C', os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__))))), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
-    ok = int(exit_code) == 0 and a['outputs_complete'] and not dropped and \
+    rec['outputs_present'] = present
+    rec['outputs_complete'] = all(present.values())
+    rec['output_variables'] = output_variables(run_dir, present, cdir)
+    dropped = {s: v['missing'] for s, v in rec['output_variables'].items() if v['missing']}
+    rec['output_bytes'] = sum(f['size_bytes'] for v in present.values() for f in v)
+    rec['completed_by_commit'], rec['completed_by_code_dirty'] = git_state()
+    ok = int(exit_code) == 0 and rec['outputs_complete'] and not dropped and \
         a.get('input_verification', {}).get('passed', False)
-    if dropped and 'failure_reason' not in a:
-        a['failure_reason'] = f'requested output variables missing in the output files: {dropped}'
-    a['status'] = 'completed' if ok else 'failed'
-    if not ok and 'failure_reason' not in a:
-        a['failure_reason'] = 'VIC exit code {}; outputs complete: {}'.format(exit_code, a['outputs_complete'])
-    m['status'] = run_status(m)
-    save(run_dir, m)
+    if dropped and 'failure_reason' not in rec:
+        rec['failure_reason'] = f'requested output variables missing in the output files: {dropped}'
+    rec['status'] = 'completed' if ok else 'failed'
+    if not ok and 'failure_reason' not in rec:
+        rec['failure_reason'] = 'VIC exit code {}; outputs complete: {}'.format(exit_code, rec['outputs_complete'])
+    with run_lock(run_dir, wait=True):
+        m = load(run_dir); a = attempt(m, job_id)
+        a.update(rec)
+        m['status'] = run_status(m)
+        save(run_dir, m)
     print(f'run {m["run_id"]}' + (f' chunk {chunk_id}' if chunk_id else '') + f' attempt {a["attempt"]}: {a["status"]} '
           f'(run {m["status"]})')
     if not ok:
         qc.exit_with('failed')
 
 
+def final_rows(rows):
+    """True when sacct rows describe an ended job (no row of the job itself still RUNNING or PENDING)."""
+    return bool(rows) and all(r.get('State', '').split()[0] not in ('RUNNING', 'PENDING', 'REQUEUED', 'SUSPENDED')
+                              for r in rows if '.' not in r.get('JobID', ''))
+
+
+def record_scheduler(run_dir, job_ids):
+    """Store the final sacct rows of ended jobs as `scheduler` of their attempts, under the run lock (R16). The rows
+    the job wrote about itself stay as scheduler_at_completion (manifests before 2026-11-02 hold them as `scheduler`
+    with State RUNNING; they are moved). An attempt that already has final rows, or whose job has not ended, is left
+    alone. Returns the job ids recorded."""
+    done = []
+    with run_lock(run_dir, wait=True):
+        m = load(run_dir)
+        for a in m['attempts']:
+            if a['slurm_job_id'] not in [int(j) for j in job_ids]:
+                continue
+            if final_rows(a.get('scheduler') or []):
+                continue
+            rows = sacct(a['slurm_job_id'])
+            if not final_rows(rows):
+                continue
+            if a.get('scheduler') and 'scheduler_at_completion' not in a:
+                a['scheduler_at_completion'] = a['scheduler']
+            a['scheduler'] = rows; a['scheduler_recorded_at'] = utcnow()
+            done.append(a['slurm_job_id'])
+        if done:
+            save(run_dir, m)
+    return done
+
+
 def rescan_logs(run_dir, job_id):
     """Recompute the log scan of an attempt (e.g. after the scan rules changed); nothing else is touched."""
-    m = load(run_dir); a = attempt(m, job_id)
-    logs = attempt_logs(chunk_dir(run_dir, m, a.get('chunk')), a)
-    a['log_scan'] = {'files': [os.path.relpath(p, run_dir) for p in logs], 'categories': scan_logs(logs),
-                     'rescanned_at': utcnow()}
-    save(run_dir, m)
+    with run_lock(run_dir, wait=True):
+        m = load(run_dir); a = attempt(m, job_id)
+        logs = attempt_logs(chunk_dir(run_dir, m, a.get('chunk')), a)
+        a['log_scan'] = {'files': [os.path.relpath(p, run_dir) for p in logs], 'categories': scan_logs(logs),
+                         'rescanned_at': utcnow()}
+        save(run_dir, m)
     print(json.dumps({k: v['count'] for k, v in a['log_scan']['categories'].items()}))
 
 

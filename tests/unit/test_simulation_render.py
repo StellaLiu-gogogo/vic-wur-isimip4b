@@ -6,9 +6,11 @@ The protocol-coverage test reads the pinned protocol from $ISIMIP4B_WORKDIR and 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import json, os, shutil, sys, tempfile, unittest
 from unittest import mock
 
+import numpy as np
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -772,11 +774,14 @@ class SpinupBlockTest(RenderHarness):
         self.render(SPIN)
         self.assertEqual(self.manifest(SPIN)['spinup_block'], 1)
         self.assertEqual(self.manifest(SPIN)['period'], {'start': '1551-01-01', 'end': '1600-12-31'})
-        with self.assertRaises(rr.RenderError):                              # block 1 has not completed
-            self.render(SPIN)
+        # block 1 has not completed, then its convergence test has not run, then it could not be evaluated: the
+        # segment is left out of the call (nothing rendered, no error), review 2026-11-01 R3 and R6
+        self.assertEqual(self.render(SPIN), [])
         self.finish(SPIN, status=None)
-        with self.assertRaises(rr.RenderError):                              # its convergence test has not run
-            self.render(SPIN)
+        self.assertEqual(self.render(SPIN), [])
+        self.finish(SPIN, status='not_checked')
+        self.assertEqual(self.render(SPIN), [])
+        self.assertFalse(os.path.exists(os.path.join(self.base, SPIN + '__block-2')))
         self.finish(SPIN, status='failed')
         self.render(SPIN)
         b2 = SPIN + '__block-2'
@@ -820,6 +825,39 @@ class SpinupBlockTest(RenderHarness):
         self.assertEqual(p['segment_id'], SPIN)
         self.assertEqual(p['init_state'], f'runs/smoke/{SPIN}__block-2/states/state.16010101_00000.nc')
         self.assertEqual(p['run_id'], SPIN + '__block-2')
+
+    def test_unknown_test_status_stops(self):
+        self.render(SPIN); self.finish(SPIN, status='warning')
+        with self.assertRaises(rr.RenderError):
+            self.render(SPIN)
+
+    def test_two_spinups_in_different_states(self):
+        """Review 2026-11-01 R3: the 1850soc chain has converged while the 2021soc block still runs. The call renders
+        the children of the converged chain and leaves the other chain and its children out, instead of stopping
+        after earlier runs of the call were already written (the next call then stopped at 'run directory exists')."""
+        SPIN2 = f'{G}_picontrol_2021soc_default_spinup'
+        HIST2 = f'{G}_historical_2021soc_default_historical'
+        self.segments = {SPIN: segment('picontrol', '1850soc', 'spinup', (1551, 1600), None),
+                         SPIN2: segment('picontrol', '2021soc', 'spinup', (1800, 1849), None),
+                         PRE: segment('picontrol', '1850soc', 'pre-industrial', (1601, 1849), SPIN),
+                         HIST2: segment('historical', '2021soc', 'historical', (1850, 2021), SPIN2)}
+        self.render()                                                        # block 1 of both; children left out
+        self.assertEqual(sorted(os.listdir(self.base)), sorted([SPIN, SPIN2]))
+        self.finish(SPIN, status='passed')                                   # 1850soc converged; 2021soc still runs
+        done = self.render()
+        self.assertEqual([os.path.basename(d) for d in done], [PRE])
+        self.assertEqual(sorted(os.listdir(self.base)), sorted([SPIN, SPIN2, PRE]))
+        self.assertEqual(self.manifest(PRE)['parent']['run_id'], SPIN)
+        # the next call does not stop at the existing PRE: the renderer never renders it again, so --run-id is used
+        self.finish(SPIN2, status=None)                                      # completed, test not run yet
+        self.assertEqual(rr.render(SMOKE, None, SPIN2, scratch=False, W=self.W), [])
+        self.finish(SPIN2, status='failed')
+        done = rr.render(SMOKE, None, SPIN2, scratch=False, W=self.W)        # block 2 of 2021soc
+        self.assertEqual([os.path.basename(d) for d in done], [SPIN2 + '__block-2'])
+        self.finish(SPIN2 + '__block-2', status='passed')
+        done = rr.render(SMOKE, None, HIST2, scratch=False, W=self.W)
+        self.assertEqual([os.path.basename(d) for d in done], [HIST2])
+        self.assertEqual(self.manifest(HIST2)['parent']['run_id'], SPIN2 + '__block-2')
 
     def test_restricted_campaign_has_no_blocks(self):
         self.campaign['restriction'] = {'periods': ['spinup'], 'runs': {'t': {'years': [1591, 1600]}}}
@@ -890,12 +928,15 @@ class ParameterProvenanceTest(unittest.TestCase):
 
 
 class ConvergenceRuleTest(unittest.TestCase):
-    """D19 convergence rule (user 2026-10-22): |trend per year| <= 0.1 x SD of the detrended annual values."""
+    """D19 convergence rule, amendment 2026-11-02 (task X, review R1): per cell over the 25 annual values of the
+    block, |slope| <= 0.1 x detrended SD (ddof 2); a per-cell quantity passes when 80 % of the active cells pass;
+    reservoir storage and irrigation withdrawal as global totals under the same rule."""
 
     def setUp(self):
         sys.path.insert(0, os.path.join(REPO, 'workflow', '05_simulation', 'monitor'))
         import check_spinup
         self.cs = check_spinup
+        self.rng = np.random.default_rng(7)
 
     def test_flat_noisy_series_passes(self):
         y = [10.0, 10.5, 9.6, 10.2, 9.9, 10.4, 9.7, 10.1, 10.0, 9.8]
@@ -907,10 +948,127 @@ class ConvergenceRuleTest(unittest.TestCase):
         r = self.cs.trend_test(y)
         self.assertFalse(r['passed']); self.assertAlmostEqual(r['slope_per_year'], 0.3, delta=0.02)
 
+    def test_detrended_sd_uses_two_fitted_parameters(self):
+        y = np.array([1.0, 2.0, 2.0, 3.0])                                   # residuals +-0.2 around the fit
+        r = self.cs.trend_test(y)
+        t = np.arange(4); b, a = np.polyfit(t, y, 1)
+        self.assertAlmostEqual(r['detrended_sd'], float(np.sqrt(((y - a - b * t) ** 2).sum() / 2)))
+
     def test_constant_and_missing(self):
         self.assertTrue(self.cs.trend_test([5.0] * 10)['passed'])
         self.assertFalse(self.cs.trend_test([1.0 * i for i in range(10)])['passed'])   # a straight rising line
         self.assertFalse(self.cs.trend_test([1.0] * 9 + [float('nan')])['passed'])
+
+    def field(self, drift_cells=0, constant=False, n=25, cells=2000):
+        """25 annual values of `cells` cells: stationary noise, or constant; `drift_cells` cells drift strongly."""
+        if constant:
+            return np.full((n, cells), 3.0)
+        Y = 10.0 + self.rng.standard_normal((n, cells))
+        Y[:, :drift_cells] += 0.5 * np.arange(n)[:, None]              # half a SD per year: fails the 0.1 limit
+        return Y
+
+    def test_converged_field_passes(self):
+        rec, ratio = self.cs.cell_test(self.field())
+        self.assertTrue(rec['passed']); self.assertGreater(rec['fraction_passed'], 0.95)
+        self.assertEqual((rec['cells'], rec['threshold'], rec['limit'], rec['constant_cells']), (2000, 0.8, 0.1, 0))
+        self.assertEqual(ratio.shape, (2000,))
+
+    def test_thirty_percent_drifting_cells_fail(self):
+        rec, ratio = self.cs.cell_test(self.field(drift_cells=600))
+        self.assertFalse(rec['passed']); self.assertLess(rec['fraction_passed'], 0.72)
+        self.assertTrue((ratio[:600] > 0.1).all())
+        rec, _ = self.cs.cell_test(self.field(drift_cells=200))        # 10 % drifting: within the allowance
+        self.assertTrue(rec['passed'])
+
+    def test_constant_field_passes(self):
+        rec, ratio = self.cs.cell_test(self.field(constant=True))
+        self.assertTrue(rec['passed']); self.assertEqual((rec['fraction_passed'], rec['constant_cells']), (1.0, 2000))
+        self.assertTrue((ratio == 0).all())
+
+    def test_missing_value_counts_as_failed_cell(self):
+        Y = self.field(cells=10); Y[3, 0] = np.nan
+        rec, ratio = self.cs.cell_test(Y)
+        self.assertTrue(np.isnan(ratio[0])); self.assertEqual((rec['missing_cells'], rec['passed_cells']), (1, 9))
+
+    def test_block_status_and_exit_status(self):
+        """Review 2026-11-01 R6 and R17: a test that could not be evaluated is not_checked (exit 4), not failed; not
+        converged is failed with exit status 3 (warning); 1 is left to errors of the test itself."""
+        ok, bad = {'passed': True}, {'passed': False}
+        self.assertEqual(self.cs.block_status({'a': ok, 'b': ok}, []), 'passed')
+        self.assertEqual(self.cs.block_status({'a': ok, 'b': bad}, []), 'failed')
+        self.assertEqual(self.cs.block_status({'a': ok}, ['monthly.1600-01.nc: 7 months']), 'not_checked')
+        self.assertEqual(self.cs.block_status({}, []), 'not_checked')
+        self.assertEqual([self.cs.exit_status(s) for s in ('passed', 'failed', 'not_checked')], [0, 3, 4])
+
+    def year_file(self, path, months=12, sm=None):
+        """A monthly spin-up output file of a 2 x 3 grid (5 active cells): time_bnds, OUT_SOIL_MOIST (3 layers),
+        OUT_SWE, OUT_STREAM_MOIST."""
+        import netCDF4 as nc
+        ny, nx = 2, 3
+        with nc.Dataset(path, 'w') as d:
+            for k, n in (('time', months), ('nv', 2), ('nlayer', 3), ('lat', ny), ('lon', nx)):
+                d.createDimension(k, n)
+            tb = d.createVariable('time_bnds', 'f8', ('time', 'nv'))
+            tb[:] = np.array([[30.0 * m, 30.0 * (m + 1)] for m in range(months)])
+            v = d.createVariable('OUT_SOIL_MOIST', 'f4', ('time', 'nlayer', 'lat', 'lon'))
+            v[:] = np.full((months, 3, ny, nx), 100.0) if sm is None else sm
+            d.createVariable('OUT_SWE', 'f4', ('time', 'lat', 'lon'))[:] = np.full((months, ny, nx), 2.0)
+            d.createVariable('OUT_STREAM_MOIST', 'f4', ('time', 'lat', 'lon'))[:] = np.full((months, ny, nx), 5.0)
+
+    def test_year_and_missing_month(self):
+        mask = np.array([[1, 1, 1], [1, 1, 0]], bool); area = np.where(mask, 1e8, 0.0)
+        label = np.full(mask.shape, -1)
+        with tempfile.TemporaryDirectory() as d:
+            self.year_file(f'{d}/monthly.1600-01.nc')
+            y = self.cs.Year(f'{d}/monthly.1600-01.nc', mask, area, label, 0, set(self.cs.CELL_QUANTITIES))
+            self.assertEqual(y.problems, [])
+            self.assertEqual(sorted(y.cell), ['december_swe', 'river_storage', 'soil_moisture_layer2',
+                                              'soil_moisture_layer3'])
+            self.assertEqual(y.cell['soil_moisture_layer3'].shape, (5,))
+            self.assertTrue((y.cell['soil_moisture_layer2'] == 100.0).all())
+            self.assertAlmostEqual(y.values['soil_moisture_layer2'], 100.0)
+            self.assertAlmostEqual(y.values['river_storage'], 5.0 * 5e8 * 1e-12)
+            self.year_file(f'{d}/monthly.1601-01.nc', months=11)             # a short file: cannot be evaluated
+            y = self.cs.Year(f'{d}/monthly.1601-01.nc', mask, area, label, 0, set(self.cs.CELL_QUANTITIES))
+            self.assertEqual(y.problems, ['monthly.1601-01.nc: 11 months'])
+            self.assertEqual(self.cs.block_status({}, y.problems), 'not_checked')
+
+    def test_evaluate(self):
+        """25 synthetic years of 5 cells: a converged block passes every quantity; cell 0 drifting in layer 3 keeps
+        the 80 % rule satisfied (1 of 5); drifting reservoir storage (a global total) fails the block."""
+        cells = 5; window = list(range(1576, 1601)); a_act = np.full(cells, 1e8)
+
+        def years_of(drift_layer3=0, drift_reservoir=0.0):
+            out = {}
+            for i, yr in enumerate(window):
+                y = self.cs.Year.__new__(self.cs.Year)
+                noise = self.rng.standard_normal(cells)
+                y.cell = {'soil_moisture_layer2': (100 + noise).astype('f4'),
+                          'soil_moisture_layer3': (200 + noise).astype('f4'),
+                          'december_swe': (2 + 0.1 * noise).astype('f4'), 'river_storage': (5 + noise).astype('f4')}
+                y.cell['soil_moisture_layer3'][:drift_layer3] += 2.0 * i
+                y.swe_min = np.array([0.0, 0.0, 0.0, 0.0, 5.0], 'f4')       # cell 4: perennial snow
+                y.swe_dec = y.cell['december_swe']
+                y.values = {'soil_moisture_layer2': 100 + noise.mean(), 'soil_moisture_layer3': 200 + noise.mean(),
+                            'river_storage': 5 + noise.mean(), 'reservoir_storage': 50 + noise[0] + drift_reservoir * i}
+                y.problems = []
+                out[yr] = y
+            return out
+        q = set(self.cs.CELL_QUANTITIES) | {'reservoir_storage'}
+        series, ct, gt, perennial, ratios = self.cs.evaluate(years_of(), window, q, a_act)
+        self.assertEqual(sorted(ct), sorted(self.cs.CELL_QUANTITIES))
+        self.assertTrue(all(r['passed'] for r in ct.values()), ct)
+        self.assertEqual((ct['december_swe']['cells'], int(perennial.sum())), (4, 1))   # the perennial cell is left out
+        self.assertTrue(gt['reservoir_storage']['decides'] and gt['reservoir_storage']['passed'])
+        self.assertFalse(gt['soil_moisture_layer2']['decides'])
+        self.assertEqual(len(series['december_swe']), 25)
+        _, ct, gt, _, ratios = self.cs.evaluate(years_of(drift_layer3=1), window, q, a_act)
+        self.assertEqual((ct['soil_moisture_layer3']['passed_cells'], ct['soil_moisture_layer3']['passed']), (4, True))
+        self.assertGreater(ratios['soil_moisture_layer3'][0], 0.1)
+        _, ct, gt, _, _ = self.cs.evaluate(years_of(drift_reservoir=3.0), window, q, a_act)
+        self.assertFalse(gt['reservoir_storage']['passed'])
+        deciding = {**ct, **{k: r for k, r in gt.items() if r['decides']}}
+        self.assertEqual(self.cs.block_status(deciding, []), 'failed')
 
     def test_largest_basins(self):
         import numpy as np

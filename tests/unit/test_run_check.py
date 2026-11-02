@@ -6,7 +6,8 @@ with the GRDC comparison, the figures and git replaced by fixed results.
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
-import contextlib, io, json, os, sys, tempfile, unittest
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
+import contextlib, hashlib, io, json, os, sys, tempfile, unittest
 from unittest import mock
 
 import numpy as np
@@ -130,8 +131,9 @@ class CheckRunMainTest(unittest.TestCase):
         for sub in ('config', 'states', 'output', 'logs'):
             os.makedirs(f'{self.rd}/{sub}')
         with open(f'{self.rd}/run_manifest.json', 'w') as fh:
-            json.dump({'run_id': 'r', 'run_dir': 'runs/c/r', 'forcing_view': view,
-                       'period': {'start': f'{YEAR}-01-01', 'end': f'{YEAR}-12-31'}}, fh)
+            json.dump({'run_id': 'r', 'run_dir': 'runs/c/r', 'forcing_view': view, 'production': False,
+                       'period': {'start': f'{YEAR}-01-01', 'end': f'{YEAR}-12-31'},
+                       'attempts': [{'attempt': 1, 'slurm_job_id': 101, 'status': 'completed'}]}, fh)
         with open(f'{self.rd}/config/resolved.yaml', 'w') as fh:
             yaml.safe_dump({'parameters': {'domain': {'path': 'parameters/p/domain.nc'},
                                            'routing': {'path': 'parameters/p/routing.nc'}},
@@ -154,8 +156,9 @@ class CheckRunMainTest(unittest.TestCase):
                   'OUT_BASEFLOW': (('time', 'lat', 'lon'), np.ones((365, ny, nx))),
                   'OUT_DISCHARGE': (('time', 'lat', 'lon'), q)})
 
-    def monthly(self, withdrawn=25.0):
-        """Monthly water use: 1 mm per sector and source (5 x 5 = 25 mm withdrawn), demand 50 mm."""
+    def monthly(self, withdrawn=25.0, water_error=0.0):
+        """Monthly water use: 1 mm per sector and source (5 x 5 = 25 mm withdrawn), demand 50 mm; `water_error` is
+        the OUT_WATER_ERROR of one active cell in one month (0 elsewhere)."""
         ny, nx = RUN_MASK.shape
         sect = np.ones((12, 5, ny, nx))
         vals = {v: (('time', 'wu_class', 'lat', 'lon'), sect) for v in check_run.WI + ('OUT_DE_GW_SECT', 'OUT_DE_SURF_SECT')}
@@ -164,9 +167,11 @@ class CheckRunMainTest(unittest.TestCase):
                 'OUT_RECEIVED': 1.0, 'OUT_REQUIREMENT': 1.0, 'OUT_APPLIED': 1.0, 'OUT_WATER_ERROR': 0.0,
                 'OUT_DISCHARGE': 1.0}
         vals.update({v: (('time', 'lat', 'lon'), np.full((12, ny, nx), x)) for v, x in cell.items()})
+        werr = np.zeros((12, ny, nx)); werr[3, 0, 0] = water_error
+        vals['OUT_WATER_ERROR'] = (('time', 'lat', 'lon'), werr)
         write_nc(f'{self.rd}/output/monthly.{YEAR}-01.nc', {'time': 12, 'wu_class': 5, 'lat': ny, 'lon': nx}, vals)
 
-    def main(self):
+    def main(self, dirty=False, qc=None):
         """check_run.main() on the synthetic run; returns (summary.json, reports/check.json)."""
         no_stations = pd.DataFrame({'row': [], 'col': [], 'lat': [], 'lon': []})
         with mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': self.W}), \
@@ -176,13 +181,14 @@ class CheckRunMainTest(unittest.TestCase):
                 mock.patch.object(check_run, 'draw'), \
                 mock.patch.object(run_figures, 'water_use_figures', return_value=[]), \
                 mock.patch.object(run_figures, 'water_balance', return_value=({}, 'wb.png')), \
-                mock.patch.object(check_run.os, 'popen', return_value=io.StringIO('c' * 40)), \
+                mock.patch.object(check_run.gitstate, 'state', return_value=('c' * 40, dirty)), \
+                mock.patch.object(check_run.rm, 'sacct', return_value=[]), \
                 contextlib.redirect_stdout(io.StringIO()):
             try:
                 check_run.main(); self.exit_status = 0
             except SystemExit as e:
                 self.exit_status = e.code
-        qc = f'{self.W}/qc/runs/c/r'
+        qc = qc or f'{self.W}/qc/runs/c/r'
         with open(f'{qc}/summary.json') as fh, open(f'{qc}/reports/check.json') as gh:
             return json.load(fh), json.load(gh)
 
@@ -197,6 +203,43 @@ class CheckRunMainTest(unittest.TestCase):
         self.assertEqual(self.exit_status, 0)
         # OUT_WATER_ERROR is a monthly mean (VIC default aggregation), reported as such (review P3 D3)
         self.assertIn('max_abs_monthly_mean_water_error_mm', y['water_balance'])
+        # review 2026-11-01 R8: the water balance of the check has a status (p99 of |OUT_WATER_ERROR| <= 1 mm)
+        wb = report['water_balance']
+        self.assertEqual((wb['status'], wb['cell_months'], wb['cell_months_above_limit']), ('passed', 60, 0))
+        self.assertEqual(summary['water_balance'], 'passed')
+        # review 2026-11-01 R5: bound to the attempt and the end state; the note follows the campaign kind
+        self.assertEqual((summary['code_commit'], summary['code_dirty']), ('c' * 40, False))
+        b = summary['binding']
+        self.assertEqual((b['attempt'], b['slurm_job_id'], b['attempt_status']), (1, 101, 'completed'))
+        self.assertEqual(b['end_state'], f'states/state.{YEAR + 1}0101_00000.nc')
+        self.assertEqual(b['end_state_sha256'], hashlib.sha256(b'state').hexdigest())
+        self.assertIn('non-production', summary['note'])
+
+    def test_water_balance_outlier_fails(self):
+        """Review 2026-11-01 R8: one cell-month of 60 above 1 mm puts p99 above the limit."""
+        self.monthly(water_error=2.5)
+        summary, report = self.main()
+        wb = report['water_balance']
+        self.assertEqual((wb['status'], wb['cell_months_above_limit']), ('failed', 1))
+        self.assertAlmostEqual(wb['max_abs_monthly_mean_water_error_mm'], 2.5)
+        self.assertAlmostEqual(wb['p99_abs_monthly_mean_water_error_mm'], 2.5, delta=2e-4)
+        y = report['years'][str(YEAR)]['water_balance']
+        self.assertEqual((y['max_abs_monthly_mean_water_error_mm'], y['cell_months_above_limit']), (2.5, 1))
+        self.assertEqual((summary['status'], self.exit_status), ('failed', 1))
+
+    def test_dirty_repository_writes_to_scratch(self):
+        summary, report = self.main(dirty=True, qc=f'{self.W}/scratch/run-check/uncommitted/qc/runs/c/r')
+        self.assertTrue(summary['code_dirty'])
+        self.assertFalse(os.path.exists(f'{self.W}/qc/runs/c/r/summary.json'))
+
+    def test_production_note(self):
+        with open(f'{self.rd}/run_manifest.json') as fh:
+            m = json.load(fh)
+        m['production'] = True
+        with open(f'{self.rd}/run_manifest.json', 'w') as fh:
+            json.dump(m, fh)
+        summary, _ = self.main()
+        self.assertIn('production run', summary['note']); self.assertNotIn('non-production', summary['note'])
 
     def test_missing_state_fails(self):
         os.remove(self.state)
@@ -241,12 +284,13 @@ class CheckRunNaturalTest(CheckRunMainTest):
         with open(f'{self.rd}/run_manifest.json', 'w') as fh:
             json.dump(man, fh)
 
-    def monthly(self, withdrawn=None):
+    def monthly(self, withdrawn=None, water_error=0.0):
         """Monthly output of a natural run: no water-use or irrigation variable."""
         ny, nx = RUN_MASK.shape
+        werr = np.zeros((12, ny, nx)); werr[3, 0, 0] = water_error
         write_nc(f'{self.rd}/output/monthly.{YEAR}-01.nc', {'time': 12, 'lat': ny, 'lon': nx},
-                 {v: (('time', 'lat', 'lon'), np.full((12, ny, nx), x))
-                  for v, x in (('OUT_WATER_ERROR', 0.0), ('OUT_DISCHARGE', 1.0))})
+                 {'OUT_WATER_ERROR': (('time', 'lat', 'lon'), werr),
+                  'OUT_DISCHARGE': (('time', 'lat', 'lon'), np.full((12, ny, nx), 1.0))})
 
     def test_complete_run_passes(self):
         summary, report = self.main()
@@ -267,6 +311,50 @@ class CheckRunNaturalTest(CheckRunMainTest):
 
     def test_budget_violation_fails(self):
         self.skipTest('no water-use budget in a natural run')
+
+
+class ChunkSummaryBindingTest(unittest.TestCase):
+    """Review 2026-11-01 R5: the whole-run check of a chunked run counts a chunk summary only when it is bound to the
+    chunk's completed attempt (attempt number and job id) and was written from a clean repository."""
+
+    def test_statuses(self):
+        with tempfile.TemporaryDirectory() as W:
+            man = {'run_dir': 'runs/c/r', 'chunks': [{'id': c} for c in ('a', 'b', 'c', 'd')],
+                   'attempts': [{'attempt': 1, 'slurm_job_id': 1, 'chunk': 'a', 'status': 'failed'},
+                                {'attempt': 2, 'slurm_job_id': 2, 'chunk': 'a', 'status': 'completed'},
+                                {'attempt': 3, 'slurm_job_id': 3, 'chunk': 'b', 'status': 'completed'},
+                                {'attempt': 4, 'slurm_job_id': 4, 'chunk': 'c', 'status': 'completed'},
+                                {'attempt': 5, 'slurm_job_id': 5, 'chunk': 'd', 'status': 'completed'}]}
+            summaries = {'a': {'status': 'passed', 'code_dirty': False, 'binding': {'attempt': 1, 'slurm_job_id': 1}},
+                         'b': {'status': 'passed', 'code_dirty': False, 'binding': {'attempt': 3, 'slurm_job_id': 3}},
+                         'c': {'status': 'passed', 'code_dirty': True, 'binding': {'attempt': 4, 'slurm_job_id': 4}}}
+            for cid, summ in summaries.items():
+                d = f'{W}/qc/runs/c/r/chunks/{cid}'; os.makedirs(d)
+                with open(f'{d}/summary.json', 'w') as fh:
+                    json.dump(summ, fh)
+            self.assertEqual(check_run.chunk_statuses(W, man),
+                             {'a': 'not_checked', 'b': 'passed', 'c': 'not_checked', 'd': 'not_checked'})
+
+
+class WaterErrorTest(unittest.TestCase):
+    """Review 2026-11-01 R8: percentiles of |OUT_WATER_ERROR| from the histogram, the exact maximum and count."""
+
+    def test_percentiles(self):
+        w = check_run.WaterError()
+        self.assertIsNone(w.percentile(99))
+        v = np.concatenate([np.full(990, 0.2), np.full(9, 1.5), [12.0, np.nan]])
+        vmax, above = w.add(v)
+        self.assertEqual((vmax, above, w.n, w.missing), (12.0, 10, 1000, 1))
+        s = w.summary()
+        self.assertAlmostEqual(s['p99_abs_monthly_mean_water_error_mm'], 0.2, delta=2e-4)
+        self.assertEqual(s['status'], 'passed')
+        self.assertAlmostEqual(s['p99.9_abs_monthly_mean_water_error_mm'], 1.5, delta=2e-4)
+        self.assertEqual((s['max_abs_monthly_mean_water_error_mm'], s['cell_months_above_limit']), (12.0, 10))
+        w.add(np.full(20, 3.0))                                  # 30 of 1020 above the limit: p99 above it
+        self.assertEqual(w.summary()['status'], 'failed')
+        self.assertAlmostEqual(w.summary()['p99_abs_monthly_mean_water_error_mm'], 3.0, delta=2e-4)
+        w.add([np.nan])
+        self.assertEqual(w.missing, 2)
 
 
 class ClimatologyYearsTest(unittest.TestCase):

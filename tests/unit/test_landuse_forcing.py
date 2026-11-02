@@ -10,6 +10,7 @@ file format VIC reads (time axis and calendar) is written by the producer and ch
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import importlib.util, io, os, subprocess, sys, tempfile, unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
@@ -353,7 +354,7 @@ class WeightsCacheTest(unittest.TestCase):
 
 class SubmitRenderTest(unittest.TestCase):
     def dry_run(self, *args):
-        env = dict(os.environ, ISIMIP4B_WORKDIR='/nonexistent/workdir')
+        env = dict(os.environ, ISIMIP4B_WORKDIR='/nonexistent/workdir', PYTHONPATH=workflow_paths.WORKFLOW)
         r = subprocess.run([sys.executable, os.path.join(LANDUSE, 'submit_landuse_forcing.py'), *args, '--dry-run'],
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)

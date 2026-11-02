@@ -8,3 +8,12 @@ if ! python3 "${repo_root}/tests/check_layout.py" --repo "${repo_root}" --tracke
     echo "pre-commit: layout check failed; see docs/directory-contracts.md." >&2
     exit 1
 fi
+
+# A change of workflow/common or of a forcing producer changes the code tree that accepted units are bound to:
+# warn (never block) when the commit carries no entry of manifests/code-equivalence.yaml (review 2026-11-01, R20).
+staged="$(git diff --cached --name-only)"
+if grep -qE '^workflow/(common|04_forcing/(climate|landuse|water_use))/' <<< "${staged}" \
+        && ! grep -qx 'manifests/code-equivalence.yaml' <<< "${staged}"; then
+    echo "pre-commit: warning: workflow/common or a forcing producer changes without a new entry of" \
+         "manifests/code-equivalence.yaml (needed to extend accepted units; see workflow/common/README.md)." >&2
+fi

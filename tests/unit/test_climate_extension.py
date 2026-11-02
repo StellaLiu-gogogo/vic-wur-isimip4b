@@ -10,6 +10,7 @@ per-variable worker replaced by stand-ins: no downscaling is done.
 Run from the repository root in the isimip4b environment (PYTHONPATH including workflow/):
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import contextlib, hashlib, importlib.util, io, os, sys, tempfile, unittest
 from unittest import mock
 

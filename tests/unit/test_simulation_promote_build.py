@@ -4,6 +4,7 @@ frozen commit is recorded as the production build without recompiling, on a smal
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import hashlib, json, os, sys, tempfile, unittest
 from unittest import mock
 

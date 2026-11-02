@@ -79,7 +79,15 @@ DKRZ ISIMIP4b inputs ──01──▶ raw/ISIMIP4b ──02──▶ intermedia
 5. **Production campaign** for EC-Earth3-ESM-1-1 (D02: 16 experiments,
    22 segments, 2 408 model years; D03: all 5′ output kept), longest chain
    first; a code review of `05_simulation` to `07_quality_control` before the
-   first production job.
+   first production job: the review of `05_simulation` and `workflow/common`
+   was done on 2026-11-01 (findings R1–R20) and its fixes applied in task X
+   (2026-11-02, `workflow/05_simulation/README.md`, "Pre-production review
+   fixes"): amended convergence test (D19 amendment 2026-11-02), recovery of
+   a chain after a failed job (`submit_run.py --reconcile`, `--resume`, the
+   campaign's `recovery.json`), water-balance rule of the run check (p99 of
+   |`OUT_WATER_ERROR`| ≤ 1 mm), evidence binding of the checks; the campaign
+   starts only after task W is fully accepted and its forcing units are frozen
+   while its chains run (user's rules).
 6. **Postprocessing, QC, delivery** (D07, D09, D10, D11): built beside step 5
    on the smoke and natural-run output; delivery once the ISIMIP filename
    pattern and the model name are settled.

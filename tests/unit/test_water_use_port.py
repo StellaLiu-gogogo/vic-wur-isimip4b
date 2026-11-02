@@ -9,6 +9,7 @@ ISIMIP4B_PORT_TEST=1. Run it on a compute node:
 
     ISIMIP4B_PORT_TEST=1 srun -p main -c 1 --mem 8G python -m unittest discover -s tests/unit -p test_water_use_port.py -v
 """
+import workflow_paths  # noqa: F401,E402  (repo/workflow on sys.path, tests/unit/workflow_paths.py)
 import os, unittest
 
 import numpy as np
