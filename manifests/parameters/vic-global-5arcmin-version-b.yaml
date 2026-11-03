@@ -176,8 +176,10 @@ components:
       2 188 551 active cells; grid equal to all 24 forcing units; area is the
       WGS84 ellipsoidal cell area (max relative deviation 3.9e-7); frac 1 on
       every active cell.
-    qc_status: not_checked
+    qc_status: passed
     qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-b/domain
+    qc_checked_by: workflow/03_parameters/domain/verify_domain.py (commit 2cd10b2, 2026-11-03T08:44Z, every check passed on the copy)
+    qc_slurm_job: logs/03_parameters/adopted-parameter-qc-vic-global-5arcmin-version-b_43551227
 
   routing:
     adopted_from: vic-global-5arcmin-version-a
@@ -225,8 +227,10 @@ components:
       outlets, no loops, longest path 871 cells, all links to a neighbour (6
       across the dateline); GRDC area error Obidos -0.1 %, Kinshasa +3.9 %,
       Vicksburg -1.1 %, Datong -1.4 %.
-    qc_status: not_checked
+    qc_status: passed
     qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-b/routing
+    qc_checked_by: workflow/03_parameters/routing/verify_routing.py (commit 2cd10b2, 2026-11-03T08:45Z, every check passed on the copy)
+    qc_slurm_job: logs/03_parameters/adopted-parameter-qc-vic-global-5arcmin-version-b_43551227
 
   decomposition:
     adopted_from: vic-global-5arcmin-version-a
@@ -310,8 +314,10 @@ components:
       the D19 dams it keeps every link too, but its largest group is 372 255
       cells). Run speed and memory against the number of ranks are measured
       in task L5.
-    qc_status: not_checked
+    qc_status: passed
     qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-b/routing/decomposition
+    qc_checked_by: workflow/03_parameters/routing/verify_decomposition.py (commit 2cd10b2, 2026-11-03T08:46Z, every check passed on the copy)
+    qc_slurm_job: logs/03_parameters/decomposition-vic-global-5arcmin-version-b-verify_43551229
 
   irrigation:
     adopted_from: vic-global-5arcmin-version-a
@@ -351,8 +357,10 @@ components:
       class 15 to 0); efficiency 0.23-0.72 and groundwater_fraction 0-1 on
       every active cell, no fill; no irrigation_offset, so runs need
       OFFSET_IRRIGATION FALSE.
-    qc_status: not_checked
+    qc_status: passed
     qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-b/irrigation
+    qc_checked_by: workflow/03_parameters/irrigation/verify_irrigation.py (commit 2cd10b2, 2026-11-03T08:45Z, every check passed on the copy)
+    qc_slurm_job: logs/03_parameters/adopted-parameter-qc-vic-global-5arcmin-version-b_43551227
 
   dams:
     adopted_from: vic-global-5arcmin-version-a
@@ -482,8 +490,10 @@ components:
       set (routing, entry decomposition) was built for T3_extended; whether
       it keeps every service link of these files is checked with the new
       decomposition (task L3). Files for extrasoc wait for D06.
-    qc_status: not_checked
+    qc_status: passed
     qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-b/dams
+    qc_checked_by: workflow/03_parameters/dams/verify_dams.py (commit 2cd10b2, 2026-11-03T08:48Z, every check passed on the copy)
+    qc_slurm_job: logs/03_parameters/dam-component-vic-global-5arcmin-version-b-verify_43551228
 
   water_use:
     adopted_from: vic-global-5arcmin-version-a
@@ -536,5 +546,7 @@ components:
       2 489 462 search links within 26.2 km (limit 50 km, 2 cells), 8 989 delta
       links (supplier = own outlet, up to 330 km; the source QA counts 8 934).
       The file has no fraction variable: fraction check not applicable.
-    qc_status: not_checked
+    qc_status: passed
     qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-b/water_use
+    qc_checked_by: workflow/03_parameters/water_use/verify_water_use.py (commit 2cd10b2, 2026-11-03T08:45Z, every check passed on the copy)
+    qc_slurm_job: logs/03_parameters/adopted-parameter-qc-vic-global-5arcmin-version-b_43551227
