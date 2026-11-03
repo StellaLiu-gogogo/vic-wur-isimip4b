@@ -140,10 +140,10 @@ the comparison runs are two non-production campaigns and their figures and table
 
 | Step | Content | State |
 |---|---|---|
-| Z1 | soil component: `soil/smooth_calibration_fields.py`, `verify_soil.py`, Slurm template, submit script, tests | scratch run passed (job 43542531: 11 checks, global area means −0.04 % … +0.004 %) |
-| Z2 | vegetation component with recomputed roots: `vegetation/recompute_roots.py`, `verify_roots.py`, `root_zeng2001_igbp.yaml`, tests | scratch run passed (job 43542532: 6 checks; version-a roots reproduced on 100 % of the base tiles of classes 1–10 and 13) |
-| Z3 | bundle assembled from the soil component (`--soil-component`), verifier compares with the source named in the provenance | code written |
-| Z4 | unchanged components copied and verified again: `copy_components.py`, adopted QC, dams and decomposition verifiers with `--parameter-set vic-global-5arcmin-version-b`; manifest | scratch copy passed (job 43541855, 26 files); candidate copy and QC open |
+| Z1 | soil component: `soil/smooth_calibration_fields.py`, `verify_soil.py`, Slurm template, submit script, tests | done: candidate built and verified 2026-11-02 (job 43542860, 11 checks passed; global area means −0.04 % … +0.004 %) |
+| Z2 | vegetation component with recomputed roots: `vegetation/recompute_roots.py`, `verify_roots.py`, `root_zeng2001_igbp.yaml`, tests | done: candidate built and verified 2026-11-02 (job 43542862, 6 checks passed; version-a roots reproduced on 100 % of the base tiles of classes 1–10 and 13) |
+| Z3 | bundle assembled from the soil component (`--soil-component`), verifier compares with the source named in the provenance | done: candidate assembled and verified 2026-11-02 (job 43542901, 7 checks passed) |
+| Z4 | unchanged components copied and verified again: `copy_components.py`, adopted QC, dams and decomposition verifiers with `--parameter-set vic-global-5arcmin-version-b`; manifest | copied 2026-11-02 (job 43542859, 26 files); manifest written; QC reruns on version-b open |
 | Z5 | QC of the set and promotion to `production/` | open |
 | Z6 | comparison campaigns `soil-comparison-version-a`, `soil-comparison-version-b` (historical histsoc 2011–2020), analysis `analysis/soil-comparison/` | open |
 | Z7 | change of `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml` (user's decision after the comparison) | open |
