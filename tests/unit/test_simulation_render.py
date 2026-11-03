@@ -927,6 +927,45 @@ class ParameterProvenanceTest(unittest.TestCase):
             self.assertEqual(rr.parameter_provenance(W, 'parameters/production/s/routing/r.nc'), {})
 
 
+class ElevationSourceTest(unittest.TestCase):
+    """The elevation the climate forcing was downscaled to is the natural bundle the parameter file's provenance chain
+    leads to: directly (an assembled bundle) or through a soil component and the assembled bundle it was derived from
+    (task Z, vic-global-5arcmin-version-b); a file without such a chain stands for itself."""
+
+    def write(self, W, rel_dir, prov):
+        os.makedirs(os.path.join(W, rel_dir), exist_ok=True)
+        with open(os.path.join(W, rel_dir, 'provenance.yaml'), 'w') as fh:
+            yaml.safe_dump(prov, fh)
+
+    def test_chain_through_soil_component(self):
+        A, B = 'parameters/candidates/a', 'parameters/candidates/b'
+        with tempfile.TemporaryDirectory() as W:
+            self.write(W, f'{A}/bundle', {'object': f'{A}/bundle/assembled.nc', 'inputs': {'natural_bundle': f'{A}/bundle/nat.nc'},
+                                          'input_sha256': {'natural_bundle': 'NAT'}})
+            self.write(W, f'{B}/soil', {'object': f'{B}/soil', 'inputs': {'base_bundle': f'{A}/bundle/assembled.nc'},
+                                        'input_sha256': {'base_bundle': 'ASSEMBLED'}})
+            self.write(W, f'{B}/bundle', {'object': f'{B}/bundle/assembled.nc', 'inputs': {'soil_component': f'{B}/soil/soil.nc'},
+                                          'input_sha256': {'soil_component': 'SOIL'}})
+            self.assertEqual(rr.elevation_sources(W, f'{A}/bundle/assembled.nc'), {'NAT'})
+            self.assertEqual(rr.elevation_sources(W, f'{B}/bundle/assembled.nc'), {'NAT'})
+            self.assertEqual(rr.parameter_provenance(W, f'{B}/soil/soil.nc')['object'], f'{B}/soil')   # component record
+
+    def test_without_chain_the_file_itself(self):
+        with tempfile.TemporaryDirectory() as W:
+            os.makedirs(os.path.join(W, 'parameters/candidates/c/bundle'))
+            with open(os.path.join(W, 'parameters/candidates/c/bundle/nat.nc'), 'wb') as fh:
+                fh.write(b'elev')
+            self.assertEqual(rr.elevation_sources(W, 'parameters/candidates/c/bundle/nat.nc'),
+                             {rr.file_hash(os.path.join(W, 'parameters/candidates/c/bundle/nat.nc'))})
+            # a soil component whose base bundle has no record: no natural bundle found, the file stands for itself
+            self.write(W, 'parameters/candidates/c/soil', {'object': 'parameters/candidates/c/soil',
+                                                           'inputs': {'base_bundle': 'parameters/candidates/x/bundle/y.nc'}})
+            with open(os.path.join(W, 'parameters/candidates/c/soil/s.nc'), 'wb') as fh:
+                fh.write(b'soil')
+            self.assertEqual(rr.elevation_sources(W, 'parameters/candidates/c/soil/s.nc'),
+                             {rr.file_hash(os.path.join(W, 'parameters/candidates/c/soil/s.nc'))})
+
+
 class ConvergenceRuleTest(unittest.TestCase):
     """D19 convergence rule, amendment 2026-11-02 (task X, review R1): per cell over the 25 annual values of the
     block, |slope| <= 0.1 x detrended SD (ddof 2); a per-cell quantity passes when 80 % of the active cells pass;

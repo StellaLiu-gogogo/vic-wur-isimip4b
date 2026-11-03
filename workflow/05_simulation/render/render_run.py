@@ -403,14 +403,15 @@ def check_nonrenewable_output(campaign):
 
 def parameter_provenance(W, rel):
     """The provenance.yaml next to the parameter file `rel` (workdir-relative) when it is the record of that file,
-    else {}. It is when its `object` is `rel`, or, in a promoted set, when `object` is the same file of the candidate
-    set the promotion copied: promote_parameter_set.py copies a provenance record unchanged, so its `object` and inputs
-    keep the candidate paths, and promotion.yaml (source, target, files) records the copy, checked by md5 and sha256."""
+    else {}. It is when its `object` is `rel` or the component directory of `rel` (a component record covers its
+    files), or, in a promoted set, when `object` is the same file or directory of the candidate set the promotion
+    copied: promote_parameter_set.py copies a provenance record unchanged, so its `object` and inputs keep the
+    candidate paths, and promotion.yaml (source, target, files) records the copy, checked by md5 and sha256."""
     p = f'{W}/{os.path.dirname(rel)}/provenance.yaml'
     if not os.path.isfile(p):
         return {}
     prov = read_yaml(p)
-    if prov.get('object') == rel:
+    if prov.get('object') in (rel, os.path.dirname(rel)):
         return prov
     parts = rel.split('/')
     record = f'{W}/{"/".join(parts[:3])}/promotion.yaml'
@@ -418,31 +419,42 @@ def parameter_provenance(W, rel):
         return {}
     promo = read_yaml(record)
     inner = '/'.join(parts[3:])
-    if (promo.get('target') == '/'.join(parts[:3]) and prov.get('object') == f'{promo.get("source")}/{inner}'
-            and inner in {f.get('path') for f in promo.get('files') or []}):
+    if (promo.get('target') == '/'.join(parts[:3]) and inner in {f.get('path') for f in promo.get('files') or []}
+            and prov.get('object') in (f'{promo.get("source")}/{inner}', f'{promo.get("source")}/{os.path.dirname(inner)}')):
         return prov
     return {}
+
+
+def elevation_sources(W, rel):
+    """The sha256 of the file whose `elev` the climate forcing must have been downscaled to, for the parameter file
+    `rel`: the natural bundle its provenance chain leads to (an assembled bundle records it as input natural_bundle;
+    a bundle assembled from a soil component (task Z) records the soil component, whose record names the assembled
+    bundle it was derived from (base_bundle), which records the natural bundle), or, without such a chain, the file
+    itself. Returns a set with one sha256."""
+    seen, cur = [], rel
+    while cur and cur not in seen:
+        seen.append(cur)
+        prov = parameter_provenance(W, cur)
+        nat = (prov.get('input_sha256') or {}).get('natural_bundle')
+        if nat:
+            return {nat}
+        inputs = prov.get('inputs') or {}
+        cur = inputs.get('soil_component') or inputs.get('base_bundle')
+    return {file_hash(f'{W}/{rel}')}
 
 
 def check_unit_parameters(W, params, units):
     """Every forcing unit of the run was made on the campaign's domain file (sha256 recorded in its provenance.yaml,
     input_sha256: key `domain` or a parameters/.../domain/ path), and a climate unit with the elevation of the
-    campaign's parameter file (a parameters/.../bundle/ path: the natural bundle the assembled bundle was built from,
-    or the parameter file itself). VIC compares only the grid, not the mask, and nothing would notice forcing corrected
-    to another elevation."""
+    campaign's parameter file (a parameters/.../bundle/ path: the natural bundle the parameter file's provenance chain
+    leads to, elevation_sources(), or the parameter file itself). VIC compares only the grid, not the mask, and nothing
+    would notice forcing corrected to another elevation."""
     cache = {}
 
     def sha(key, rel):
         if key not in cache:
             cache[key] = file_hash(f'{W}/{rel}')
         return cache[key]
-
-    def elevation_sources():
-        if 'elev' not in cache:
-            rel = params['parameters']['path']
-            nat = (parameter_provenance(W, rel).get('input_sha256') or {}).get('natural_bundle')
-            cache['elev'] = {nat} if nat else {sha('parameters', rel)}
-        return cache['elev']
 
     for rel_unit in units:
         recorded = read_yaml(f'{W}/forcing/{rel_unit}/provenance.yaml').get('input_sha256') or {}
@@ -452,7 +464,9 @@ def check_unit_parameters(W, params, units):
             raise RenderError(f'forcing unit {rel_unit} records no domain file; it cannot be matched to the campaign')
         if any(v != sha('domain', params['domain']['path']) for v in domain):
             raise RenderError(f'forcing unit {rel_unit} was made on another domain file than {params["domain"]["path"]}')
-        if bundle and not set(bundle) <= elevation_sources():
+        if 'elev' not in cache:
+            cache['elev'] = elevation_sources(W, params['parameters']['path'])
+        if bundle and not set(bundle) <= cache['elev']:
             raise RenderError(f'forcing unit {rel_unit} was made with the elevation of another parameter file than '
                               f'{params["parameters"]["path"]}')
 

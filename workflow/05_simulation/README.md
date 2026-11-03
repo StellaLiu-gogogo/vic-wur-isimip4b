@@ -231,9 +231,12 @@ run must already have completed with its end state, whose run, attempt and sha25
 status `built` or `tested`; for a production campaign a frozen lock and `build_kind: production`; resources modules = `runtime_modules` of the build; every parameter file in the
 parameter manifest; every forcing unit accepted (`code_dirty: false`, `qc.status: passed`) and made on the
 campaign's domain file and, for climate, with its elevation (the sha256 recorded in the unit's `provenance.yaml`
-equal to that of the domain file and of the natural bundle the parameter file was assembled from; in a promoted set
-the bundle `provenance.yaml` keeps the candidate path as `object` and is accepted as the record of the production copy
-that `promotion.yaml` lists, `render_run.parameter_provenance`, found by campaign `production-config-check`); the campaign's
+equal to that of the domain file and of the natural bundle the parameter file's provenance chain leads to,
+`render_run.elevation_sources`: directly for an assembled bundle, or through the soil component and the assembled
+bundle it was derived from for a bundle assembled with `--soil-component` (task Z, `vic-global-5arcmin-version-b`);
+in a promoted set the bundle `provenance.yaml` keeps the candidate path as `object` and is accepted as the record of
+the production copy that `promotion.yaml` lists, `render_run.parameter_provenance`, found by campaign
+`production-config-check`); the campaign's
 output selection covers every protocol variable of the sector (mapped or listed as not provided); the output
 streams are `daily` (`NDAYS 1`) and `monthly` (`NMONTHS 1`) with `history_frequency: NYEARS 1`, the only
 files the expected outputs and `check_run.py` know (other stream configurations stop the render); the
