@@ -264,12 +264,13 @@ def step_runs(W):
             w = csv.DictWriter(fh, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
         ok = [r for r in rows if np.isfinite(r['ratio_a']) and np.isfinite(r['ratio_b'])]
         grdc = {'stations': len(rows), 'stations_with_observations': len(ok),
-                'bias_improved': sum(abs(np.log(r['ratio_b'])) < abs(np.log(r['ratio_a'])) for r in ok),
-                'bias_worsened': sum(abs(np.log(r['ratio_b'])) > abs(np.log(r['ratio_a'])) for r in ok),
+                'bias_improved': int(sum(abs(np.log(r['ratio_b'])) < abs(np.log(r['ratio_a'])) for r in ok)),
+                'bias_worsened': int(sum(abs(np.log(r['ratio_b'])) > abs(np.log(r['ratio_a'])) for r in ok)),
                 'median_abs_log_ratio_a': float(np.median([abs(np.log(r['ratio_a'])) for r in ok])) if ok else None,
                 'median_abs_log_ratio_b': float(np.median([abs(np.log(r['ratio_b'])) for r in ok])) if ok else None,
-                'seasonal_r_improved': sum(r['seasonal_r_b'] > r['seasonal_r_a'] for r in ok if np.isfinite(r['seasonal_r_a'])),
-                'seasonal_r_worsened': sum(r['seasonal_r_b'] < r['seasonal_r_a'] for r in ok if np.isfinite(r['seasonal_r_a']))}
+                'seasonal_r_improved': int(sum(r['seasonal_r_b'] > r['seasonal_r_a'] for r in ok if np.isfinite(r['seasonal_r_a']))),
+                'seasonal_r_worsened': int(sum(r['seasonal_r_b'] < r['seasonal_r_a'] for r in ok if np.isfinite(r['seasonal_r_a']))),
+                'note': 'counts are Python ints (numpy ints are not JSON serialisable; the first runs job 43585332 failed here)'}
     checks = {}
     for v in 'ab':
         p = f'{W}/{QC[v]}/reports/check.json'
