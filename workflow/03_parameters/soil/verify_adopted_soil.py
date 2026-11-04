@@ -12,9 +12,11 @@ Checks (each with its own status; the component passes only when all pass):
                  (every layer) and holds no fill or NaN; the external file is the one of the provenance (sha256)
   elev           elev of the external file equals the kept base elev within the producer's tolerance (the external
                  soil belongs to this elevation)
-  closure        the external soil's own closure holds: porosity 1 - bulk_density / soil_density in (0, 1),
-                 max_moist = depth x porosity x 1000 within CLOSURE_TOL relative, 0 <= init_moist <= max_moist,
-                 resid_moist < porosity, Wpwp_FRACT <= Wcr_FRACT <= Wfc_FRACT <= 1, every field finite
+  closure        the external soil's own closure holds: porosity 1 - bulk_density / soil_density in (0, 1);
+                 0 <= init_moist <= the maximum moisture VIC computes, depth x porosity x 1000 (vic_init.c; VIC does
+                 not read the stored max_moist); the stored max_moist within MAX_MOIST_TOL of that value (the MPR
+                 product aggregates its porosity and its densities separately, so its stored max_moist deviates by up
+                 to about 1 %); resid_moist < porosity, Wpwp_FRACT <= Wcr_FRACT <= Wfc_FRACT <= 1, every field finite
   vic_rules      on the active cells the rules of vic_init.c (VIC 39e21ff5): every layer >= 0.001 m and layer 1
                  not thicker than layer 2; the NIJSSEN2001 conversion: Ws below the bottom layer's maximum
                  moisture, converted Ds and Ws in [0, 1], converted Dsmax and c > 0; expt > 3, Ksat > 0, bubble > 0,
@@ -43,7 +45,7 @@ import adopt_soil_fields as ad           # noqa: E402  (the replaced fields, ele
 from verify_soil import raw, same_bits, fill_of, active_values   # noqa: E402
 
 CHECKED_BY = 'workflow/03_parameters/soil/verify_adopted_soil.py'
-CLOSURE_TOL = 1e-6
+MAX_MOIST_TOL = 0.02          # relative, stored max_moist against depth x porosity x 1000 (not read by VIC)
 MINSOILDEPTH = 0.001          # m, vic_run/include/vic_def.h
 REGIONS = {'west_siberia': (58, 66, 78, 90), 'alps': (42, 50, 2, 14)}   # lat0, lat1, lon0, lon1
 MAPPED = (('depth', 1), ('Ds', None), ('Wcr_FRACT', 1))                 # (field, layer index or None)
@@ -158,14 +160,15 @@ def main():
         rel_mm = np.abs(vals['max_moist'] / mm_expect - 1)
     m3 = np.broadcast_to(mask, por.shape)
     cl = {'porosity_outside_0_1': int((~((por[m3] > 0) & (por[m3] < 1))).sum()),
-          'max_moist_max_relative_deviation': float(np.nanmax(rel_mm[m3])),
-          'init_moist_outside_0_max': int((~((vals['init_moist'][m3] >= 0) & (vals['init_moist'][m3] <= vals['max_moist'][m3]))).sum()),
+          'stored_max_moist_max_relative_deviation': float(np.nanmax(rel_mm[m3])), 'stored_max_moist_tolerance': MAX_MOIST_TOL,
+          'init_moist_outside_0_vic_max': int((~((vals['init_moist'][m3] >= 0) & (vals['init_moist'][m3] <= mm_expect[m3]))).sum()),
+          'init_moist_above_stored_max': int((vals['init_moist'][m3] > vals['max_moist'][m3]).sum()),
           'resid_moist_not_below_porosity': int((~(vals['resid_moist'][m3] < por[m3])).sum()),
           'moisture_fractions_disordered': int((~((vals['Wpwp_FRACT'][m3] <= vals['Wcr_FRACT'][m3]) &
                                                  (vals['Wcr_FRACT'][m3] <= vals['Wfc_FRACT'][m3]) & (vals['Wfc_FRACT'][m3] <= 1))).sum()),
           'not_finite': {v: int((~np.isfinite(x[np.broadcast_to(mask, x.shape)])).sum()) for v, x in vals.items()}}
-    cl['status'] = 'passed' if cl['porosity_outside_0_1'] == 0 and cl['max_moist_max_relative_deviation'] <= CLOSURE_TOL \
-        and cl['init_moist_outside_0_max'] == 0 and cl['resid_moist_not_below_porosity'] == 0 \
+    cl['status'] = 'passed' if cl['porosity_outside_0_1'] == 0 and cl['stored_max_moist_max_relative_deviation'] <= MAX_MOIST_TOL \
+        and cl['init_moist_outside_0_vic_max'] == 0 and cl['resid_moist_not_below_porosity'] == 0 \
         and cl['moisture_fractions_disordered'] == 0 and not any(cl['not_finite'].values()) else 'failed'
     checks['closure'] = cl
 

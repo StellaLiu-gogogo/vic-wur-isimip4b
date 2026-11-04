@@ -88,8 +88,10 @@ from the legacy global parameter file, not from version-a, so only its soil fiel
    provenance, so a promotion of the set needs the user's acceptance of them.
 2. `verify_adopted_soil.py` checks the grid, the bitwise copy (every other natural variable, and the replaced
    fields outside the mask), the replaced fields bitwise against the external file (its sha256 as recorded), `elev`,
-   the external soil's own closure (porosity in (0, 1), `max_moist = depth × porosity × 1000` within 1e-6,
-   `0 ≤ init_moist ≤ max_moist`, `resid_moist` below the porosity, `Wpwp ≤ Wcr ≤ Wfc ≤ 1`) and the VIC rules of
+   the external soil's own closure (porosity in (0, 1); `0 ≤ init_moist ≤ depth × porosity × 1000`, the maximum
+   moisture VIC computes in `vic_init.c`, since VIC does not read the stored `max_moist`; the stored `max_moist`
+   within 2 % of that value, because the MPR product aggregates its porosity and its densities separately and its
+   stored `max_moist` deviates by up to 1.1 %; `resid_moist` below the porosity, `Wpwp ≤ Wcr ≤ Wfc ≤ 1`) and the VIC rules of
    `vic_init.c` (layer depths, the NIJSSEN2001 conversion, `expt > 3`, `Ksat`, `bubble`, `infilt > 0`, `quartz`
    in [0, 1]). Reported only: the area-weighted global means of every replaced field in the base and the
    component, and which other variables of the base the external file holds with different values. Figures:
