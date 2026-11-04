@@ -58,10 +58,14 @@ rep = roots['checks']['reproduction']['by_class']
 rep_tiles = sum(c['base_tiles'] for c in rep.values()); rep_eq = sum(c['root_fract_equal_after_float32'] for c in rep.values())
 
 # ------------------------------------------------------------------ fields table (analysis step 1)
-fr = list(csv.DictReader(open(f'{A}/tables/fields.csv')))
+fr = list(csv.DictReader(open(f'{A}/tables/fields.csv')))      # one row per field, region and set (version-a the reference)
+fmean = {(r['field'], r['region'], r['version']): r for r in fr}
 rows = []
 for r in fr:
-    rows.append([r['field'], r['region'].replace('_', ' '), f'{int(r["cells"]):,}', f'{float(r["mean_a"]):.4g}', f'{float(r["mean_b"]):.4g}',
+    if r['version'] != 'b' or r['field'] == 'Wcr_FRACT[2]':
+        continue
+    ra = fmean[(r['field'], r['region'], 'a')]
+    rows.append([r['field'], r['region'].replace('_', ' '), f'{int(r["cells"]):,}', f'{float(ra["mean"]):.4g}', f'{float(r["mean"]):.4g}',
                  pct(float(r['relative_change']), 2), pct(float(r['cells_changed_share']), 1), f'{float(r["max_abs_change"]):.3g}',
                  f'{float(r["p90_abs_change"]):.3g}'])
 fields_tab = table(['variable', 'region', 'active cells', 'mean a', 'mean b', 'change of the mean', 'cells changed', 'largest |b − a|', '90th percentile |b − a|'],
@@ -257,9 +261,9 @@ H.append(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta na
 <h2 id="fields">4. The parameter fields compared</h2>
 <p>Step <code>fields</code> of the analysis compares the two image-driver files directly. The global means barely move; the share of cells that change at all is 15 % for depth[2] (only the cells within 2 degrees of a depth edge) and 44–78 % for the baseflow parameters, whose blocks differ almost everywhere, by small amounts. West Siberia is the region of the largest depth contrast; the Alps have depth[2] = 2.5 m throughout, so only the baseflow parameters change there, and by less than 2 % of their means.</p>
 <div class="wrap">{fields_tab}</div>
-{img(f'{A}/figures/fields_depth_west_siberia.png', 'depth[2] West Siberia a, b, difference', 'Figure 3. depth[2] (m) in West Siberia: version-a, version-b and the difference b − a. The ramp across every former edge is 2 degrees wide and symmetric: cells on the deep side lose depth, cells on the shallow side gain it.')}
-{img(f'{A}/figures/fields_Ds_west_siberia.png', 'Ds West Siberia', 'Figure 4. Ds (fraction of Dsmax where non-linear baseflow begins) in West Siberia. The mixed blocks on the coast show as slight asymmetries in the difference.')}
-{img(f'{A}/figures/fields_Ds_alps.png', 'Ds Alps', 'Figure 5. Ds in the Alps: a patchwork of 2-degree values between 0.089 and 0.105 becomes a smooth field; the differences (right) are ±0.01 at most, with the block pattern still visible as the sign of the correction.')}
+{img(f'{A}/figures/fields_depth_west_siberia_b.png', 'depth[2] West Siberia a, b, difference', 'Figure 3. depth[2] (m) in West Siberia: version-a, version-b and the difference b − a. The ramp across every former edge is 2 degrees wide and symmetric: cells on the deep side lose depth, cells on the shallow side gain it.')}
+{img(f'{A}/figures/fields_Ds_west_siberia_b.png', 'Ds West Siberia', 'Figure 4. Ds (fraction of Dsmax where non-linear baseflow begins) in West Siberia. The mixed blocks on the coast show as slight asymmetries in the difference.')}
+{img(f'{A}/figures/fields_Ds_alps_b.png', 'Ds Alps', 'Figure 5. Ds in the Alps: a patchwork of 2-degree values between 0.089 and 0.105 becomes a smooth field; the differences (right) are ±0.01 at most, with the block pattern still visible as the sign of the correction.')}
 
 <h2 id="runs">5. The comparison runs</h2>
 <p>Two non-production campaigns, <code>soil-comparison-version-a</code> and <code>soil-comparison-version-b</code> (<code>configs/campaigns/</code>), identical except for the parameter set, run the historical <code>histsoc</code> segment for 2011–2020 from a cold start with the settings of the production campaign: VIC-WUR production build <code>a826251b</code>, D19 dam files, non-renewable groundwater withdrawal, D03 output list, 16 ranks × 8 threads. Each run took about 10 h 20 min (about 1 h per model year) and wrote 212 GB. The run checks (water balance of every active cell and month, GRDC station comparison, water-use budgets) passed for both.</p>
@@ -277,12 +281,12 @@ H.append(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta na
 <h2 id="maps">7. Maps: where the runs differ</h2>
 <p>The 2016–2020 means show the intended effect. In West Siberia the version-a layer-2 storage follows the depth edge as a staircase between 700 mm and 150 mm; in version-b the transition is a 2-degree ramp (figure 7). The difference map is a chain of paired bands: up to +300 mm on the former shallow side, up to −300 mm on the former deep side. Baseflow (figure 8) and the baseflow share (figure 9) change by up to ±30 mm/yr and ±0.07 along the same edges, and the block pattern that version-a imprinted on the baseflow share (figure 9, left: rectangles of 2 degrees) is gone. In the Alps (figure 10) the layer-2 storage changes by less than 0.01 mm and the baseflow by less than 0.1 mm/yr: with the depth unchanged, the smoothed baseflow parameters only redistribute the storage within the year.</p>
 <p>Globally (figure 11) the differences of baseflow lie along the block edges of the northern plains (Canada, Siberia), the Andes, the Sahel, East Asia and Australia; between the edges the runs are identical to within rounding.</p>
-{img(f'{A}/figures/runs_sm2_west_siberia.png', 'sm2 West Siberia', 'Figure 7. Layer-2 soil moisture (mm), mean 2016–2020, West Siberia: version-a, version-b, difference.')}
-{img(f'{A}/figures/runs_baseflow_west_siberia.png', 'baseflow West Siberia', 'Figure 8. Baseflow (mm/yr), mean 2016–2020, West Siberia.')}
-{img(f'{A}/figures/runs_baseflow_share_west_siberia.png', 'baseflow share West Siberia', 'Figure 9. Baseflow share of total runoff, mean 2016–2020, West Siberia. The 2-degree rectangles of version-a (left) come from the stepped baseflow parameters.')}
-{img(f'{A}/figures/runs_sm2_alps.png', 'sm2 Alps', 'Figure 10. Layer-2 soil moisture (mm), mean 2016–2020, the Alps: with depth[2] unchanged the differences (right, note the scale of ±0.01 mm) are negligible.')}
-{img(f'{A}/figures/runs_baseflow_global.png', 'baseflow global', 'Figure 11. Baseflow (mm/yr), mean 2016–2020, global: the differences follow the former block edges.')}
-{img(f'{A}/figures/runs_baseflow_share_global.png', 'baseflow share global', 'Figure 12. Baseflow share of total runoff, mean 2016–2020, global.')}
+{img(f'{A}/figures/runs_sm2_west_siberia_b.png', 'sm2 West Siberia', 'Figure 7. Layer-2 soil moisture (mm), mean 2016–2020, West Siberia: version-a, version-b, difference.')}
+{img(f'{A}/figures/runs_baseflow_west_siberia_b.png', 'baseflow West Siberia', 'Figure 8. Baseflow (mm/yr), mean 2016–2020, West Siberia.')}
+{img(f'{A}/figures/runs_baseflow_share_west_siberia_b.png', 'baseflow share West Siberia', 'Figure 9. Baseflow share of total runoff, mean 2016–2020, West Siberia. The 2-degree rectangles of version-a (left) come from the stepped baseflow parameters.')}
+{img(f'{A}/figures/runs_sm2_alps_b.png', 'sm2 Alps', 'Figure 10. Layer-2 soil moisture (mm), mean 2016–2020, the Alps: with depth[2] unchanged the differences (right, note the scale of ±0.01 mm) are negligible.')}
+{img(f'{A}/figures/runs_baseflow_global_b.png', 'baseflow global', 'Figure 11. Baseflow (mm/yr), mean 2016–2020, global: the differences follow the former block edges.')}
+{img(f'{A}/figures/runs_baseflow_share_global_b.png', 'baseflow share global', 'Figure 12. Baseflow share of total runoff, mean 2016–2020, global.')}
 
 <h2 id="grdc">8. Discharge at the GRDC stations</h2>
 <p>The run checks compare the simulated monthly climatology of 2012–2020 (the cold-start year excluded) with the observed climatology of 2001–2024 at {ga['stations_with_climatology']} GRDC stations with catchments of at least 10 000 km² (the model is driven by GCM climate, so only the climatology is comparable). Both runs overestimate the mean discharge by a third at the median station; version-b is marginally closer at every summary measure, and the stations improve a little more often than they worsen. The change at any single station is small: at 90 % of the stations the simulated mean changes by between −2.1 % and +0.2 %. The largest changes (up to −20 %) are at prairie and boreal-plain stations in Canada, where version-a has the sharpest depth[2] contrasts, and most of them move towards the observations.</p>

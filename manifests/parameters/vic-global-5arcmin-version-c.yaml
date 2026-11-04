@@ -1,0 +1,535 @@
+parameter_set_id: vic-global-5arcmin-version-c
+status: candidate
+adopted: false
+base_parameter_set: vic-global-5arcmin-version-a
+description: >-
+  VIC-WUR global 5 arcmin parameter set derived from vic-global-5arcmin-
+  version-a (task Z, user 2026-11-04) for the third soil comparison run: the
+  18 soil fields of the assembled version-a file replaced on the active cells
+  by the MPR soil candidate of vic_parameter
+  (nauta_mpr_reproduced_5m_image_driver_candidate_v2;
+  workflow/03_parameters/soil/adopt_soil_fields.py), the root zones of the
+  vegetation recomputed with the new layer depths
+  (workflow/03_parameters/vegetation/recompute_roots.py), the image-driver
+  file assembled from the soil and vegetation components
+  (workflow/03_parameters/bundle/). Domain, routing (with both
+  decompositions), irrigation, dams and water use are verified copies of the
+  version-a candidate components (workflow/03_parameters/copy_components.py),
+  identical file for file; the two adopted vic_parameter bundles of version-a
+  are not part of this set. The soil source carries
+  not_authorized_for_global_production=true: a promotion needs the user
+  acceptance of it.
+location: parameters/candidates/vic-global-5arcmin-version-c/
+candidate_location: parameters/candidates/vic-global-5arcmin-version-c/
+adopted_on: 2026-11-04
+copy:
+  from: parameters/candidates/vic-global-5arcmin-version-a
+  copied_by: workflow/03_parameters/copy_components.py
+  slurm_job: logs/03_parameters/copy-components-vic-global-5arcmin-version-c_43600676 (the record of the copy is in its output)
+components:
+  soil:
+    description: >-
+      Soil component (task Z, user 2026-11-04): every non-vegetation variable
+      of the assembled image-driver file of vic-global-5arcmin-version-a
+      copied bitwise, except the 18 soil fields expt, Ksat, bubble, quartz,
+      bulk_density, soil_density, depth, init_moist, max_moist, Wcr_FRACT,
+      Wpwp_FRACT, Wfc_FRACT, resid_moist, infilt, Ds, Dsmax, Ws and c, whose
+      values on the active cells (every layer) are the stored values of the
+      MPR soil candidate of vic_parameter, /lustre/nobackup/WUR/ESG/liu297/vic
+      _global/vic_parameter/candidates/soil/nauta_mpr_reproduced_5m_image_driv
+      er_candidate_v2/vic_global_5min_nauta_mpr_reproduced_image_driver_candid
+      ate_v2.nc (sha256 1f949aa37e4d..., product
+      nauta_mpr_reproduced_5m_candidate_v2 of 2026-09-06: SoilGrids 2017
+      through Cosby transfer functions and the multiscale parameter
+      regionalisation operators, Nijssen effective layer depths, D1-D4 of its
+      stage 2 with D2 = D1 and D4 = 2; a prior, not calibrated against
+      discharge). elev kept from version-a and equal to the source within 1e-6
+      m; phi_s, snow bands and the diagnostics of the version-a soil product
+      kept; cells outside the mask keep the version-a values. Area-weighted
+      global means version-a -> version-c: depth[2] 1.848 -> 4.539 m, Ds
+      0.1591 -> 0.08719, Dsmax 0.2289 -> 0.08719, Ws 50.97 -> 28.59 mm, c
+      1.457 -> 2, Wcr_FRACT[2] 0.594 -> 0.2788, max_moist[2] 801.7 -> 1930 mm.
+      Carries not_authorized_for_global_production=true of the source.
+      Generated, not adopted.
+    generated_by: workflow/03_parameters/soil/adopt_soil_fields.py
+    method_version: "1.0"
+    code_commit: bf16f712d835ccc9cbe97bac0bf0acd49b758097
+    created_at: 2026-11-04T12:26:08Z
+    sources:
+      base_bundle: parameters/candidates/vic-global-5arcmin-version-a/bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc (qc passed)
+      domain: parameters/candidates/vic-global-5arcmin-version-a/domain/vic_global_5min_domain_nogl.nc
+      soil_source: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/candidates/soil/nauta_mpr_reproduced_5m_image_driver_candidate_v2/vic_global_5min_nauta_mpr_reproduced_image_driver_candidate_v2.nc (sha256 1f949aa37e4d8c938d54a1971490ca7e2618017bad174a229a88bdd571ea0775)
+    files:
+      - path: soil/vic_global_5min_soil_mpr-reproduced.nc
+        size_bytes: 828460807
+        md5: 925d0c76d09408af86f83cac93ba5e0e
+        sha256: bb9274e41958da9708cfdd468295f3ecf5305d1fe055526d77c8f9c0d72d02cf
+      - path: soil/provenance.yaml
+    provenance: soil/provenance.yaml
+    slurm_job: logs/03_parameters/soil-component-vic-global-5arcmin-version-c_43600681
+    verification: >-
+      verify_adopted_soil.py (2026-11-04, 8 checks passed): grid and mask
+      bitwise equal to the base; every other natural variable bitwise
+      unchanged and the replaced fields unchanged outside the mask; the 18
+      fields bitwise equal to the source file on all 2188551 active cells
+      (source sha256 as recorded); elev within 1.7e-08 m of the base; the
+      source's closure (porosity, max_moist, init_moist, resid_moist, Wpwp <=
+      Wcr <= Wfc) and the VIC rules of vic_init.c (layer depths, NIJSSEN2001
+      conversion, expt, Ksat, bubble, quartz, infilt) hold on every active
+      cell.
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-c/soil
+  vegetation:
+    description: >-
+      16-class vegetation component with the land-use tile union: every
+      variable except root_depth and root_fract bitwise equal to the version-a
+      component, backfill_tiles.csv copied unchanged; root_depth and
+      root_fract of classes 1-10 and 13 recomputed with the layer depths of
+      the MPR soil component (Zeng 2001 cumulative distribution integrated
+      between the layer interfaces and normalised within the soil column, in
+      double precision, added tiles with the values of their donor); classes
+      11, 12, 14, 15 and 16 unchanged. With the deeper layer 2 of the MPR soil
+      most of the root mass of these classes lies in layer 2. Generated, not
+      adopted.
+    generated_by: workflow/03_parameters/vegetation/recompute_roots.py
+    method_version: "1.0"
+    code_commit: 703921bd93f8933b4359d66ff499061fa6571dec
+    created_at: 2026-11-04T12:59:47Z
+    sources:
+      base_vegetation: parameters/candidates/vic-global-5arcmin-version-a/vegetation/vic_global_5min_vegetation_16class_root-b-zeng2001.nc (qc passed)
+      soil_component: soil/vic_global_5min_soil_mpr-reproduced.nc
+      coefficients: workflow/03_parameters/vegetation/root_zeng2001_igbp.yaml
+    files:
+      - path: vegetation/vic_global_5min_vegetation_16class_root-b-zeng2001.nc
+        size_bytes: 2478786744
+        md5: 38c365f62c1c99424c844b6d08d95476
+        sha256: c0c3c0aaa1a9d6ba315016e998b1ad57e0aa933ae159a83f506ecc0f15752cf4
+      - path: vegetation/backfill_tiles.csv
+        size_bytes: 52751080
+        md5: 14e76b0a082fdc3aaa84be3aaf515bd9
+        sha256: 86ea4299c726b752f5cb351c391201e642720f9c1a3cc1bb687753f70a0609d4
+      - path: vegetation/provenance.yaml
+    provenance: vegetation/provenance.yaml
+    slurm_job: logs/03_parameters/vegetation-roots-vic-global-5arcmin-version-c_43600821
+    verification: >-
+      verify_roots.py (2026-11-04, 6 checks passed): every other variable and
+      backfill_tiles.csv bitwise equal to the version-a component; grid equal
+      to the soil component and the domain; root_depth equal to the layer
+      depths on every active cell and added tiles equal to their donor;
+      root_fract equal to the fractions recomputed independently, summing to 1
+      on every tile of classes 1-15, 0 for class 16; the land-use coverage
+      files the version-a QC checked are unchanged (same sha256) and recorded
+      as checked_files.
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-c/vegetation
+  bundle_16class_assembled:
+    component: bundle
+    description: >-
+      The image-driver parameter file VIC reads with PARAMETERS: every non-
+      vegetation variable of soil/vic_global_5min_soil_mpr-reproduced.nc and
+      every variable of vegetation/vic_global_5min_vegetation_16class_root-b-
+      zeng2001.nc, each copied bitwise (assemble_bundle.py --soil-component).
+      Generated, not adopted. The two adopted vic_parameter bundles of
+      version-a are not part of this set.
+    generated_by: workflow/03_parameters/bundle/assemble_bundle.py
+    method_version: "1.0"
+    code_commit: 703921bd93f8933b4359d66ff499061fa6571dec
+    created_at: 2026-11-04T13:30:08Z
+    sources:
+      soil_component: soil/vic_global_5min_soil_mpr-reproduced.nc
+      vegetation_component: vegetation/vic_global_5min_vegetation_16class_root-b-zeng2001.nc
+      domain: domain/vic_global_5min_domain_nogl.nc
+    files:
+      - path: bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc
+        size_bytes: 3305047657
+        md5: 359ab8e78c34b072fd56f9eae8acb2c4
+        sha256: 0443bc23ea8be5bdd3a517ac753a766ef483086e0dcfcfb5f39d8c9d13a6943c
+      - path: bundle/provenance.yaml
+    provenance: bundle/provenance.yaml
+    slurm_job: logs/03_parameters/parameter-bundle-vic-global-5arcmin-version-c_43601169
+    verification: >-
+      verify_bundle.py (2026-11-04, 7 checks passed): the variables VIC reads
+      present with the dimension order VIC reads; run_cell int and 1 exactly
+      on the domain mask; lat and lon equal the domain; vegetation variables
+      bitwise equal to the component and the other variables bitwise equal to
+      the soil component; Nveg <= tiles <= Nveg + 1 on all active cells;
+      overstory 0 or 1 on every tile; every soil and snow-band rule of
+      vic_init.c holds on all active cells.
+    qc_status: passed
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-c/bundle
+  domain:
+    adopted_from: vic-global-5arcmin-version-a
+    adopted_on: 2026-11-04
+    source: /lustre/nobackup/WUR/ESG/liu297/vic_coupled/Data/VIC/domain/global/vic_global_5min_domain_nogl.nc
+    source_mtime: 2025-04-17
+    files:
+      - path: domain/vic_global_5min_domain_nogl.nc
+        size_bytes: 87147802
+        md5: 8a50b807b83db364a3db0d23e1ed3849
+    verification: md5 of the copy equals md5 of the source (2026-09-29)
+    qc_notes_of_version_a: >-
+      2 188 551 active cells; grid equal to all 24 forcing units; area is the
+      WGS84 ellipsoidal cell area (max relative deviation 3.9e-7); frac 1 on
+      every active cell.
+    qc_status: not_checked
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-c/domain
+
+  routing:
+    adopted_from: vic-global-5arcmin-version-a
+    adopted_on: 2026-11-04
+    description: >-
+      Routing plugin parameters (ROUTING_PARAMETERS): unit hydrographs
+      uh_inflow and uh_runoff (time = 49 steps of 3600 s, hence
+      ROUT_STEPS_PER_DAY 24), downstream_id and downstream; 79 461 outlets.
+      vic_parameter routing release v1.0.0 of 2026-08-04. The copy was renamed
+      because version-like tokens are not allowed in the workdir; content
+      unchanged.
+    source: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/outputs/routing/v1.0.0_20260804/vic_global_5min_routing_v1.0.0_20260804.nc
+    source_version: v1.0.0_20260804
+    source_mtime: 2026-08-04
+    files:
+      - path: routing/vic_global_5min_routing.nc
+        size_bytes: 359530467
+        md5: 72f36113bb610887e7ab5f0aafc3ca64
+        sha256: 1bf32d0c8448b0d502ce721ca7101b6d86b84f527b2b0905438f1a6f88a64ce3
+      - path: routing/source_manifest.json
+        size_bytes: 18729
+        md5: b963ca3222f653803dddfd44a661b41c
+        source_name: manifest.json
+      - path: routing/source_SHA256SUMS
+        size_bytes: 377
+        md5: fa5154df9d78e67c1a1d550f1f5de5ad
+        source_name: SHA256SUMS
+    verification: >-
+      md5 of the copy equals md5 of the source and its sha256 equals the
+      source SHA256SUMS entry (2026-10-04); variable names, dimensions and
+      dtypes match the reader at VIC 39e21ff5 (rout_start.c, rout_init.c);
+      lat and lon equal the domain file exactly; active_mask equals the domain
+      mask and every downstream id is an active cell.
+    notes: >-
+      Reviewed outlet (user, 2026-10-24, task R): the Yangtze ends at
+      31.958N 120.208E near Jiangyin, about 160 km from the coast, because the
+      HydroSHEDS 30 arc-second network treats the estuary below Jiangyin as
+      sea; the estuary cells, land in the VIC mask, are separate outlets. The
+      same convention ends the Parana at the head of the Rio de la Plata.
+      Relevant for the dis outlet mapping of D07. The variable cell_area is a
+      spherical cell area (up to 0.87 % from the domain area); VIC does not
+      read it.
+    qc_notes_of_version_a: >-
+      Routing file only (the decomposition entry is not covered). 79 461
+      outlets, no loops, longest path 871 cells, all links to a neighbour (6
+      across the dateline); GRDC area error Obidos -0.1 %, Kinshasa +3.9 %,
+      Vicksburg -1.1 %, Datong -1.4 %.
+    qc_status: not_checked
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-c/routing
+
+  decomposition:
+    adopted_from: vic-global-5arcmin-version-a
+    adopted_on: 2026-11-04
+    component: routing
+    description: >-
+      DECOMPOSITION_PARAMETERS of the routing plugin with DECOMPOSITION FILE:
+      variable basin (lat, lon), 128 groups (values 0-127, largest 372 255
+      cells, smallest 2 525) that keep every routing, water-use receiving and
+      dam service link inside one group. VIC assigns whole groups to MPI ranks,
+      largest first, to the rank with the fewest cells (rout_decomposition.c);
+      with this file more than about 6 ranks shorten nothing and more than 128
+      ranks stay empty. Kept in the routing component because the routing
+      plugin reads it. The copy was renamed because version-like tokens are
+      not allowed in the workdir; content unchanged.
+    source: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/outputs/decomposition/v2.0.0_20260825/vic_global_5min_file_decomposition_wateruse_dams_v2.0.0_20260825.nc
+    source_version: v2.0.0_20260825
+    source_mtime: 2026-08-25
+    files:
+      - path: routing/vic_global_5min_file_decomposition_wateruse_dams.nc
+        size_bytes: 1441960
+        md5: 3636a51cf68a8915e05caddf384c9885
+        sha256: 79ab8a6fd4722430d21e4d8225257669462a9677274a41af1262a3cd014445cf
+    verification: >-
+      md5 of the copy equals md5 of the source (2026-10-04; the source
+      directory has no checksum list or manifest); basin matches the reader at
+      VIC 39e21ff5 (rout_decomposition.c); lat and lon equal the domain file
+      exactly; no fill on active cells; 0 routing and 0 water-use links cross
+      groups.
+    promotion: excluded
+    promotion_reason: >-
+      superseded by decomposition_isimip4b (task L3), which covers the D19
+      dams; not used by production runs.
+    qc_status: not_checked
+
+  decomposition_isimip4b:
+    adopted_from: vic-global-5arcmin-version-a
+    adopted_on: 2026-11-04
+    component: routing
+    description: >-
+      DECOMPOSITION_PARAMETERS of the routing plugin with DECOMPOSITION FILE
+      for the D19 dam files (dams_isimip4b): variable basin (lat, lon), 128
+      groups (values 0-127, largest 69 678 cells, the Amazon basin; smallest
+      3 154). The 79 461 routing basins joined wherever a water-use source
+      link (2 498 451) or a dam service link (108 461) connects them, without
+      a size limit, packed largest first into the group with the fewest
+      cells. The dam service maps never leave their basin; the water-use file
+      was built with its links limited to joined basins of at most 69 678
+      cells (vic_parameter, 15 897 candidate links left out then), so no link
+      of either file is lost and the largest rank holds 365 736 cells with 6
+      ranks, 137 937 with 16 and 69 678 with 32 or more. Generated, not
+      adopted.
+    generated_by: workflow/03_parameters/routing/build_decomposition.py
+    method_version: "1.0"
+    code_commit: f6d850ff5ae680010e31c54915ed5053b1643e40
+    created_at: 2026-10-30T12:55:21Z
+    sources:
+      domain: domain/vic_global_5min_domain_nogl.nc
+      routing: routing/vic_global_5min_routing.nc
+      water_use: water_use/vic_global_5min_wateruse_parameters_receiving-network.nc
+      dams: dams/vic_global_5min_dam_parameters_isimip4b_histsoc.nc (the 1850soc and 2021soc files hold the same service maps)
+    files:
+      - path: routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc
+        size_bytes: 557481
+        md5: 73c70b162e3d88c110b185a1193d386c
+        sha256: b8751f58d374a21195cb4b5746d0dcd091ad86894bc93c2a51027a3bc616d075
+      - path: routing/provenance.yaml
+    provenance: routing/provenance.yaml
+    verification: >-
+      verify_decomposition.py (2026-10-30), 6 checks passed: basin is int on
+      (lat, lon) and lat and lon equal the domain; every active cell in a
+      group 0-127, no empty group, fill -1 outside the domain; every cell in
+      the group of its downstream cell; every water-use source in the group of
+      its demander; every serviced cell in the group of its dam in the
+      histsoc, 1850soc and 2021soc dam files; file checksum and input md5
+      against this manifest. A scratch build of the same code before it
+      was committed (job 43521388) gave the same groups.
+    notes: >-
+      For campaigns that use the D19 dam files; the adopted decomposition
+      above stays with the T3_extended dam file of the smoke campaigns (with
+      the D19 dams it keeps every link too, but its largest group is 372 255
+      cells). Run speed and memory against the number of ranks are measured
+      in task L5.
+    qc_status: not_checked
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-c/routing/decomposition
+
+  irrigation:
+    adopted_from: vic-global-5arcmin-version-a
+    adopted_on: 2026-11-04
+    description: >-
+      Irrigation plugin parameters (IRRIGATION_PARAMETERS): irr_class 2 with
+      veg_class [14, 15] (irrigated non-paddy, irrigated paddy) and paddy
+      [0, 1]; groundwater_fraction and irrigation_efficiency (lat, lon),
+      efficiency 0.23-0.72 on active cells; no irrigation_offset, so
+      OFFSET_IRRIGATION must be FALSE. vic_parameter candidate v2 with
+      corrected efficiency. The copy was renamed because version-like tokens
+      are not allowed in the workdir; content unchanged.
+    source: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/outputs/human_impact/irrigation_parameter_candidate_v2_efficiency_corrected/irrigationParameters_5min_candidate_v2.nc
+    source_version: irrigation_parameter_candidate_v2_efficiency_corrected
+    source_mtime: 2026-08-18
+    files:
+      - path: irrigation/vic_global_5min_irrigation_parameters.nc
+        size_bytes: 1642417
+        md5: d44940e0747c5919a69414f44ba1f787
+        sha256: c1ff4e3deb906a57e802c2027d3fc84b84c20904be74b185abe8aa60aa61f4b8
+      - path: irrigation/source_README.md
+        size_bytes: 4403
+        md5: 0d52dd53c395ff5f3d3bf3d9b1f34303
+        source_name: README.md
+      - path: irrigation/source_SHA256SUMS
+        size_bytes: 108
+        md5: cfd492fac98dd1a1af2edebbd5fd6dae
+        source_name: SHA256SUMS
+    verification: >-
+      md5 of the copy equals md5 of the source and its sha256 equals the
+      source SHA256SUMS entry (2026-10-04); the sha256 quoted in the source
+      README (bf46766f...) is stale; variables match the reader at VIC
+      39e21ff5 (irr_start.c, irr_init.c); lat and lon equal the domain file
+      exactly.
+    qc_notes_of_version_a: >-
+      veg_class [14, 15], paddy [0, 1] (VIC sets the groundwater fraction of
+      class 15 to 0); efficiency 0.23-0.72 and groundwater_fraction 0-1 on
+      every active cell, no fill; no irrigation_offset, so runs need
+      OFFSET_IRRIGATION FALSE.
+    qc_status: not_checked
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-c/irrigation
+
+  dams:
+    adopted_from: vic-global-5arcmin-version-a
+    adopted_on: 2026-11-04
+    description: >-
+      Dam plugin parameters (DAMS_PARAMETERS), candidate T3_extended with the
+      57 two-dam cells merged into one dam each (vic_parameter T3_extended_v2):
+      7 925 dams, at most one per cell; id_map, id, Nservice (1-451), type,
+      year, capacity, inflow_fraction, service and service_fraction
+      (dam_class, lat, lon). A merged dam keeps the larger record's type,
+      year and inflow fraction, the summed capacity (total 6 641 176.9 hm3
+      unchanged) and the union of the two service maps, which were identical
+      for all 57 pairs. Chosen by the user on 2026-10-04 instead of
+      T3_extended because VIC 39e21ff5 sizes the dam output arrays for one
+      dam per cell (plugins/general/src/plugin_output.c:50) while
+      dam_put_data writes one element per dam (dam_output.c), which writes
+      past the array in cells with two dams. The copy was renamed because
+      version-like tokens are not allowed in the workdir; content unchanged.
+    source: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/outputs/human_impact/dam_parameter_candidate_v1/T3_extended_v2/dam_params_5min_T3_extended_v2.nc
+    source_version: dam_parameter_candidate_v1/T3_extended_v2
+    source_mtime: 2026-08-26
+    files:
+      - path: dams/vic_global_5min_dam_parameters_t3-extended-merged.nc
+        size_bytes: 5914694
+        md5: aa02526774e928282349c1b4897d8b0e
+        sha256: f0fb6ad5542c8b653b3ac1cc704d54cebb236a7d91899981e89de7844a9bd274
+      - path: dams/source_merge_manifest.json
+        size_bytes: 18211
+        md5: f06b2e2522fb1cd62559d8a9e3dcf3d2
+        source_name: merge_manifest_T3_extended_v2.json
+      - path: dams/source_qa_report.txt
+        size_bytes: 1072
+        md5: fb9538570bb8ada3938bb203a5b22687
+        source_name: qa_report_T3_extended_v2.txt
+    verification: >-
+      md5 of the copy equals md5 of the source (2026-10-04; the source
+      directory has no checksum list); variables match the reader at VIC
+      39e21ff5 (dam_start.c, dam_alloc_free.c, dam_init.c); lat and lon equal
+      the domain file exactly; id_map equals the routing downstream_id; every
+      dam id is found in id_map, on an active cell, one dam per cell. The
+      decomposition file was built from T3_extended; the merge changes no dam
+      cell and no service map. Service links across decomposition groups were
+      not checked (VIC drops such a link with a warning).
+    notes: >-
+      The unmerged T3_extended file (dam_params_5min_T3_extended.nc, md5
+      fee01d57b6df45419ef508a995694e38) was copied first on 2026-10-04 and
+      deleted from the set the same day with the user's approval, before any
+      run used it.
+    promotion: excluded
+    promotion_reason: >-
+      superseded by dams_isimip4b (D19, task L2); kept only for the smoke
+      campaigns.
+    qc_status: not_checked
+
+  dams_isimip4b:
+    adopted_from: vic-global-5arcmin-version-a
+    adopted_on: 2026-11-04
+    component: dams
+    description: >-
+      Dam plugin parameters (DAMS_PARAMETERS) of D19, one file per DHF
+      scenario (histsoc, 1850soc, 2021soc), identical except for year: the
+      7 331 ISIMIP4b histsoc dams located with GDW v1.0 (7 285 dams after
+      one-dam-per-cell merges and one dam outside the domain) plus 717 SSP
+      future river-power dams, 8 002 dams in all, snapped on the routing of
+      this set; 1 557 local and 6 445 global; service maps traced on the mean
+      monthly discharge 1992-2021 of the natural run (5 368 dams with a
+      service map, 108 461 service cells; Nservice 0 for 2 634 dams: global
+      dams without a supply purpose and every SSP future dam). year: histsoc
+      the ISIMIP YEAR, SSP future dams 9999; 1850soc 0 for YEAR <= 1850, else
+      9999; 2021soc 0 for historical dams, 9999 for future dams. The dam list
+      and the source table record every dam and every source record.
+      Generated, not adopted.
+    generated_by: workflow/03_parameters/dams/build_dams.py
+    method_version: "1.0"
+    code_commit: c327675bd6f3c5a68cfe9735b5ff8eacdc123765
+    created_at: 2026-10-30T11:26:36Z
+    sources:
+      isimip4b_dams: raw/ISIMIP4b/InputData/socioeconomic/reservoirs_dams/{histsoc/reservoirs-dams_1850_2021.xlsx,ssp1vlsoc-noadapt,ssp3hsoc-noadapt} (manifests/inputs/isimip4b-dkrz-2026-09-21/MD5SUMS)
+      gdw: raw/external/global-dam-watch/1.0/GDW_v1_0_shp/GDW_barriers_v1_0.* (manifests/inputs/global-dam-watch.yaml)
+      domain: domain/vic_global_5min_domain_nogl.nc
+      routing: routing/vic_global_5min_routing.nc
+      discharge_run: runs/natural-run/ec-earth3-esm-1-1_historical_histsoc_default_historical__natural1850-2021 (routing and landuse only; monthly OUT_DISCHARGE 1992-2021)
+      decisions: workflow/03_parameters/dams/dam_decisions.yaml
+    files:
+      - path: dams/vic_global_5min_dam_parameters_isimip4b_histsoc.nc
+        size_bytes: 5355128
+        md5: cd6fea510880fe60b6622c785b176980
+        sha256: 9ca0b5153583983147214b1a633a0834c9b71515fe8d6b2600af85bf360481ee
+      - path: dams/vic_global_5min_dam_parameters_isimip4b_1850soc.nc
+        size_bytes: 5349825
+        md5: 14149f5b69a54034e3494ebe5bb3683b
+        sha256: 2b8f014ed19415d275c66340c043e36fbe3faeb016491ea912090993d7283967
+      - path: dams/vic_global_5min_dam_parameters_isimip4b_2021soc.nc
+        size_bytes: 5348859
+        md5: 8d4b7f2a72362cac25b60af765904716
+        sha256: 564c44f6d472b1e5674e8950ac59f9ebe6443255f6baafcd187c4933adea042b
+      - path: dams/dam_list_isimip4b.csv
+        size_bytes: 2839690
+        md5: fdc0d445e6dc693d001c5f26b4eca056
+        sha256: 3e4b751666fd85340b55b821929f656fa82bafcba72f36f2262619c278fa10f7
+      - path: dams/dam_sources_isimip4b.csv
+        size_bytes: 1518067
+        md5: ec8137b466056828a5be21f858b9dbe2
+        sha256: b281d8edb1aac7572b86c7611ecaed47fce53d4dc3da031f9a6f5765d0186d70
+      - path: dams/review_pairs.csv
+        size_bytes: 25423
+        md5: 3a7f2cb2bf77a5a0bb2c70b4539df260
+        sha256: 8302c7c0cdcbce6cfadea78ed4970752cbc9e21f1d2e608d2c369c60ac4169bb
+      - path: dams/mean_discharge_natural.nc
+        size_bytes: 7768694
+        md5: bc13cc1e09c09036231a95d573cdea0a
+        sha256: 561ec3eb15f8568d5ca625f4b5eec2ffa31438f3a1b54811ad56daa005b72e22
+      - path: dams/provenance.yaml
+    provenance: dams/provenance.yaml
+    verification: >-
+      verify_dams.py (2026-10-30), 9 checks passed: variables, dimensions and
+      dtypes the reader of VIC 39e21ff5 expects; the three files hold the
+      same dams (id, type, cell, capacity, service map) and differ only in
+      year as the D19 rules give; one dam per active cell; local and global
+      types from catchment and cell area; each service map retraced from the
+      mean discharge; the review choices recomputed from their evidence; the
+      dam list matches the files; the capacities and dams of the sources are
+      accounted for. A scratch build from the same inputs (job 43518394)
+      gave byte-identical tables.
+    notes: >-
+      Candidate under D01 (frozen 2026-10-28). The decomposition file of the
+      set (routing, entry decomposition) was built for T3_extended; whether
+      it keeps every service link of these files is checked with the new
+      decomposition (task L3). Files for extrasoc wait for D06.
+    qc_status: not_checked
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-c/dams
+
+  water_use:
+    adopted_from: vic-global-5arcmin-version-a
+    adopted_on: 2026-11-04
+    description: >-
+      Water-use plugin parameters (WATERUSE_PARAMETERS), receiving network:
+      Nreceiving and receiving_id (lat, lon) and receiving (wu_receiving = 6,
+      lat, lon), read only with REMOTE_WITHDRAWAL TRUE; Nreceiving up to 446,
+      2 498 451 links. vic_parameter water_use/receiving_network release
+      v1.0.0 of 2026-08-17. The copy was renamed because version-like tokens
+      are not allowed in the workdir; content unchanged.
+    source: /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/outputs/water_use/receiving_network/v1.0.0_20260817/vic_global_5min_wateruse_params_v1.0.0_20260817.nc
+    source_version: v1.0.0_20260817
+    source_mtime: 2026-08-17
+    files:
+      - path: water_use/vic_global_5min_wateruse_parameters_receiving-network.nc
+        size_bytes: 11740480
+        md5: 09c72838f8521a807aa1e10f6c5edff4
+        sha256: 8e20c3f79db2bc9e8ae8c0cc8d0bd0c31521e68df9d9dbf481b3c37c78052a9b
+      - path: water_use/source_manifest.json
+        size_bytes: 2290
+        md5: 0f2b82aedce05e04ea998cdbf3d1e7ca
+        source_name: manifest_v1.0.0_20260817.json
+      - path: water_use/source_qa_summary.json
+        size_bytes: 1328
+        md5: be03aa3d8fb56483d06c15ada9af8f89
+        source_name: qa_summary_v1.0.0_20260817.json
+      - path: water_use/source_SHA256SUMS
+        size_bytes: 359
+        md5: 431a24be991dfb8ee5e6761918b94fd2
+        source_name: SHA256SUMS
+      - path: water_use/source_README.md
+        size_bytes: 4142
+        md5: 700df212796bf86fbe73c721b19be392
+        source_name: README.md
+    verification: >-
+      md5 of the copy equals md5 of the source and its sha256 equals the
+      source SHA256SUMS entry (2026-10-04); variables match the reader at VIC
+      39e21ff5 (wu_start.c, wu_alloc_free.c, wu_init.c); lat and lon equal the
+      domain file exactly; receiving_id equals the routing downstream_id; no
+      self-links; 0 links cross decomposition groups.
+    notes: >-
+      The file and its README name a decomposition file of the same release
+      (vic_global_5min_file_decomposition_wateruse_v1.0.0_20260817.nc); the
+      campaign uses the later decomposition that also covers dams (component
+      routing, entry decomposition).
+    qc_notes_of_version_a: >-
+      2 498 451 links resolved, Nreceiving equal to the counted demanders on
+      every cell (max 446), the routing order with water use has no loop;
+      2 489 462 search links within 26.2 km (limit 50 km, 2 cells), 8 989 delta
+      links (supplier = own outlet, up to 330 km; the source QA counts 8 934).
+      The file has no fraction variable: fraction check not applicable.
+    qc_status: not_checked
+    qc_evidence: qc/parameters/candidates/vic-global-5arcmin-version-c/water_use
