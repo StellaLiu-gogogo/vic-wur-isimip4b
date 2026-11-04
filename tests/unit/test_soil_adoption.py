@@ -38,7 +38,7 @@ L3 = {'depth': (0.3, 1.0, 0.5), 'bulk_density': (1300.0, 1350.0, 1400.0), 'soil_
       'expt': (10.0, 11.0, 12.0), 'Ksat': (100.0, 80.0, 60.0), 'bubble': (20.0, 22.0, 24.0), 'quartz': (0.4, 0.4, 0.3),
       'Wcr_FRACT': (0.3, 0.3, 0.3), 'Wpwp_FRACT': (0.2, 0.2, 0.2), 'Wfc_FRACT': (0.4, 0.4, 0.4), 'resid_moist': (0.03, 0.03, 0.03)}
 L2 = {'Ds': 0.1, 'Dsmax': 0.1, 'Ws': 20.0, 'c': 2.0, 'infilt': 0.2, 'elev': 500.0, 'avg_T': 8.0}
-NATURAL = ['run_cell', 'elev', 'phi_s', 'avg_T', 'depth', 'bulk_density', 'soil_density', 'max_moist', 'init_moist',
+NATURAL = ['run_cell', 'nlayer', 'elev', 'phi_s', 'avg_T', 'depth', 'bulk_density', 'soil_density', 'max_moist', 'init_moist',
            'expt', 'Ksat', 'bubble', 'quartz', 'Wcr_FRACT', 'Wpwp_FRACT', 'Wfc_FRACT', 'resid_moist',
            'Ds', 'Dsmax', 'Ws', 'c', 'infilt']
 
@@ -62,6 +62,8 @@ def write_file(path, values, names, extra_attrs=None, fill_inactive=True):
         for n in names:
             if n == 'run_cell':
                 d.createVariable(n, 'i4', ('lat', 'lon'), fill_value=0)[:] = MASK; continue
+            if n == 'nlayer':                         # a 1-d coordinate variable among the natural variables
+                d.createVariable(n, 'i4', ('nlayer',))[:] = [1, 2, 3]; continue
             x = values[n]; dims = ('nlayer', 'lat', 'lon') if x.ndim == 3 else ('lat', 'lon')
             v = d.createVariable(n, 'f8', dims, fill_value=FILL)
             y = x.copy()
@@ -137,7 +139,7 @@ class EndToEndTest(unittest.TestCase):
                     mm = np.broadcast_to(m, xo.shape)
                     self.assertTrue(np.array_equal(xo[mm], xe[mm]), v)
                     self.assertTrue(np.array_equal(xo[~mm], xb[~mm]), v)       # inactive cells keep the base fill
-                for v in ('avg_T', 'elev', 'phi_s', 'run_cell'):
+                for v in ('avg_T', 'elev', 'phi_s', 'run_cell', 'nlayer'):
                     self.assertTrue(np.array_equal(o[v][:], b[v][:]), v)         # kept bitwise, avg_T of ext not used
                 self.assertEqual(o.getncattr('not_authorized_for_global_production'), 'true')
                 self.assertEqual(o.getncattr('soil_source_product_id'), 'synthetic')

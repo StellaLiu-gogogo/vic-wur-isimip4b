@@ -198,8 +198,9 @@ def main():
     checks['global_means'] = {'note': 'report only', 'by_field': gm, 'status': 'passed'}
     tpl = {}
     for v in natural:
-        if v in fields or v not in ext.variables or ext[v].dimensions != base[v].dimensions:
-            continue
+        if v in fields or v not in ext.variables or ext[v].dimensions != base[v].dimensions \
+                or base[v].dimensions[-2:] != ('lat', 'lon'):
+            continue                                    # nlayer and snow_band are 1-d coordinate variables
         xs = active_values(ext, v, mask); xb = active_values(base, v, mask); mm = np.broadcast_to(mask, xs.shape)
         with np.errstate(invalid='ignore'):
             d = np.abs(xs - xb)[mm]

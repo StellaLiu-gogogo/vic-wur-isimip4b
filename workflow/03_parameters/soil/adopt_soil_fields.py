@@ -140,8 +140,8 @@ def main():
     # ---- the external file's other variables, reported only
     template = {}
     for v in natural:
-        if v in FIELDS or v not in ext.variables:
-            continue
+        if v in FIELDS or v not in ext.variables or src[v].dimensions[-2:] != ('lat', 'lon'):
+            continue                                    # nlayer and snow_band are 1-d coordinate variables
         if ext[v].dimensions != src[v].dimensions:
             template[v] = {'dimensions_differ': True}; continue
         x = sm.as_nan(*sm.stored(ext, v)); b = sm.as_nan(*sm.stored(src, v)); m = np.broadcast_to(mask, x.shape)
