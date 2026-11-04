@@ -1,5 +1,6 @@
 #!/bin/bash
-# Slurm job template for the soil component producer and verifier (workflow/03_parameters/soil/).
+# Slurm job template for a soil component producer and its verifier (workflow/03_parameters/soil/:
+# smooth_calibration_fields.py with verify_soil.py, or adopt_soil_fields.py with verify_adopted_soil.py).
 # Rendered by submit_soil.py; the rendered copy is kept as job.sbatch in the job record
 # logs/03_parameters/<job-name>_<slurm-job-id>/. Placeholders are upper-case names in double braces.
 #SBATCH --job-name={{JOB_NAME}}
@@ -29,8 +30,8 @@ cd {{REPO}}
 echo "host $(hostname), start $(date -u +%Y-%m-%dT%H:%M:%SZ), commit $(git rev-parse HEAD)"
 
 if [ "{{RUN_PRODUCER}}" = yes ]; then
-    /usr/bin/time -v python3 workflow/03_parameters/soil/smooth_calibration_fields.py {{PRODUCER_ARGS}}
+    /usr/bin/time -v python3 workflow/03_parameters/soil/{{PRODUCER}} {{PRODUCER_ARGS}}
 fi
-/usr/bin/time -v python3 workflow/03_parameters/soil/verify_soil.py {{VERIFIER_ARGS}}
+/usr/bin/time -v python3 workflow/03_parameters/soil/{{VERIFIER}} {{VERIFIER_ARGS}}
 
 echo "end $(date -u +%Y-%m-%dT%H:%M:%SZ)"

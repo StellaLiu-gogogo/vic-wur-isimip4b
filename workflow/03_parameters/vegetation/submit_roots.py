@@ -62,7 +62,7 @@ def main():
         'resources': {'partition': a.partition, 'time': a.time, 'cpus_per_task': 1, 'mem': a.mem},
         'commands': {'producer': None if a.verify_only else f'python3 {rr.CREATED_BY} {producer}',
                      'verifier': f'python3 workflow/03_parameters/vegetation/verify_roots.py {verifier}'},
-        'inputs': [f'{base}/{bv.OUT_NAME}', f'{base}/{rr.CSV}', f'{base}/provenance.yaml', f'{soil}/{rr.SOIL.split("/")[1]}',
+        'inputs': [f'{base}/{bv.OUT_NAME}', f'{base}/{rr.CSV}', f'{base}/provenance.yaml', f'{soil}/{os.path.basename(rr.soil_file(f"{W}/{soil}"))}',
                    'workflow/03_parameters/vegetation/root_zeng2001_igbp.yaml'] + [f'forcing/landuse/{s}' for s in bv.SOC],
         'outputs': [os.path.relpath(out, W)],
         'qc': os.path.relpath(f'{out}/qc', W) if to_scratch else f'{rr.SCRATCH}/verify-uncommitted/qc/{rel_obj}' if dirty

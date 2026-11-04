@@ -16,7 +16,7 @@ Classification: production workflow code (user, 2026-10-01).
 | `verify_vegetation.py` | independent verification; writes `summary.json`, `reports/verify.json`, `figures/added_tiles.png` under `qc/parameters/<status>/<set>/vegetation/` and sets `qc.status` in `provenance.yaml` |
 | `vegetation_component.sbatch` | Slurm template: producer, then verifier, in one job |
 | `submit_vegetation_component.py` | renders and submits the job, job record under `logs/03_parameters/<job-name>_<slurm-job-id>/` |
-| `recompute_roots.py` | producer of the vegetation component of a set whose soil differs from the base set (task Z): every variable copied bitwise from the base component, `root_depth` and `root_fract` recomputed with the layer depths of the set's soil component (`root_zeng2001_igbp.yaml`) |
+| `recompute_roots.py` | producer of the vegetation component of a set whose soil differs from the base set (task Z): every variable copied bitwise from the base component, `root_depth` and `root_fract` recomputed with the layer depths of the set's soil component (`root_zeng2001_igbp.yaml`; the component file named in the soil provenance: smoothed or adopted soil) |
 | `verify_roots.py` | independent verification of such a component (bitwise copy, root rule, donors, reproduction of the base component after float32 rounding, land-use files of the base QC unchanged); writes `qc/parameters/<status>/<set>/vegetation/` with `checked_files` for `render_run.py` |
 | `root_zeng2001_igbp.yaml` | the Zeng (2001) coefficients per class and the classes whose root zones do not depend on the soil |
 | `roots.sbatch`, `submit_roots.py` | Slurm template and submit script of the root recomputation (producer, then verifier) |

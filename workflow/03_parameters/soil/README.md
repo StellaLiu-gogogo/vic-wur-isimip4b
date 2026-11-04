@@ -13,10 +13,12 @@ Classification: production workflow code of `03_parameters` (user, 2026-11-02).
 |---|---|
 | `smooth_calibration_fields.py` | producer: block values, fill of empty blocks, bilinear interpolation, `max_moist[2]` and `init_moist[2]`; writes the component file, `calibration_blocks.csv`, `provenance.yaml` and `qc/.../reports/build_report.json` |
 | `verify_soil.py` | independent verification; writes `summary.json`, `reports/verify.json` and `figures/` under `qc/parameters/<status>/<set>/soil/` and sets `qc.status` in `provenance.yaml` |
-| `soil.sbatch` | Slurm template: producer, then verifier, in one job |
-| `submit_soil.py` | renders and submits the job, job record under `logs/03_parameters/<job-name>_<slurm-job-id>/` |
+| `adopt_soil_fields.py` | producer of a soil component whose soil fields come from an external VIC parameter file (`--soil-source`, `--soil-label`; task Z, MPR comparison): the 18 soil fields replaced on the active cells, everything else bitwise from the base bundle; writes `vic_global_5min_soil_<label>.nc`, `provenance.yaml` and `qc/.../reports/build_report.json` |
+| `verify_adopted_soil.py` | independent verification of such a component (bitwise copy, the replaced fields against the external file, elev, the external soil's closure, the VIC rules); writes `summary.json`, `reports/verify.json` and `figures/` under `qc/parameters/<status>/<set>/soil/` |
+| `soil.sbatch` | Slurm template: producer, then verifier, in one job (either pair) |
+| `submit_soil.py` | renders and submits the job, job record under `logs/03_parameters/<job-name>_<slurm-job-id>/`; with `--soil-source FILE --soil-label LABEL` the adoption pair |
 
-Tests: `tests/unit/test_soil_smoothing.py`. Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary
+Tests: `tests/unit/test_soil_smoothing.py`, `tests/unit/test_soil_adoption.py`. Shared helpers (workdir, checksums, Git state, `provenance.yaml`, QC summary
 and verifier exit status, job records) come from `workflow/common/`; the bitwise variable copy is the one of
 `bundle/assemble_bundle.py`.
 
@@ -66,6 +68,40 @@ else, the grid and the mask are bitwise unchanged. Reported only: the block mean
 the block values and the share of the variance within 0.5-degree blocks. Figures: `depth[2]` and `Ds` of the
 base and smoothed for West Siberia (58–66 N, 78–90 E) and the Alps (42–50 N, 2–14 E), and the global `depth[2]`.
 
+## Soil fields adopted from an external file (version 1.0, user 2026-11-04)
+
+`vic-global-5arcmin-version-c` takes its soil from the MPR candidate of vic_parameter
+(`candidates/soil/nauta_mpr_reproduced_5m_image_driver_candidate_v2/`, 2026-09-06: SoilGrids 2017 through Cosby
+transfer functions and the multiscale parameter regionalisation operators on the 5-arcmin grid, the Nijssen
+effective layer depths, the D1–D4 of its stage 2) for a third 10-year comparison run against version-a and
+version-b (`analysis/soil-comparison/`). That file is a complete VIC parameter file whose non-soil variables come
+from the legacy global parameter file, not from version-a, so only its soil fields are taken:
+
+1. `adopt_soil_fields.py` copies every natural variable of the base bundle bitwise and replaces, on the active
+   cells and in every layer, `expt`, `Ksat`, `bubble`, `quartz`, `bulk_density`, `soil_density`, `depth`,
+   `init_moist`, `max_moist`, `Wcr_FRACT`, `Wpwp_FRACT`, `Wfc_FRACT`, `resid_moist`, `infilt`, `Ds`, `Dsmax`, `Ws`
+   and `c` by the stored values of the external file (double precision, nothing recomputed). `elev` is kept from the
+   base and must equal the external file's within 1e-6 m (the soil belongs to this elevation); `phi_s` (a zero
+   compatibility field in the external file), the snow bands, `run_cell` and the diagnostics of the base soil
+   product are kept; cells outside the domain mask keep the base values. The restriction attributes of both
+   files (`not_authorized_for_global_production`, `product_stage`) are carried into the component and its
+   provenance, so a promotion of the set needs the user's acceptance of them.
+2. `verify_adopted_soil.py` checks the grid, the bitwise copy (every other natural variable, and the replaced
+   fields outside the mask), the replaced fields bitwise against the external file (its sha256 as recorded), `elev`,
+   the external soil's own closure (porosity in (0, 1), `max_moist = depth × porosity × 1000` within 1e-6,
+   `0 ≤ init_moist ≤ max_moist`, `resid_moist` below the porosity, `Wpwp ≤ Wcr ≤ Wfc ≤ 1`) and the VIC rules of
+   `vic_init.c` (layer depths, the NIJSSEN2001 conversion, `expt > 3`, `Ksat`, `bubble`, `infilt > 0`, `quartz`
+   in [0, 1]). Reported only: the area-weighted global means of every replaced field in the base and the
+   component, and which other variables of the base the external file holds with different values. Figures:
+   `depth[2]`, `Ds` and `Wcr_FRACT[2]` of the base and adopted for West Siberia and the Alps, the global `depth[2]`.
+3. The root zones follow in `vegetation/recompute_roots.py`, which takes the component file named in the soil
+   provenance (either file name); the bundle is assembled with `--soil-component vic_global_5min_soil_<label>.nc`.
+
+The MPR soil differs from version-a in kind, not only in detail (its delivery note of 2026-09-06): the depth of
+layer 2 is 5 m on most cells (mean 4.4 m against 1.72 m), `Ds` equals `Dsmax` (the historical stage-2 expression),
+`c` is 2 everywhere, `Ws` is about half, and `Wcr_FRACT` comes from the 100 kPa retention (0.26 against 0.58). It
+is a prior, not calibrated against discharge.
+
 ## Running
 
 ```bash
@@ -74,6 +110,9 @@ export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
 export PYTHONPATH=$PWD/workflow
 python3 workflow/03_parameters/soil/submit_soil.py --scratch   # test, scratch/soil-component/soil/
 python3 workflow/03_parameters/soil/submit_soil.py             # candidate component of vic-global-5arcmin-version-b
+python3 workflow/03_parameters/soil/submit_soil.py --parameter-set vic-global-5arcmin-version-c \
+    --soil-source /lustre/nobackup/WUR/ESG/liu297/vic_global/vic_parameter/candidates/soil/nauta_mpr_reproduced_5m_image_driver_candidate_v2/vic_global_5min_nauta_mpr_reproduced_image_driver_candidate_v2.nc \
+    --soil-label mpr-reproduced                                # adopted soil component of vic-global-5arcmin-version-c
 ```
 
 One core, about 20 GB and half an hour (the copy writes about 2 GB). From a repository that is not clean, or with

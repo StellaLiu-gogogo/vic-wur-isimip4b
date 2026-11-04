@@ -47,7 +47,18 @@ CREATED_BY = 'workflow/03_parameters/vegetation/recompute_roots.py'
 METHOD_VERSION = '1.0'
 COEFFICIENTS = os.path.join(HERE, 'root_zeng2001_igbp.yaml')
 SCRATCH = 'scratch/vegetation-roots'
-SOIL = f'soil/{sm.OUT_NAME}'
+SOIL = f'soil/{sm.OUT_NAME}'          # default; the file named in the soil component's provenance wins (soil_file)
+
+
+def soil_file(soil_dir):
+    """The one NetCDF file of the soil component named by its provenance.yaml (smoothed or adopted soil), else the
+    default name."""
+    p = f'{soil_dir}/provenance.yaml'
+    if os.path.isfile(p):
+        files = [f['path'] for f in provenance.read(p).get('files', []) if str(f.get('path', '')).endswith('.nc')]
+        if len(files) == 1:
+            return f'{soil_dir}/{os.path.basename(files[0])}'
+    return f'{soil_dir}/{sm.OUT_NAME}'
 CSV = 'backfill_tiles.csv'
 
 
@@ -127,7 +138,7 @@ def main():
     elif os.path.exists(out) and os.listdir(out):
         raise SystemExit(f'{out} exists and is not empty; a component is replaced only with the user\'s authorization')
     f_base, f_csv, f_bprov = f'{base_dir}/{bv.OUT_NAME}', f'{base_dir}/{CSV}', f'{base_dir}/provenance.yaml'
-    f_soil, f_sprov = f'{soil_dir}/{sm.OUT_NAME}', f'{soil_dir}/provenance.yaml'
+    f_soil, f_sprov = soil_file(soil_dir), f'{soil_dir}/provenance.yaml'
     for p in (f_base, f_csv, f_bprov, f_soil, f_sprov):
         if not os.path.isfile(p):
             raise SystemExit(f'missing input {p}')
