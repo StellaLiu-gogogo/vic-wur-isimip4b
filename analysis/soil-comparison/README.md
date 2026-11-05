@@ -1,35 +1,38 @@
-# Soil comparison: version-a against version-b (task Z)
+# Soil comparison: version-a against version-b and version-c (task Z)
 
 **Question.** Does smoothing the five 2-degree calibration fields of the soil (`depth[2]`, `Ds`, `Dsmax`, `Ws`, `c`;
 parameter set `vic-global-5arcmin-version-b`, `workflow/03_parameters/soil/`) remove the 2-degree steps from the
 simulated layer-2 soil moisture, baseflow and discharge without changing the global water balance or the discharge
-at the GRDC stations for the worse, so that version-b can replace version-a in the production campaign?
+at the GRDC stations for the worse, so that version-b can replace version-a in the production campaign? Added
+2026-11-04 (user): what does the MPR soil candidate of vic_parameter (`vic-global-5arcmin-version-c`, every soil field
+replaced, `workflow/03_parameters/soil/adopt_soil_fields.py`) do to the same run?
 
 **Classification.** Analysis (user, 2026-11-02): the figures and tables are the basis of the decision whether to
 promote version-b and change `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml`; no workflow stage reads them.
 
-**Status.** done 2026-11-04 (analysis complete, conclusion below); the promotion of version-b is the user's decision.
+**Status.** done 2026-11-05 (three sets compared, conclusion below); which set to promote is the user's decision.
 
-**Runs.** Campaigns `soil-comparison-version-a` and `soil-comparison-version-b` (`configs/campaigns/`, non-production,
-identical except for the parameter set): the historical `histsoc` segment of `h_ssp3hsoc-noadapt_default`, 2011-2020,
+**Runs.** Campaigns `soil-comparison-version-a`, `soil-comparison-version-b` and `soil-comparison-version-c`
+(`configs/campaigns/`, non-production, identical except for the parameter set): the historical `histsoc` segment of `h_ssp3hsoc-noadapt_default`, 2011-2020,
 cold start, one chunk, with the settings of the production campaign (VIC-WUR `a826251b` production build, D19 dam
 files, non-renewable withdrawal, D03 outputs, 16 ranks × 8 threads). Runs
-`runs/soil-comparison-version-{a,b}/ec-earth3-esm-1-1_historical_histsoc_default_historical__years-2011-2020`, with
-their run checks under `qc/runs/soil-comparison-version-{a,b}/<run-id>/` (water balance, GRDC stations). The years
+`runs/soil-comparison-version-{a,b,c}/ec-earth3-esm-1-1_historical_histsoc_default_historical__years-2011-2020`, with
+their run checks under `qc/runs/soil-comparison-version-{a,b,c}/<run-id>/` (water balance, GRDC stations). The years
 2011-2015 settle the cold start (the smoothed layer-2 storage starts from `init_moist` at the version-a ratio); the
 maps and the station comparison use 2016-2020, the series the whole period.
 
 **Inputs** (paths relative to the workdir):
 
 - `parameters/production/vic-global-5arcmin-version-a/bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc`
-  and `parameters/candidates/vic-global-5arcmin-version-b/bundle/...` (the two image-driver files), the domain file;
-- the monthly output of the two runs (`OUT_SOIL_MOIST`, `OUT_BASEFLOW`, `OUT_RUNOFF`, `OUT_EVAP`, `OUT_DISCHARGE`,
+  and `parameters/candidates/vic-global-5arcmin-version-{b,c}/bundle/...` (the image-driver files), the domain file;
+- the monthly output of the runs (`OUT_SOIL_MOIST`, `OUT_BASEFLOW`, `OUT_RUNOFF`, `OUT_EVAP`, `OUT_DISCHARGE`,
   `OUT_WATER_ERROR`) and the run checks (`reports/check.json`, `reports/grdc_stations.csv`).
 
 **Outputs.** `workdir/analysis/soil-comparison/{tables,figures,logs}/` and the report `workdir/analysis/soil-comparison/report.html`
 (`make_report.py`: method, QC numbers, tables and figures in one page, figures embedded).
 
-**Method** (`soil_comparison.py`, one Slurm job per step, `--submit`):
+**Method** (`soil_comparison.py`, one Slurm job per step, `--submit`; `--versions a b c` selects the sets, version-a
+is the reference; the tables hold one row or column per set, the figures one file per set):
 
 1. `fields`: area-weighted global and regional means of the seven changed variables and of the layer-2 root fraction
    of the grassland class in both files, the share of cells that changed and the size of the change; difference maps
@@ -46,14 +49,18 @@ maps and the station comparison use 2016-2020, the series the whole period.
 ```bash
 conda activate isimip4b
 export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
-python3 analysis/soil-comparison/soil_comparison.py --step fields --submit
-python3 analysis/soil-comparison/soil_comparison.py --step runs --submit     # after both run checks have finished
+python3 analysis/soil-comparison/soil_comparison.py --step fields --versions a b c --submit
+python3 analysis/soil-comparison/soil_comparison.py --step runs --versions a b c --submit   # after the run checks
+python3 analysis/soil-comparison/make_report.py
 ```
 
 Jobs: `fields` 43553379 (2026-11-03); `runs` 43586550 (2026-11-04; the first attempt 43585332 wrote every table and figure but
 failed on a numpy integer in `run_checks.json`, fixed). Run checks used: 43569306 (a) and 43569307 (b), both passed (the first
 pair 43551799/43553342 passed with the same numbers but was recorded under `scratch/run-check/uncommitted/` because this
-analysis directory was still uncommitted when they ran).
+analysis directory was still uncommitted when they ran). Three sets (2026-11-05): `fields` 43610880 (31 s), `runs`
+43617981 (11 min, 22 GB); run check of version-c 43610874 passed (the first check 43602435 passed with the same numbers
+but was recorded under `scratch/run-check/uncommitted/` for the same reason). `make_report.py` builds part II of the
+report from the same tables when version-c is in them.
 
 **Conclusion** (2026-11-04). The smoothing does what it was designed to do and nothing else; version-b can replace version-a.
 
@@ -74,5 +81,25 @@ analysis directory was still uncommitted when they ran).
 - Water use: withdrawals follow the demand forcing; irrigation withdrawal −0.4 % with a small shift between sources (rivers
   −2.3 %, renewable groundwater −7 % of a small amount, non-renewable +0.5 %); municipal and manufacturing unchanged.
 
-Recommendation: promote `vic-global-5arcmin-version-b` (`submit_parameter_promotion.py`, then `status: production` in the
-manifest) and set `parameter_set.id: vic-global-5arcmin-version-b` in `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml`.
+**Version-c** (2026-11-05, part II of the report). The MPR soil is another soil, not a repair of version-a: layer 2 is 2.5
+times deeper in the global mean (1.85 → 4.54 m, the 5 m cap over most of the land), wilting and critical points are
+halved, Ksat is 40 % higher, c = 2 and Ds = Dsmax everywhere; every compared field changes on every active cell.
+
+- Runs (check passed, same water-balance statistics): evapotranspiration +9 % (+52 mm/yr), total runoff −23 % (baseflow
+  −24 %, surface runoff −22 % over 2011–2020; −14 % and −19 % over 2016–2020); layer-2 storage 500 → 900 mm and still
+  rising in 2020, so ten years from a cold start do not settle the 5 m soil everywhere. West Siberia: storage three times
+  that of version-a; the Alps: storage +66 %, runoff −18 %.
+- GRDC: the median overestimation of version-a disappears (sim/obs 1.355 → 0.981; 595 stations closer, 381 further) by
+  lowering the discharge at 970 of 976 stations (−36 % at the median); the spread does not shrink (median |ln(sim/obs)|
+  0.378 → 0.374), the 100 stations version-a underestimated get worse (0.66 → 0.39), the large rivers are now
+  underestimated (Amazon at Óbidos 0.97 → 0.82, Mississippi 0.89 → 0.58, Yenisey 1.18 → 0.85), the seasonal correlation
+  worsens at the median (0.832 → 0.808: the deep layer damps the snowmelt peaks, the Amazon improves).
+- Water use: irrigation withdrawal −34 % (the critical point halved, so the crops are irrigated later and less);
+  renewable groundwater −73 %, non-renewable withdrawal −49 %; municipal and manufacturing unchanged.
+
+Recommendation (unchanged): promote `vic-global-5arcmin-version-b` (`submit_parameter_promotion.py`, then `status:
+production` in the manifest) and set `parameter_set.id: vic-global-5arcmin-version-b` in
+`configs/campaigns/water-global-ec-earth3-esm-1-1.yaml`. Version-c cannot be judged from one 10-year run against
+version-a: its global water terms would have to be compared with independent estimates and its layer-2 depth and baseflow
+parameters are uncalibrated stage-2 settings of the MPR candidate (source restricted, `not_authorized_for_global_production`);
+it stays a candidate for a calibration or evaluation task of its own. The decision is the user's.
