@@ -1,6 +1,6 @@
 #!/bin/bash
 # Scheduled backup snapshot (docs/directory-contracts.md "Data protection", D13). The user's scrontab runs this
-# script on the 1st and the 15th of each month at 02:00 as a small Slurm job; it submits the snapshot job with
+# script on the 1st and the 15th of each month at 02:00 UTC as a small Slurm job; it submits the snapshot job with
 # its job record through submit_backup.py, under the user's standing approval of the D13 rules (2026-11-02).
 # Any argument is passed on to submit_backup.py (e.g. --dry-run prints the job without submitting it).
 #
