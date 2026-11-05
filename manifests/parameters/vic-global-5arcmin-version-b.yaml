@@ -1,5 +1,5 @@
 parameter_set_id: vic-global-5arcmin-version-b
-status: candidate
+status: production
 adopted: false
 base_parameter_set: vic-global-5arcmin-version-a
 description: >-
@@ -16,8 +16,26 @@ description: >-
   file for file; the two adopted vic_parameter bundles of version-a are not part
   of this set (its soil component is derived from the assembled file of
   version-a).
-location: parameters/candidates/vic-global-5arcmin-version-b/
+location: parameters/production/vic-global-5arcmin-version-b/
 candidate_location: parameters/candidates/vic-global-5arcmin-version-b/
+promotion:
+  promoted_on: 2026-11-05
+  authorised: user, 2026-11-05 (decision after the comparison of versions a, b and c, analysis/soil-comparison)
+  record: parameters/production/vic-global-5arcmin-version-b/promotion.yaml
+  promoted_by: workflow/03_parameters/promote_parameter_set.py (commit 4c7b944)
+  slurm_job: logs/03_parameters/parameter-promotion-vic-global-5arcmin-version-b_43625069
+  qc_status: passed
+  qc_evidence: qc/parameters/production/vic-global-5arcmin-version-b
+  files: 30 files, 6.20 GB, the entries without promotion excluded; the candidate set is kept
+  accepted_restrictions: none found (the files of this set carry no restriction attribute; the two adopted
+    vic_parameter bundles of version-a are not part of it)
+  note: >-
+    The dams component (copied from version-a, qc passed) keeps mean_discharge_natural.nc derived from the
+    natural run made with version-a; the natural runoff of version-b differs from it by 0.08 % globally
+    (analysis/soil-comparison), accepted by the user, not recomputed. The user records that the depth of soil
+    layer 2 is a sensitive control of the soil water storage and of the discharge (version-c: 1.85 -> 4.54 m
+    moved the total runoff by -23 %) and a parameter for a later fine-tuning task.
+  backup: none yet (D13 snapshot of the production set to be added with the next backup run)
 adopted_on: 2026-11-02
 copy:
   from: parameters/candidates/vic-global-5arcmin-version-a

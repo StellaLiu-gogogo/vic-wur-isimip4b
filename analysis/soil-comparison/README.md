@@ -10,7 +10,8 @@ replaced, `workflow/03_parameters/soil/adopt_soil_fields.py`) do to the same run
 **Classification.** Analysis (user, 2026-11-02): the figures and tables are the basis of the decision whether to
 promote version-b and change `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml`; no workflow stage reads them.
 
-**Status.** done 2026-11-05 (three sets compared, conclusion below); which set to promote is the user's decision.
+**Status.** closed 2026-11-05: three sets compared, conclusion below; the user decided to promote version-b (job
+43625069, `manifests/parameters/vic-global-5arcmin-version-b.yaml`, `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml`).
 
 **Runs.** Campaigns `soil-comparison-version-a`, `soil-comparison-version-b` and `soil-comparison-version-c`
 (`configs/campaigns/`, non-production, identical except for the parameter set): the historical `histsoc` segment of `h_ssp3hsoc-noadapt_default`, 2011-2020,
@@ -92,8 +93,12 @@ halved, Ksat is 40 % higher, c = 2 and Ds = Dsmax everywhere; every compared fie
 - GRDC: the median overestimation of version-a disappears (sim/obs 1.355 → 0.981; 595 stations closer, 381 further) by
   lowering the discharge at 970 of 976 stations (−36 % at the median); the spread does not shrink (median |ln(sim/obs)|
   0.378 → 0.374), the 100 stations version-a underestimated get worse (0.66 → 0.39), the large rivers are now
-  underestimated (Amazon at Óbidos 0.97 → 0.82, Mississippi 0.89 → 0.58, Yenisey 1.18 → 0.85), the seasonal correlation
-  worsens at the median (0.832 → 0.808: the deep layer damps the snowmelt peaks, the Amazon improves).
+  underestimated (Amazon at Óbidos 0.97 → 0.82, Mississippi 0.89 → 0.58, Yenisey 1.18 → 0.85). The seasonal
+  correlation has two faces: at the median station it worsens (0.832 → 0.808; 358 stations worse by more than 0.05,
+  249 better; 94 of the 121 stations above 0.95 in version-a lose) because the deep layer damps the snowmelt peaks
+  of the northern rivers (Yenisey 0.98 → 0.77, Lena 0.93 → 0.79, Mississippi 0.83 → 0.55); weighted by the observed
+  discharge it improves (0.790 → 0.838) because the large tropical rivers gain in shape and volume (Amazon at Óbidos
+  r 0.74 → 0.90, Tocantins 0.67 → 0.90, Paraná ratio 1.62 → 1.10, São Francisco 1.82 → 0.98).
 - Water use: irrigation withdrawal −34 % (the critical point halved, so the crops are irrigated later and less);
   renewable groundwater −73 %, non-renewable withdrawal −49 %; municipal and manufacturing unchanged.
 
@@ -102,4 +107,9 @@ production` in the manifest) and set `parameter_set.id: vic-global-5arcmin-versi
 `configs/campaigns/water-global-ec-earth3-esm-1-1.yaml`. Version-c cannot be judged from one 10-year run against
 version-a: its global water terms would have to be compared with independent estimates and its layer-2 depth and baseflow
 parameters are uncalibrated stage-2 settings of the MPR candidate (source restricted, `not_authorized_for_global_production`);
-it stays a candidate for a calibration or evaluation task of its own. The decision is the user's.
+it stays a candidate for a calibration or evaluation task of its own.
+
+**Decision** (user, 2026-11-05): promote version-b; version-c is not promoted. The user records that the depth of soil
+layer 2 is a sensitive control of the soil water storage and hence of the discharge (version-c: 1.85 → 4.54 m in the
+global mean moved the total runoff by −23 % and the layer-2 storage by +72 %) and is a parameter for a later
+fine-tuning task, not settled by this comparison.

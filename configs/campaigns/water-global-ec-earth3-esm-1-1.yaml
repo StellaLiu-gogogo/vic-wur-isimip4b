@@ -20,11 +20,13 @@ model:
   coupling: standalone image driver, GWM FALSE, no MODFLOW coupling
 
 parameter_set:
-  id: vic-global-5arcmin-version-a
+  id: vic-global-5arcmin-version-b
   # the set promoted to parameters/production/ by workflow/03_parameters/promote_parameter_set.py (copy of the
-  # candidate set, every promoted entry qc passed); before the promotion the renderer stops at the missing files
+  # candidate set, every promoted entry qc passed); before the promotion the renderer stops at the missing files.
+  # version-b (user, 2026-11-05, task Z): version-a with the five 2-degree soil calibration fields smoothed; the
+  # same files by role as version-a (analysis/soil-comparison for the comparison).
   status: production
-  # role -> file inside the parameter set (manifests/parameters/vic-global-5arcmin-version-a.yaml)
+  # role -> file inside the parameter set (manifests/parameters/vic-global-5arcmin-version-b.yaml)
   files:
     domain: domain/vic_global_5min_domain_nogl.nc
     parameters: bundle/vic_global_5min_16class_landuse-union_root-b-zeng2001.nc
