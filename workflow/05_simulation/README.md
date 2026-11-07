@@ -421,6 +421,35 @@ Procedure:
 4. The check of a resumed run follows as usual; the convergence test of a spin-up block is submitted by the retry of
    its last chunk.
 
+## Production spin-ups (task AA)
+
+Classification: operation of the production workflow, no code change (user, 2026-11-05). Starts the two spin-up
+chains of the campaign `water-global-ec-earth3-esm-1-1` from the clean main checkout at `d00137c` and sees them
+through the convergence test (D19 amendment 2026-11-02): continuation blocks per D19/D20 until each chain converges
+or the user decides after 8 blocks. Branch `task-aa-production-spinup`, worktree `scratch/production-spinup/repo`
+(documentation only; the main checkout is not edited while a production job is queued or running from it). Pre-flight
+evidence of 2026-11-05: partition `main` allows 21 days (77 h per chunk); every gen3 node was in use, the last
+exclusive 500 GB jobs waited 4–5 min; comparable runs (`production-config-check` 3.25 GB per model year of monthly
+output with the full stack, state 4.4 GB, 11.2 s per model day with daily output; `natural-spinup` 7.9 s per model day)
+give about 2.2 GB per model year for the 11 monthly spin-up fields, about 240 GB for both first blocks, about 60 GB per
+continuation block, at most about 1.1 TB for 8 blocks per chain against 122 TB free, and about 25 h per 25-year chunk.
+Scratch render `scratch/water-global-ec-earth3-esm-1-1/` (the renderer's location for `--scratch`) checked before the
+submission: version-b files and md5 as in `manifests/parameters/vic-global-5arcmin-version-b.yaml`, dam file per
+chain, production build of `a826251b`, 700 forcing links per run without a dangling one, 1850soc climate years under
+the cycle rule as in the D20 note of 2026-11-02 (1551 and 1576 identity, 1552 to 1604, 1591 to 1641), 2021soc years
+identity, land use and water use `constant` with the day count matched, `OUT_NONREN_DEFICIT` in the monthly stream,
+no `INIT_STATE` in the first chunk, the second chunk's `INIT_STATE` the first chunk's end state, job files
+16 x 8 cores, 500 GB, 77 h, gen3, exclusive; the production render is identical except for the paths.
+
+| Step | Content | State |
+|---|---|---|
+| AA1 | pre-flight checks, scratch render and its inspection, plan approved by the user | done 2026-11-05 |
+| AA2 | first blocks submitted from clean main `d00137c`: `submit_run.py --campaign configs/campaigns/water-global-ec-earth3-esm-1-1.yaml` | done 2026-11-05 14:47 UTC: 1850soc chunks 1551-1575 job 43645331 (node268) and 1576-1600 job 43645332, test 43645333; 2021soc chunks 1800-1824 job 43645334 (node218) and 1825-1849 job 43645335, test 43645336; attempts 1 and 2 in both manifests |
+| AA3 | backup listing (`submit_backup.py --list`) so that the version-b parameter set reaches a snapshot before the first accepted block | done 2026-11-05: listing job 43645360 (20 685 files, 23.0 GiB: workdir text 12.6 GiB, parameter sets 10.3 GiB, no accepted run) approved by the user; snapshot job 43645586 from main `d00137c`, 8 min 29 s on node208, `archive/2026-11-05` with 20 721 files verified, `current` set |
+| AA4 | first block of each chain complete, convergence test result | done 2026-11-07: both chains converged in block 1 (`summary.json` `passed`, `failed` and `problems` empty, checked from `d00137c`). 1850soc: chunks 17 h 29 min and 18 h 05 min, 23.8 GB each, 155 and 156 inputs verified, end state `state.16010101_00000.nc` 4.3 GB, test job 43645333 (9 min, 3.7 GB) with cell fractions SM layer 2 85.7 %, layer 3 88.8 %, December SWE 99.7 %, river storage 97.6 %, reservoir storage ratio 0.033. 2021soc: chunks 18 h 01 min and 18 h 15 min, 25.5 GB each, 197 and 204 inputs verified, end state `state.18500101_00000.nc` 4.4 GB, test job 43645336 (30 min, 4.3 GB) with SM layer 2 86.4 %, layer 3 89.2 %, December SWE 99.8 %, river storage 98.7 %, reservoir storage ratio 0.028, irrigation withdrawal ratio 0.044. Measured: 6.8 s per model day with 16 x 8 cores (about 41 min per model year), MaxRSS 32.9 GB per rank, 0.95 GB (1850soc) and 1.02 GB (2021soc) of monthly output per model year (less than the 2.2 GB of the pre-flight estimate, which was taken from a run with more fields) |
+| AA5 | continuation blocks (`__block-<n>`) until converged, at most 8 per chain | not needed: both chains converged in block 1, no `__block-2` rendered |
+| AA6 | accepted states covered by an approved backup snapshot; scratch render removed with the user's consent | decided by the user 2026-11-07: no snapshot now (listing job 43662311 from main `d00137c`: 20 773 files, 39.3 GiB, the 4 accepted states 16.2 GiB; the scheduled snapshot of 2026-11-15 02:00 UTC covers them); scratch render `scratch/water-global-ec-earth3-esm-1-1/` removed 2026-11-07; README committed and merged into main |
+
 ## Submit (`submit/`)
 
 | File | Role |
