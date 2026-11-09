@@ -8,7 +8,7 @@ or before that stage (see `AGENTS.md`, "Open decisions"). The layout check
 reports a warning while a stage contains code and a decision due at or
 before it is still open.
 
-Last reviewed: 2026-11-02.
+Last reviewed: 2026-11-09.
 
 D05 was decided on 2026-10-02 (option A) and amended on 2026-10-03; its first task (D1: acquisition, QA and description of the ISIMIP3a/3b water-abstraction data) was carried out on 2026-10-02 (`manifests/inputs/isimip3-water-abstraction.yaml`, report `workdir/analysis/isimip3-water-abstraction-review/report.md`) and was reviewed by the user on 2026-10-03 (amendments in the record).
 
@@ -70,11 +70,11 @@ and 2011–2020), keeps its 5′ output in the run directory (D03), and uses no
 | D04 | Land use: single-child rule for fallback parents, `rice_rainfed`, ISIMIP paddy area, `*_bf` variables, Köppen period for parameter backfill | 03_parameters | | user | decided 2026-09-30 ([D04-landuse-harmonization.md](D04-landuse-harmonization.md)) |
 | D05 | Non-irrigation water use: how to proceed while the ISIMIP4b dataset is not released | 04_forcing | | user, sector coordinators | decided 2026-10-02, amended 2026-10-03 (SSP series used raw, one producer task D2) ([D05-non-irrigation-water-use.md](D05-non-irrigation-water-use.md)): option A, ISIMIP3a/3b water-abstraction series downscaled with ISIMIP4b population |
 | D06 | Composition of the `extrasoc` sensitivity experiments (which additional direct human forcings) | 05_simulation | | user, sector coordinators | decided 2026-11-01 ([D06-extrasoc.md](D06-extrasoc.md)): option B, the two `extrasoc` experiments are not simulated; the `default` runs already carry the historical dams (D19), and the frozen model has no other additional direct human forcing than the SSP future hydropower dams; amendable |
-| D07 | 5′ to 0.5° aggregation method, `dis` outlet mapping, and `contfrac` derivation | 06_postprocessing | | user | open |
+| D07 | 5′ to 0.5° aggregation method, `dis` outlet mapping, and `contfrac` derivation | 06_postprocessing | | user | decided 2026-11-09 ([D07-aggregation-to-half-degree.md](D07-aggregation-to-half-degree.md)): area-weighted mean over the active 5′ cells of each 0.5° mask cell (value per simulated land area; volumes summed and divided by that area; per layer with the mean layer depth); `dis` of the 5′ cell with the largest upstream area in the 0.5° cell, fixed for all time steps (DDM30 for a check only); `cellarea` from the 5′ domain areas in km2, `contfrac` = simulated land area / `cellarea`, `landfrac` = `contfrac`, `soil` not provided; `soilmoist` monthly 1601–2100 and daily 1850–2100 |
 | D08 | Simulated domain versus the ISIMIP `water_global` mask: keep the VIC domain and report uncovered mask cells as missing, or extend the domain (fully or partially) | 03_parameters | | user, sector coordinators | decided 2026-09-30 ([D08-mask-coverage.md](D08-mask-coverage.md)): option (a), keep the domain, report uncovered cells as missing |
-| D09 | ISIMIP4b `water_global` output filename pattern (not yet published by ISIMIP) | 06_postprocessing | | ISIMIP | open |
-| D10 | VIC-WUR model name and version suffix for ISIMIP4b filenames | 06_postprocessing | | user | open |
-| D11 | Structure of the postprocessed product-set manifest | 06_postprocessing | | user | open |
+| D09 | ISIMIP4b `water_global` output filename pattern (not yet published by ISIMIP) | 08_delivery | | ISIMIP | open (due stage moved from `06_postprocessing` on 2026-11-09, task AD: the products are made with the protocol's file content rules and internal names, and their ISIMIP identity is recorded per file (D11); `08_delivery` gives the ISIMIP names and file splitting once the pattern is published) |
+| D10 | VIC-WUR model name and version suffix for ISIMIP4b filenames | 08_delivery | | user | open (due stage moved from `06_postprocessing` by the user on 2026-11-09, task AD: the products do not carry the model name before delivery; VIC-WUR does not take part in ISIMIP4a, user 2026-11-09) |
+| D11 | Structure of the postprocessed product-set manifest | 06_postprocessing | | user | decided 2026-11-09 ([D11-product-set-manifest.md](D11-product-set-manifest.md)): product-set ID = campaign ID; one product unit per run chunk with its own `provenance.yaml` (source run, chunk, attempt, chunk check, code commit, method, files with sha256 and ISIMIP identity fields), written by the unit job; set-level `product-set.yaml` (identity, expected units and their status, segment acceptance) and `checksums.sha256`, written only by a separate collecting step |
 | D12 | Whether `2021co2` experiments are reported (VIC-WUR has no CO₂ response) | 08_delivery | | sector coordinators | open |
 | D13 | Location and implementation of the backup procedure | - | first production object accepted | user | decided 2026-11-02 ([D13-backup-procedure.md](D13-backup-procedure.md)): dated snapshots of everything that cannot be recomputed (workdir without raw, scratch, output and data/log file types; production parameter sets, states of accepted production runs, products and deliveries kept whole; bare repository with every branch and tag), hard links between snapshots, `current` pointer, every two weeks by `scrontab` and by hand, stage `workflow/09_backup/` (task Y). Trigger reached 2026-10-30 (parameter set promoted) and 2026-10-31 (production build); nothing backed up until the first snapshot |
 | D14 | Include the ensemble member in project identifiers | - | a second ensemble member is used | user | open |
@@ -131,6 +131,8 @@ sector coordinators. Decided 2026-11-01: not simulated; see the record.
 **D07 — Aggregation.** ISIMIP `water_global` output is reported at 0.5°.
 The capability audit identified the missing 5′ to 0.5° aggregation, the
 outlet mapping for discharge, and the derivation of `contfrac` as gaps.
+Decided 2026-11-09 with a fourth part on the time steps of `soilmoist`; see
+the record.
 
 **D08 — Mask coverage.** The capability audit found ISIMIP mask cells,
 mainly in Greenland and the Arctic, that the VIC domain does not cover, and
@@ -142,10 +144,27 @@ parameter set and every forcing unit, the decision is due before
 them in Greenland. Decided the same day: the domain is kept and the
 uncovered cells are reported as missing.
 
-**D09, D10 — Filenames.** See `glossary.md`, "Output naming".
+**D09, D10 — Filenames.** See `glossary.md`, "Output naming". The
+protocol commit `f9be7b0` still has no `OutputData` pattern for ISIMIP4b
+(`pattern/ISIMIP4b/` holds `InputData` and `SecondaryInputData` only,
+checked 2026-11-09). On 2026-11-09 (task AD) the user chose to make the
+products' content now and their names later: `06_postprocessing` follows
+the file rules of protocol chapter 5 (one variable per file,
+`NETCDF4_CLASSIC`, compression level 5 or more, time axis in days since
+1601-01-01, one chunk per record, `institution` and `contact` attributes)
+and records the ISIMIP identity of every file in its unit record (D11);
+`08_delivery` gives the names. D09 and D10 are therefore due before
+`08_delivery`. VIC-WUR does not take part in ISIMIP4a (user, 2026-11-09);
+the protocol asks for a version suffix when the ISIMIP4a and ISIMIP4b
+versions differ, and otherwise names unreported versions after the
+simulation round.
 
 **D11 — Product-set manifest.** Required by "Data protection" in
 `directory-contracts.md` to record backups of postprocessed product sets.
+Decided 2026-11-09: two levels (unit records written by the unit jobs, a
+set-level record written by a collecting step), so that units of different
+runs can be made at the same time while the campaign is running; see the
+record.
 
 **D12 — `2021co2`.** See `glossary.md`, "Sensitivity scenario".
 

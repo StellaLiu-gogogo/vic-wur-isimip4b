@@ -480,6 +480,22 @@ Create responsibility directories only when implementation exists:
 
 Generated configurations and jobs belong with the dynamic run, not here.
 
+#### `workflow/06_postprocessing/`
+
+The stage directory is flat: it holds directly, without component or
+responsibility directories, the product configuration (ISIMIP variable to
+VIC output, conversion, time steps, the variables not provided in addition
+to the campaign's list, file attributes), the producer of the fixed files of
+a product set, the producer and the check of one product unit, the
+collecting step that writes and checks `product-set.yaml` and
+`checksums.sha256`, their Slurm template and submit script, and the README
+(user, 2026-11-09, task AD). A subdirectory needs a change to this section
+first. Tests of the stage are under `tests/unit/`.
+
+The stage reads run output, run manifests and run-check summaries under
+`runs/` and `qc/runs/`, the parameter set, and the ISIMIP mask and DDM30
+network under `raw/`; it never writes under `runs/`.
+
 #### `workflow/09_backup/`
 
 The backup procedure of [Data protection](#data-protection): the selection
@@ -1038,16 +1054,57 @@ Canonical layout:
 ```text
 postprocessed/
 └── <product-set-id>/
+    ├── product-set.yaml
+    ├── checksums.sha256
+    ├── fixed/
+    │   └── <fixed files>.nc
     └── <gcm>/
-        └── <experiment-id>/
-            └── <variable>/
+        └── <segment-key>/
+            └── <start-year>-<end-year>/
+                ├── provenance.yaml
+                └── <variable>_<time-step>_<start-year>_<end-year>.nc
 ```
 
 This directory contains derived products that are not yet formal delivery
-products. `<experiment-id>` is the ISIMIP experiment ID. Every product set must
-remain traceable to its source runs and postprocessing workflow commit.
+products, made by `workflow/06_postprocessing/` only. Every product set must
+remain traceable to its source runs and postprocessing workflow commit. The
+records and their contents are defined by D11
+(`docs/decisions/D11-product-set-manifest.md`), the aggregation by D07
+(user, 2026-11-09, task AD).
 
-Use the same GCM, experiment, and variable ordering throughout a product set.
+- `<product-set-id>` is the campaign ID of the source runs. A changed
+  postprocessing method that changes the products gets a new meaningful
+  product-set ID, never a version suffix.
+- `product-set.yaml` and `checksums.sha256` describe the whole set; they are
+  written only by the collecting step of the stage, never by a unit job.
+- `fixed/` holds the fixed files of the set: the ISIMIP fixed variables
+  (`cellarea.nc`, `contfrac.nc`, `landfrac.nc`) and the files the products
+  are made with (the `dis` outlet map and the soil-layer depths of D07),
+  each listed in `product-set.yaml`.
+- `<gcm>` is the climate-forcing specifier.
+- `<segment-key>` is `<climate-scenario>_<soc-scenario>_<sens-scenario>_<period>`,
+  the segment ID without its climate-forcing part, for reported segments only
+  (no spin-ups). Products are organised by segment, not by ISIMIP experiment
+  ID: ISIMIP output files are named after the climate, DHF and sensitivity
+  scenario of the period they cover, and one segment serves several
+  experiments (the pre-industrial segment twelve), so each segment's products
+  exist once. `08_delivery` maps experiments to segments from the protocol.
+- `<start-year>-<end-year>` is a **product unit**: the years of one chunk of
+  the source run, or of a whole unchunked run. It holds the unit's
+  `provenance.yaml` and one file per ISIMIP variable and time step
+  (`daily` or `monthly`). These are internal names, not the ISIMIP
+  filenames (D09, D10: given by `08_delivery`); the file content follows
+  the file rules of the protocol (chapter 5).
+- A unit job writes into `.writing-<start-year>-<end-year>/` beside the unit
+  and renames it when every file and the record are complete. A leftover
+  `.writing-*` directory is an interrupted job; the user decides on its
+  deletion. An existing unit is never overwritten.
+
+QC evidence of a unit is under
+`qc/postprocessed/<product-set-id>/<gcm>/<segment-key>/<start-year>-<end-year>/`,
+of the fixed files and the whole set under `qc/postprocessed/<product-set-id>/`.
+
+Use the same GCM, segment, and variable ordering throughout a product set.
 
 ### `qc/`
 

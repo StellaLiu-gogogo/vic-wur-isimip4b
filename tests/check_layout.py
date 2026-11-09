@@ -134,8 +134,13 @@ MANIFEST_INTERMEDIATE =re.compile(r"(^|[^A-Za-z0-9_])intermediate/")
 RUN_ID = re.compile(
     r"^(?P<gcm>[a-z0-9-]+)_(?P<climate>[a-z0-9-]+)_(?P<soc>[a-z0-9-]+)"
     r"_(?P<sens>[a-z0-9-]+)_(?P<period>[a-z0-9-]+)(__(?P<label>[a-z0-9-]+))?$")
-EXPERIMENT_ID = re.compile(
-    r"^(?P<climate>[a-z0-9-]+)_(?P<soc>[a-z0-9-]+)_(?P<sens>[a-z0-9-]+)$")
+# postprocessed/<set>/<gcm>/<segment-key>: the segment ID without its climate-forcing part (D11)
+SEGMENT_KEY = re.compile(
+    r"^(?P<climate>[a-z0-9-]+)_(?P<soc>[a-z0-9-]+)_(?P<sens>[a-z0-9-]+)"
+    r"_(?P<period>[a-z0-9-]+)$")
+PRODUCT_SET_FILES = {"product-set.yaml", "checksums.sha256"}
+PRODUCT_UNIT_STAGING = re.compile(r"^\.writing-\d{4}-\d{4}$")
+PRODUCT_FILE = re.compile(r"^[a-z0-9]+_(daily|monthly)_\d{4}_\d{4}\.nc$")
 
 DATA_SUFFIXES = {
     ".nc", ".nc4", ".h5", ".hdf", ".hdf5", ".he5", ".grb", ".grib", ".grib2",
@@ -240,6 +245,8 @@ def check_repo(repo: Path, report: Report, tracked_only: bool = False) -> None:
             report.error(d, "language layer directories are not allowed")
         if d.startswith("workflow/common/"):
             report.error(d, "workflow/common/ must stay flat")
+        if d.startswith("workflow/06_postprocessing/"):
+            report.error(d, "workflow/06_postprocessing/ must stay flat")
         if parent == "analysis" and not LOWER_ID.match(name):
             report.error(d, "analysis task ID must be lowercase words joined "
                             "by hyphens")
@@ -430,16 +437,13 @@ def check_workdir(workdir: Path, repo: Path, report: Report) -> None:
                 check_allowed(report, crel, children(Path(chunk.path)),
                               CHUNK_CHILDREN, "chunk entry")
 
-    # postprocessed/<set>/<gcm>/<experiment-id>/<variable>
+    # postprocessed/<set>/{product-set.yaml,checksums.sha256,fixed/,<gcm>/<segment-key>/<start>-<end>/}
+    for entry in children(w / "postprocessed"):
+        if not entry.is_dir(follow_symlinks=False) and entry.name != "README.md":
+            report.error(f"postprocessed/{entry.name}",
+                         "postprocessed/ holds product-set directories only")
     for pset in subdirs(w / "postprocessed"):
-        rel = f"postprocessed/{pset.name}"
-        check_id(report, rel, pset.name, "product-set ID")
-        for gcm in subdirs(Path(pset.path)):
-            if gcm.name not in GCMS:
-                report.error(f"{rel}/{gcm.name}", "unknown GCM")
-            for exp in subdirs(Path(gcm.path)):
-                check_experiment_id(report, f"{rel}/{gcm.name}/{exp.name}",
-                                    exp.name)
+        check_product_set(report, Path(pset.path), f"postprocessed/{pset.name}")
 
     # qc/<object-type>
     check_allowed(report, "qc", children(w / "qc"), QC_OBJECT_TYPES,
@@ -717,17 +721,57 @@ def check_run_id(report: Report, rel: str, name: str) -> None:
         report.error(rel, "the suffix __block-<n> (n >= 2) is only for continuation blocks of a spin-up segment")
 
 
-def check_experiment_id(report: Report, rel: str, name: str) -> None:
-    m = EXPERIMENT_ID.match(name)
+def check_product_set(report: Report, path: Path, rel: str) -> None:
+    """Layout of one product set (docs/directory-contracts.md, postprocessed/; D11)."""
+    check_id(report, rel, path.name, "product-set ID")
+    for entry in children(path):
+        erel = f"{rel}/{entry.name}"
+        if not entry.is_dir(follow_symlinks=False):
+            if entry.name not in PRODUCT_SET_FILES and entry.name != "README.md":
+                report.error(erel, "a product set holds product-set.yaml, checksums.sha256, "
+                                   "fixed/ and GCM directories only")
+        elif entry.name == "fixed":
+            for f in children(Path(entry.path)):
+                if f.is_dir(follow_symlinks=False) or not f.name.endswith(".nc"):
+                    report.error(f"{erel}/{f.name}", "fixed/ holds NetCDF files only")
+        elif entry.name not in GCMS:
+            report.error(erel, "unknown GCM")
+        else:
+            for seg in children(Path(entry.path)):
+                srel = f"{erel}/{seg.name}"
+                if not seg.is_dir(follow_symlinks=False):
+                    report.error(srel, "a GCM directory holds segment-key directories only")
+                    continue
+                check_segment_key(report, srel, seg.name)
+                for unit in children(Path(seg.path)):
+                    urel = f"{srel}/{unit.name}"
+                    if PRODUCT_UNIT_STAGING.match(unit.name):
+                        report.warn(urel, "staging directory of an interrupted product-unit job; "
+                                          "the user decides on its deletion")
+                        continue
+                    if not unit.is_dir(follow_symlinks=False) or not CHUNK_ID.match(unit.name):
+                        report.error(urel, "product unit must be <start-year>-<end-year>")
+                        continue
+                    for f in children(Path(unit.path)):
+                        if f.name != "provenance.yaml" and (
+                                f.is_dir(follow_symlinks=False) or not PRODUCT_FILE.match(f.name)):
+                            report.error(f"{urel}/{f.name}",
+                                         "a product unit holds provenance.yaml and "
+                                         "<variable>_<daily|monthly>_<start>_<end>.nc files only")
+                    if not (Path(unit.path) / "provenance.yaml").is_file():
+                        report.error(urel, "product unit has no provenance.yaml")
+
+
+def check_segment_key(report: Report, rel: str, name: str) -> None:
+    m = SEGMENT_KEY.match(name)
     if not m:
-        report.error(rel, "experiment ID must be <climate-scenario>_"
-                          "<soc-scenario>_<sens-scenario>")
+        report.error(rel, "segment key must be <climate-scenario>_<soc-scenario>_"
+                          "<sens-scenario>_<period>")
         return
     for key, valid in (("climate", CLIMATE_SCENARIOS), ("soc", SOC_SCENARIOS),
-                       ("sens", SENS_SCENARIOS)):
+                       ("sens", SENS_SCENARIOS), ("period", PERIODS - {"spinup"})):
         if m.group(key) not in valid:
-            report.error(rel, f"unknown {key} '{m.group(key)}' in experiment "
-                              "ID")
+            report.error(rel, f"unknown {key} '{m.group(key)}' in segment key")
 
 
 def code_allowed(parts: tuple[str, ...]) -> bool:

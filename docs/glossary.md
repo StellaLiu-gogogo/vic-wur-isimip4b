@@ -355,13 +355,40 @@ published. The ISIMIP3b `water_global` pattern is:
 
 Delivery code must read the pattern from the protocol once it is published and
 must not hard-code the ISIMIP3b pattern. Whether the ISIMIP4b pattern adds
-`<ensemble-member>` is open.
+`<ensemble-member>` is open. Until the pattern is published (D09), the
+products under `workdir/postprocessed/` carry internal names and record the
+ISIMIP identity of every file; `08_delivery` gives the names (user,
+2026-11-09, task AD).
 
 ### Model name (`model`) — ISIMIP
 
 The impact-model identifier in output filenames. The protocol requires a
 version suffix when the model version differs from the one used in ISIMIP4a.
-The VIC-WUR model name and suffix for ISIMIP4b are not yet decided.
+The VIC-WUR model name and suffix for ISIMIP4b are not yet decided (D10, due
+before `08_delivery`); VIC-WUR does not take part in ISIMIP4a (user,
+2026-11-09).
+
+### Product set — project
+
+All postprocessed 0.5° products made from the runs of one campaign with one
+postprocessing method, under `workdir/postprocessed/<product-set-id>/`; the
+product-set ID is the campaign ID, and a changed method gets a new meaningful
+ID (D11). Its record `product-set.yaml` lists the expected product units and
+their status.
+
+### Product unit — project
+
+The products made from one chunk of a run of a reported segment (or from a
+whole unchunked run): one file per ISIMIP variable and time step for the
+chunk's years, with the unit's `provenance.yaml`, in
+`<product-set-id>/<gcm>/<segment-key>/<start-year>-<end-year>/` (D11).
+
+### Segment key — project
+
+`<climate-scenario>_<soc-scenario>_<sens-scenario>_<period>`: the segment ID
+without its climate-forcing part, used as the directory of a segment's
+products under the GCM level of a product set, e.g.
+`picontrol_1850soc_default_pre-industrial`.
 
 ## Data terms
 
