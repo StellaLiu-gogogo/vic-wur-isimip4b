@@ -450,6 +450,26 @@ no `INIT_STATE` in the first chunk, the second chunk's `INIT_STATE` the first ch
 | AA5 | continuation blocks (`__block-<n>`) until converged, at most 8 per chain | not needed: both chains converged in block 1, no `__block-2` rendered |
 | AA6 | accepted states covered by an approved backup snapshot; scratch render removed with the user's consent | decided by the user 2026-11-07: no snapshot now (listing job 43662311 from main `d00137c`: 20 773 files, 39.3 GiB, the 4 accepted states 16.2 GiB; the scheduled snapshot of 2026-11-15 02:00 UTC covers them); scratch render `scratch/water-global-ec-earth3-esm-1-1/` removed 2026-11-07; README committed and merged into main |
 
+## Resources of the production runs (task AB)
+
+Classification: operation of the production workflow, a test campaign and a change of the resources file, no code
+change (user, 2026-11-08). Question: can the production runs use 16 ranks x 4 threads, 450G and no whole-node
+request (two runs on one 1 TB gen3 node) without changing the results, and how fast are they? Campaign
+`resource-test`: every scientific setting of `soil-comparison-version-b`, whose run `years-2011-2020` (job 43553341,
+16 x 8, 500G, whole node) is the baseline, and two identical runs of 2011-2012 (`threads4-a-2011-2012`,
+`threads4-b-2011-2012`) with `resources: {ntasks: 16, cpus_per_task: 4, mem: 450G, exclusive: false,
+wall_time_hours: 8}`. A scratch render differed from the baseline's `config/` only in the years, run ID and label,
+paths, campaign file, workflow commit and Slurm resources. Branch `task-ab-resource-test`, worktree
+`scratch/resource-test/repo`.
+
+| Step | Content | State |
+|---|---|---|
+| AB1 | campaign `resource-test`, scratch render and diff against the baseline, layout check, unit tests | done 2026-11-08, commit `5af4cd0` (merged into main and pushed 2026-11-09) |
+| AB2 | both runs submitted back to back from the clean worktree (`submit_run.py --campaign configs/campaigns/resource-test.yaml --label ...`) | done 2026-11-08 21:28 UTC: `threads4-a` job 43672622 on node206 (shared all the time with other users' jobs, 24 + 7 + 12 cores), run check 43672625; `threads4-b` job 43672634 on node228 (no other job for about 2.7 h, then small jobs of other users), run check 43672637. Slurm put the two runs on two nodes, so two of them on one node were not measured |
+| AB3 | comparison (`compare_runs.py --submit`), VIC timers, `sacct`, run checks | done 2026-11-09: output of both runs (daily 6 and monthly 48 variables, 2011 and 2012) bitwise identical to the baseline (jobs 43673790, 43673791; status `failed` only because the end states have no common date, 2013 against 2021); `threads4-a` against `threads4-b` `passed`, output and end state bitwise identical (job 43673792). Run time 17.31 (a) and 14.90 (b) s per model day against 9.97 (Force 1.48 / 1.43 against 1.33, Write 8.17 / 5.48 against 4.39), Init 813 / 698 s against 828 s; 1.76 / 1.51 h per model year. MaxRSS 34.0 GiB per rank, AveRSS x 16 = 377.5 GiB (84 % of 450G), as with 16 x 8. CPU 36 / 38 % of 64 cores (16 x 8: 25 % of 128). Run checks `passed` |
+| AB4 | `configs/resources/vic-global-5arcmin.yaml`: `cpus_per_task: 4`, `exclusive: false`, `mem: 450G`, `hours_per_model_year` kept at 3.0 (77 h per 25-year chunk; measured 38-45 h) | approved by the user 2026-11-09 |
+| AB5 | output files of the two test runs removed with the user's consent (8 files, 89.1 GB); states, configuration, logs, manifests and qc reports kept | done 2026-11-09 |
+
 ## Submit (`submit/`)
 
 | File | Role |

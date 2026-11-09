@@ -321,9 +321,12 @@ class RunResourcesTest(tsr.RenderHarness):
             rr.render(tsr.SMOKE, 'ranks8', None, scratch=False, W=self.W)
             rr.render(tsr.SMOKE, 'ranks16', None, scratch=False, W=self.W)
         # the second run takes configs/resources/vic-global-5arcmin.yaml unchanged
-        self.assertEqual([(r['ntasks'], r['cpus_per_task'], r['mem']) for r in seen],
-                         [(8, 16, '450G'), (16, 8, '500G')])
         import yaml
+        with open(os.path.join(tsr.REPO, 'configs', 'resources', 'vic-global-5arcmin.yaml')) as fh:
+            base = yaml.safe_load(fh)
+        self.assertEqual([(r['ntasks'], r['cpus_per_task'], r['mem']) for r in seen],
+                         [(8, 16, '450G'), (base['ntasks'], base['cpus_per_task'], base['mem'])])
+        self.assertEqual([r['exclusive'] for r in seen], [base['exclusive'], base['exclusive']])
         with open(os.path.join(self.W, 'runs', 'smoke', HIST + '__ranks8', 'config', 'resolved.yaml')) as fh:
             res = yaml.safe_load(fh)
         self.assertEqual(res['resources_override'], {'ntasks': 8, 'cpus_per_task': 16, 'mem': '450G'})

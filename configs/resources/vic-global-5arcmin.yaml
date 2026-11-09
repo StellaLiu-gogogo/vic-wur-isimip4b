@@ -3,26 +3,39 @@
 # workflow/05_simulation/render/render_run.py; the rendered job is kept in runs/<campaign>/<run-id>/config/.
 workload: vic-global-5arcmin
 partition: main
-# AMD gen3 nodes: 128 cores and 1 TB memory each (72 nodes on 2026-10-04; sinfo -p main). One node type so
-# that every rank uses the same library tree of the 2025 module bucket.
+# AMD gen3 nodes: 128 cores and 1 TB memory each, node200 500 GB (72 nodes on 2026-10-04; sinfo -p main). One
+# node type so that every rank uses the same library tree of the 2025 module bucket.
 constraint: gen3
 nodes: 1
 # MPI ranks: the FILE decomposition of the parameter set has 128 groups (largest 69 678 of 2 188 551 active
 # cells, routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc); VIC gives whole groups to ranks,
-# largest first (render_run.py checks ntasks <= groups). 16 ranks x 8 threads fill one 128-core node (user,
-# 2026-10-31, analysis dam-parameter-test): in 2015-2016 with this decomposition 16 x 8 took 10.08 s per model day
-# and 804 s to start, 8 x 16 11.88 s and 1050 s. With VIC a826251b the result does not depend on the number of
-# ranks (8 and 16 ranks bitwise identical, D01 amendment 2026-10-31).
+# largest first (render_run.py checks ntasks <= groups). In 2015-2016 with this decomposition and a whole node
+# 16 x 8 took 10.08 s per model day and 804 s to start, 8 x 16 11.88 s and 1050 s (analysis dam-parameter-test).
+# With VIC a826251b the result depends neither on the number of ranks (8 and 16 ranks bitwise identical, D01
+# amendment 2026-10-31) nor on the number of threads (16 x 4 and 16 x 8 bitwise identical, below).
 ntasks: 16
-cpus_per_task: 8
-exclusive: true
-# Measured on Anunna with 16 ranks (dam-test job 43522179, snow-density-test job 43531704, 2015-2016): MaxRSS
-# 35.8 GB per rank, AveRSS x ranks about 396 GB; both runs completed with 500G, which is about 25 % above
-# AveRSS x ranks. Anunna bills the requested memory (analysis compute-storage-plan, 2026-10-06). Until
-# 2026-10-31: 8 ranks x 16 threads with 700G (MaxRSS 72.5 GB per rank with the earlier decomposition).
-mem: 500G
-# Wall time = setup + per model year x years, rounded up to whole hours. Snellius: 1.07-1.10 h per model
-# year on 192 cores with Force Time 79 % of Run Time; Anunna has 128 cores and a slower filesystem.
+# 16 ranks x 4 threads = 64 cores, half a gen3 node, and no whole-node request, so that two runs can share one
+# node (user, 2026-11-08, task AB, campaign resource-test). Measured in 2011-2012 against run years-2011-2020 of
+# soil-comparison-version-b (job 43553341, 16 x 8, whole node, 9.97 s per model day, Init 828 s): output of every
+# variable and time step and end states bitwise identical; 14.90 s per model day on a node with no other large
+# job (job 43672634) and 17.31 s on a node shared with other users' jobs (job 43672622), i.e. 1.5-1.8 h per model
+# year against 1.0 h, Init 700-810 s. The model part about doubles with half the threads (4.3 -> 7.7-8.0 s per
+# day); forcing reading stays at 1.4-1.5 s, writing takes 5.5-8.2 s against 4.4 s and depends on the other jobs of
+# the node. CPU use 36-38 % of 64 cores (16 x 8: 25 % of 128). Two runs on one node give 1.15-1.3 times the model
+# years per node hour of one 16 x 8 run; two of these runs on the same node were not measured (the two test runs
+# landed on two nodes). Until 2026-11-08: 16 x 8, whole node (exclusive).
+cpus_per_task: 4
+exclusive: false
+# Memory with 16 ranks, the same with 4 and 8 threads (resource-test jobs 43672622, 43672634; soil-comparison
+# job 43553341): MaxRSS 34.0 GiB per rank (rank 0), AveRSS x 16 = 377.5 GiB, 84 % of 450G; earlier written as
+# "about 396 GB" (dam-test job 43522179, snow-density-test job 43531704). Two runs of 450G fit in the 1000 GiB of
+# a 1 TB gen3 node (node200 has 500 GB and takes one run). Anunna bills the requested memory (analysis
+# compute-storage-plan, 2026-10-06). Until 2026-11-08: 500G; until 2026-10-31: 8 ranks x 16 threads with 700G
+# (MaxRSS 72.5 GB per rank with the earlier decomposition).
+mem: 450G
+# Wall time = setup + per model year x years, rounded up to whole hours. 3.0 h per model year leaves 1.7 times the
+# slowest measured speed of 16 x 4 (1.76 h, above) for two runs on one node and slow filesystem days (2026-11-08,
+# task AB). Snellius: 1.07-1.10 h per model year on 192 cores with Force Time 79 % of Run Time.
 wall_time:
   setup_hours: 2.0
   hours_per_model_year: 3.0
