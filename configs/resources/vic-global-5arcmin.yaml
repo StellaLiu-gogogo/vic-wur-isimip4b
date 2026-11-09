@@ -3,9 +3,12 @@
 # workflow/05_simulation/render/render_run.py; the rendered job is kept in runs/<campaign>/<run-id>/config/.
 workload: vic-global-5arcmin
 partition: main
-# AMD gen3 nodes: 128 cores and 1 TB memory each, node200 500 GB (72 nodes on 2026-10-04; sinfo -p main). One
-# node type so that every rank uses the same library tree of the 2025 module bucket.
-constraint: gen3
+# AMD gen3 nodes with 128 cores and 1 TB memory (node feature 1000g; 72 nodes on 2026-11-09, sinfo -p main). One
+# node type so that every rank uses the same library tree of the 2025 module bucket, and the type on which every
+# speed of this file was measured. The feature gen3 alone also matches node200 (128 cores, 500 GB: one run only)
+# and the 96-core 4 TB urash nodes (fat200, ...), whose speed and results were not tested with this model; both
+# are left out for the production runs (user, 2026-11-09, task AC). Until 2026-11-09: gen3.
+constraint: gen3&1000g
 nodes: 1
 # MPI ranks: the FILE decomposition of the parameter set has 128 groups (largest 69 678 of 2 188 551 active
 # cells, routing/vic_global_5min_file_decomposition_wateruse_isimip4b-dams.nc); VIC gives whole groups to ranks,
