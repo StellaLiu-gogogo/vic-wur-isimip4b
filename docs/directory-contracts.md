@@ -485,12 +485,20 @@ Generated configurations and jobs belong with the dynamic run, not here.
 The stage directory is flat: it holds directly, without component or
 responsibility directories, the product configuration (ISIMIP variable to
 VIC output, conversion, time steps, the variables not provided in addition
-to the campaign's list, file attributes), the producer of the fixed files of
+to the campaign's list, file attributes), the producer of the static files of
 a product set, the producer and the check of one product unit, the
 collecting step that writes and checks `product-set.yaml` and
 `checksums.sha256`, their Slurm template and submit script, and the README
 (user, 2026-11-09, task AD). A subdirectory needs a change to this section
 first. Tests of the stage are under `tests/unit/`.
+
+The stage is self-contained (user, 2026-11-10, task AD): it imports no module
+of `workflow/common/` or of another stage, because it may be published on its
+own. It keeps its own copy of the few infrastructure rules it needs (workdir,
+Git state, checksums, QC statuses, job records) and of the river-network
+functions of `workflow/05_simulation/monitor/grdc.py`, with the same
+behaviour; this is an exception to the canonical implementation rule of
+`AGENTS.md`, approved by the user.
 
 The stage reads run output, run manifests and run-check summaries under
 `runs/` and `qc/runs/`, the parameter set, and the ISIMIP mask and DDM30
@@ -1056,8 +1064,8 @@ postprocessed/
 └── <product-set-id>/
     ├── product-set.yaml
     ├── checksums.sha256
-    ├── fixed/
-    │   └── <fixed files>.nc
+    ├── static/
+    │   └── <static files>.nc
     └── <gcm>/
         └── <segment-key>/
             └── <start-year>-<end-year>/
@@ -1077,7 +1085,7 @@ records and their contents are defined by D11
   product-set ID, never a version suffix.
 - `product-set.yaml` and `checksums.sha256` describe the whole set; they are
   written only by the collecting step of the stage, never by a unit job.
-- `fixed/` holds the fixed files of the set: the ISIMIP fixed variables
+- `static/` holds the static files of the set: the ISIMIP static variables
   (`cellarea.nc`, `contfrac.nc`, `landfrac.nc`) and the files the products
   are made with (the `dis` outlet map and the soil-layer depths of D07),
   each listed in `product-set.yaml`.
@@ -1098,11 +1106,12 @@ records and their contents are defined by D11
 - A unit job writes into `.writing-<start-year>-<end-year>/` beside the unit
   and renames it when every file and the record are complete. A leftover
   `.writing-*` directory is an interrupted job; the user decides on its
-  deletion. An existing unit is never overwritten.
+  deletion. An existing unit is never overwritten. The static files are
+  written the same way, into `.writing-static/` beside `static/`.
 
 QC evidence of a unit is under
 `qc/postprocessed/<product-set-id>/<gcm>/<segment-key>/<start-year>-<end-year>/`,
-of the fixed files and the whole set under `qc/postprocessed/<product-set-id>/`.
+of the static files and the whole set under `qc/postprocessed/<product-set-id>/`.
 
 Use the same GCM, segment, and variable ordering throughout a product set.
 

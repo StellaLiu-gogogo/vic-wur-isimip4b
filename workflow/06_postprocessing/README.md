@@ -9,7 +9,7 @@ Open decisions due at or before this stage are listed in `docs/decisions/open-de
 ## Inputs
 
 - Completed run output and run manifests under `workdir/runs/`, and the run-check summaries under `workdir/qc/runs/`.
-- Accepted parameter information required for derived variables and fixed fields (the production parameter set of the campaign).
+- Accepted parameter information required for derived variables and static fields (the production parameter set of the campaign).
 - The ISIMIP `water_global` land-sea mask and the DDM30 network under `workdir/raw/ISIMIP4b/InputData/geo_conditions/`.
 - Current project and protocol specifications (the protocol commit pinned by the campaign).
 
@@ -62,6 +62,15 @@ commit of the branch before it is merged, under these conditions:
 - the stage's own code does not change `05_simulation` or `workflow/common/`; a change there needs the user's consent
   first.
 
+**Self-contained stage (user, 2026-11-10).** The stage may later be published on its own, so it imports no module of
+`workflow/common/` or of another stage. `support.py` holds its own copy of the infrastructure rules it needs (workdir
+through `ISIMIP4B_WORKDIR`, Git state and the clean-repository rule, sha256, QC statuses and exit statuses, job
+records under `logs/06_postprocessing/`), and `routing.py` its own copy of the river-network functions of
+`workflow/05_simulation/monitor/grdc.py`, with the same behaviour. This is an exception to the canonical
+implementation rule of `AGENTS.md`, approved by the user; it is also recorded in `docs/directory-contracts.md`,
+`workflow/06_postprocessing/`. A change of a rule in `workflow/common/` must therefore be checked against
+`support.py` by hand.
+
 Until the user starts the production step (AD8), products are made only under `scratch/postprocessing-build/`.
 
 **Order of work.** A product unit is made only from a run chunk that has completed and whose chunk check has passed
@@ -71,8 +80,8 @@ so that they do not slow down the VIC jobs writing to the same file system.
 
 | Step | Content | State |
 |---|---|---|
-| AD1 | decisions D07 and D11 recorded, D09 and D10 moved to `08_delivery`, contract (`postprocessed/` layout, `workflow/06_postprocessing/` section), layout check and its test, glossary terms, this README | done 2026-11-09 (branch `task-ad-postprocessing`) |
-| AD2 | fixed files of a product set: 0.5° grid, `cellarea`, `contfrac`, `landfrac`, soil-layer depths, `dis` outlet map; tests; scratch run on Slurm; checks (area totals, exactly the 3 310 uncovered cells missing, outlet upstream area against DDM30) | pending |
+| AD1 | decisions D07 and D11 recorded, D09 and D10 moved to `08_delivery`, contract (`postprocessed/` layout, `workflow/06_postprocessing/` section), layout check and its test, glossary terms, this README | done 2026-11-09, commit `9bb1c11` |
+| AD2 | static files of a product set: 0.5° grid, `cellarea`, `contfrac`, `landfrac`, soil-layer depths, `dis` outlet map; tests; scratch run on Slurm; checks (area totals, exactly the 3 310 uncovered cells missing, outlet upstream area against DDM30) | code and unit tests 2026-11-10; scratch run pending |
 | AD3 | product unit from one run chunk: aggregation, unit conversion, sector arithmetic, file rules of protocol chapter 5, unit record; tests on small synthetic grids | pending |
 | AD4 | check of a unit: global totals 5′ against 0.5° per variable and time step, outlet `dis` equal to the 5′ discharge, mask, time coverage, value ranges, units, dimensions, calendar, attributes, file format; status `passed`, `warning`, `failed` or `not_checked` | pending |
 | AD5 | Slurm template, submit script (only chunks completed with a passed chunk check; a limit on jobs at the same time), collecting step with `product-set.yaml` and `checksums.sha256` | pending |
@@ -80,6 +89,25 @@ so that they do not slow down the VIC jobs writing to the same file system.
 | AD7 | review of the scratch products by the user | pending |
 | AD8 | production product units as chunks of the campaign pass their chunk checks: first the pre-industrial segment and the two `2021soc` historical segments (expected complete around 2026-11-23), then the others | pending |
 | AD9 | merge of the branch into main once no production job runs from main (user) | pending |
+
+## Files
+
+| File | Role |
+|---|---|
+| `products.yaml` | product configuration: product grid (ISIMIP mask), fill value, file rules of protocol chapter 5, the global attributes `institution` and `contact` (the producers stop while they are not set), static variables and their comments, static variables not provided (`soil`), DDM30 comparison |
+| `support.py` | the stage's own infrastructure (see "Self-contained stage") |
+| `routing.py` | 5′ routing network of the parameter set, DDM30 network (flow directions −1 sink, 0 outlet, 1–8 east clockwise to north-east), upstream area |
+| `static_fields.py` | static files of a product set in `postprocessed/<set>/static/` (D07 parts 2 and 3, D08): `cellarea.nc`, `contfrac.nc`, `landfrac.nc` (ISIMIP variables, units and long names from the protocol), `soil-layers.nc` (thickness and bottom of the three layers, weighted block means), `dis-outlets.nc` (outlet 5′ cell of every 0.5° cell: largest upstream area, ties to the smallest 5′ flat index; its indices, coordinates, upstream area and the number of active 5′ cells). Written into `.writing-static/` and renamed; never overwritten; outside `--scratch` only from a clean repository |
+| `check_static.py` | check of the static files, recomputed with 6 × 6 blocks instead of the producer's cell sums: file rules and attributes, coverage (exactly the uncovered mask cells of D08 missing), `cellarea` against the domain areas and the analytic WGS84 area (warning above `cellarea_tolerance`), `contfrac` and `landfrac`, layer depths, outlets (inside the block, active, in the mask, largest upstream area; the network conserves area); DDM30 comparison as a diagnostic only. Writes `qc/postprocessed/<set>/static/` |
+| `postprocessing.sbatch`, `submit.py` | Slurm job of a producer and its check, with the job record `logs/06_postprocessing/<job-name>_<slurm-job-id>/`; `submit.py static --campaign <file> [--scratch <task-id>]` |
+
+Tests: `tests/unit/test_postprocessing_static.py` (networks, blocks, outlets, WGS84 area, producer and check end to
+end on a tiny synthetic workdir), `tests/unit/test_check_layout_postprocessed.py` (layout of a product set).
+
+```bash
+export ISIMIP4B_WORKDIR=/lustre/nobackup/WUR/ESG/liu297/isimip4b/workdir
+python3 workflow/06_postprocessing/submit.py static --campaign configs/campaigns/water-global-ec-earth3-esm-1-1.yaml --scratch postprocessing-build
+```
 
 ## Allowed content
 

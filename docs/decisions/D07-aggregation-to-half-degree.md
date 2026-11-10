@@ -107,7 +107,7 @@ The user took the recommended option of every part (2026-11-09).
    of the parameter set, with a fixed tie rule recorded in the outlet map.
    The 0.5° `dis` is the unchanged 5′ discharge of that cell, daily and
    monthly. The outlet map (the outlet cell of every 0.5° cell and its
-   upstream area) is a fixed file of the product set. DDM30 is used only in a
+   upstream area) is a static file of the product set. DDM30 is used only in a
    check: the upstream area of each outlet is compared with the DDM30
    upstream area of the 0.5° cell (report and figures, not a pass
    criterion).
@@ -122,7 +122,7 @@ The user took the recommended option of every part (2026-11-09).
      `06_postprocessing`. The campaign file, whose `not_provided` lists
      `soil` as a postprocessing product, is not changed while its runs are
      in production.
-   - Every fixed field is `1e+20` at the 3 310 uncovered mask cells (D08).
+   - Every static field is `1e+20` at the 3 310 uncovered mask cells (D08).
 4. **`soilmoist`, option (A).** Monthly 1601–2100 from the monthly stream,
    and daily 1850–2100 from the daily stream. `tsl`, `snd` and `snm` are
    reported monthly, the only time step VIC writes. The daily `OUT_EVAP` and
@@ -131,7 +131,7 @@ The user took the recommended option of every part (2026-11-09).
 
 ## Consequences
 
-- `06_postprocessing` (task AD) implements the fixed fields and the outlet
+- `06_postprocessing` (task AD) implements the static fields and the outlet
   map, the products per run chunk, and their checks:
   - for every variable and time step, the area-weighted global total of
     the 0.5° product equals the total over the active 5′ cells inside the
@@ -142,6 +142,6 @@ The user took the recommended option of every part (2026-11-09).
   cell is simulated as whole land. A user who multiplies a value by
   `contfrac` × `cellarea` gets the simulated total of the cell.
 - The D08 check of `07_quality_control` (exactly the 3 310 cells missing)
-  applies to every product, the fixed fields included.
+  applies to every product, the static fields included.
 - A change of any part of this decision changes the products and needs a
   new product-set identity (D11).

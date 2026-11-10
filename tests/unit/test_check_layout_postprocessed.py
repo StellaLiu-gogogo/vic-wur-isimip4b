@@ -1,7 +1,7 @@
 """Unit tests for the postprocessed/ rules of tests/check_layout.py (check_product_set; D11, task AD): a product set
-holds product-set.yaml, checksums.sha256, fixed/ with NetCDF files, and <gcm>/<segment-key>/<start>-<end>/ product
+holds product-set.yaml, checksums.sha256, static/ with NetCDF files, and <gcm>/<segment-key>/<start>-<end>/ product
 units with provenance.yaml and <variable>_<daily|monthly>_<start>_<end>.nc files; a .writing-<start>-<end>/ staging
-directory is a warning; spin-up segments, unknown scenarios and other names are errors.
+directory and a .writing-static/ directory are warnings; spin-up segments, unknown scenarios and other names are errors.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
@@ -20,7 +20,7 @@ class ProductSetLayoutTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.touch(f'{SET}/product-set.yaml', f'{SET}/checksums.sha256', f'{SET}/fixed/cellarea.nc',
+        self.touch(f'{SET}/product-set.yaml', f'{SET}/checksums.sha256', f'{SET}/static/cellarea.nc',
                    f'{UNIT}/provenance.yaml', f'{UNIT}/qtot_daily_1601_1625.nc', f'{UNIT}/dis_monthly_1601_1625.nc')
 
     def tearDown(self):
@@ -49,10 +49,16 @@ class ProductSetLayoutTest(unittest.TestCase):
         self.assertEqual(len(report.warnings), 1)
         self.assertIn('.writing-1626-1650', report.warnings[0])
 
+    def test_static_staging_directory_is_a_warning(self):
+        self.touch(f'{SET}/.writing-static/cellarea.nc')
+        report = self.check()
+        self.assertEqual(report.errors, [])
+        self.assertEqual(len(report.warnings), 1)
+
     def test_errors(self):
         cases = [
             f'{SET}/notes.txt',                                                      # file at set level
-            f'{SET}/fixed/outlets.csv',                                              # non-NetCDF fixed file
+            f'{SET}/static/outlets.csv',                                              # non-NetCDF static file
             f'{SET}/unknown-gcm/historical_histsoc_default_historical/1850-1874/provenance.yaml',
             f'{SET}/ec-earth3-esm-1-1/picontrol_1850soc_default_spinup/1551-1575/provenance.yaml',
             f'{SET}/ec-earth3-esm-1-1/picontrol_1850soc_default/1601-1625/provenance.yaml',  # experiment ID

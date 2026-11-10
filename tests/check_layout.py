@@ -437,7 +437,7 @@ def check_workdir(workdir: Path, repo: Path, report: Report) -> None:
                 check_allowed(report, crel, children(Path(chunk.path)),
                               CHUNK_CHILDREN, "chunk entry")
 
-    # postprocessed/<set>/{product-set.yaml,checksums.sha256,fixed/,<gcm>/<segment-key>/<start>-<end>/}
+    # postprocessed/<set>/{product-set.yaml,checksums.sha256,static/,<gcm>/<segment-key>/<start>-<end>/}
     for entry in children(w / "postprocessed"):
         if not entry.is_dir(follow_symlinks=False) and entry.name != "README.md":
             report.error(f"postprocessed/{entry.name}",
@@ -729,11 +729,14 @@ def check_product_set(report: Report, path: Path, rel: str) -> None:
         if not entry.is_dir(follow_symlinks=False):
             if entry.name not in PRODUCT_SET_FILES and entry.name != "README.md":
                 report.error(erel, "a product set holds product-set.yaml, checksums.sha256, "
-                                   "fixed/ and GCM directories only")
-        elif entry.name == "fixed":
+                                   "static/ and GCM directories only")
+        elif entry.name == ".writing-static":
+            report.warn(erel, "staging directory of an interrupted static-files job; the user decides on its "
+                              "deletion")
+        elif entry.name == "static":
             for f in children(Path(entry.path)):
                 if f.is_dir(follow_symlinks=False) or not f.name.endswith(".nc"):
-                    report.error(f"{erel}/{f.name}", "fixed/ holds NetCDF files only")
+                    report.error(f"{erel}/{f.name}", "static/ holds NetCDF files only")
         elif entry.name not in GCMS:
             report.error(erel, "unknown GCM")
         else:

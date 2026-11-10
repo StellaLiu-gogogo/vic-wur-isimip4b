@@ -56,7 +56,7 @@ The user took the recommended option on 2026-11-09.
      manifest, and the chunk check it relied on (`summary.json` path,
      sha256, status, the attempt it is bound to);
    - the input files read (the run output files with sha256, the
-     parameter-set files of the fixed fields, the ISIMIP mask) and the fixed
+     parameter-set files of the static fields, the ISIMIP mask) and the static
      files of the product set used (sha256);
    - the producing code: commit, branch, `code_dirty` (always `false` for an
      accepted unit), script, Slurm job ID, start and end time (UTC);
@@ -75,7 +75,7 @@ The user took the recommended option on 2026-11-09.
      parameter set, model commit, protocol commit;
    - the state of the decisions the products depend on: D07 (decided), D09
      and D10 (open, names given at delivery);
-   - the fixed files (`fixed/`) with sha256;
+   - the static files (`static/`) with sha256;
    - the expected product units, derived by code from the campaign's
      reported segments and their chunks, each with its status (`missing`,
      `present`, `accepted`, `failed`);

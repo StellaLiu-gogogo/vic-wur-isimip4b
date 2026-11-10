@@ -1,0 +1,45 @@
+# Product configuration of stage 06_postprocessing (task AD; D07, D08, D11). Read by static_fields.py and
+# check_static.py, and from step AD3 on by the producer of the product units. Paths are relative to the workdir.
+# Units, long names and comments of the ISIMIP variables are read from the protocol commit pinned by the campaign,
+# never copied here; the campaign file is read, never changed.
+
+product_grid:
+  # D08: products are masked with the ISIMIP water_global land-sea mask; its grid is the product grid
+  mask: raw/ISIMIP4b/InputData/geo_conditions/landseamask/landseamask_water-global.nc
+  mask_variable: mask
+  # D08 (2026-09-30): mask cells without an active 5' VIC cell, reported as missing in every product
+  uncovered_cells_expected: 3310
+
+fill_value: 1.0e+20                  # missing value of every product variable (D08, protocol chapter 5)
+
+file_rules:                          # protocol chapter 5
+  data_model: NETCDF4_CLASSIC
+  complevel: 5                       # minimum compression level of the protocol
+
+# global attributes the protocol requires in every product file (chapter 5); `contact` as "NAME <EMAIL>, ...".
+# The producers stop while either is null. Set by the user on 2026-11-10.
+attributes:
+  institution: Wageningen University & Research
+  contact: Sida Liu <sida.liu@wur.nl>
+
+static:
+  # ISIMIP static variables made from the domain of the parameter set (D07 part 3)
+  variables: [cellarea, contfrac, landfrac]
+  comments:
+    landfrac: >-
+      Equal to contfrac: VIC-WUR separates no inland water bodies (LAKES FALSE), so the simulated continental area
+      is reported as land.
+    contfrac: >-
+      Area of the active 5 arcmin VIC-WUR cells inside the 0.5 degree cell divided by cellarea; every active 5 arcmin
+      cell is simulated as whole land.
+    cellarea: >-
+      Sum of the WGS84 areas of the 36 5 arcmin cells of the 0.5 degree cell (domain file of the parameter set).
+  # ISIMIP static variables not provided (D07 part 3), in addition to the campaign's not_provided list
+  not_provided:
+    soil: VIC-WUR has continuous soil parameters per cell and no soil types
+  # relative difference of cellarea from the analytic WGS84 area of the 0.5 degree cell above which the check warns
+  cellarea_tolerance: 1.0e-3
+  # ISIMIP DDM30 network, used only to compare the upstream area of the dis outlets (D07 part 2)
+  ddm30_flowdir: raw/ISIMIP4b/InputData/geo_conditions/river_routing/ddm30_flowdir_cru_neva.nc
+  ddm30_variable: flowdirection
+  ddm30_min_area_km2: 10000          # 0.5 degree cells compared: DDM30 upstream area at least this
