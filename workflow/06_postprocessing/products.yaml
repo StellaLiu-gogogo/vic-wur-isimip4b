@@ -110,3 +110,16 @@ variables:
   ptotww: {terms: [OUT_DEMAND]}
   atotwwgw: {terms: [OUT_WI_GW_SECT], sector: all}
   ptotwwgw: {terms: [OUT_DE_GW_SECT], sector: all}
+
+# check of a product unit (check_unit.py)
+unit_check:
+  # time steps per year whose products are recomputed from the 5 arcmin output by another route (sums per cell
+  # instead of the producer's matrix): the month (year mod 12) + 1 and the day of the year (year mod 28) + 1, so that
+  # a 25-year chunk covers every month; the whole series is checked for coverage, time axis and value range
+  recompute_steps_per_year: 1
+  recompute_rel_tol: 1.0e-5          # relative to the largest absolute value of the field
+  daily_monthly_rel_tol: 1.0e-4      # monthly mean of a daily product against the monthly product (warning above)
+  identities:                        # 0.5 degree products that the recipes make equal (failed above 1e-5 relative)
+    - [qtot, [qs, qsb]]
+    - [qg, [qsb]]
+    - [qr, [qsb]]

@@ -120,6 +120,7 @@ class Grid:
         pos = np.full(n05, -1, 'i8'); pos[self.cov] = np.arange(self.cov.size)
         r = pos[cell[self.counted]]
         c = np.arange(self.counted.size)
+        self.weights, self.cellpos, self.wsum = w[self.counted], r, wsum     # for the unit check (check_unit.py)
         self.mean = sparse.csr_matrix((w[self.counted] / wsum[r], (r, c)), shape=(self.cov.size, self.counted.size))
         self.volume = sparse.csr_matrix((KG_PER_HM3 / wsum[r], (r, c)), shape=(self.cov.size, self.counted.size))
         self.outlet = np.searchsorted(self.counted, out5[self.cov])

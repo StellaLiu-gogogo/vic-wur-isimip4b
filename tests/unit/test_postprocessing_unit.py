@@ -3,7 +3,8 @@ on the tiny synthetic workdir of test_postprocessing_static.py, a one-year run w
 product files whose values, units, time axes, layers and unit record are checked: rates from mm per step, the
 outlet discharge, layer means with depth bounds, reservoir volumes per simulated area, total water storage, sector
 sums, consumption from the forcing fraction, degC to K, cm to m; daily products only where the daily stream has the
-outputs; recipes that differ from the campaign stop the producer; an existing unit is not overwritten.
+outputs; recipes that differ from the campaign stop the producer; an existing unit is not overwritten. The unit
+check (check_unit.py) passes on the unit and fails after a product value, a source file or an attribute is changed.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
@@ -20,6 +21,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, '..', '..', 'workflow', '06_postprocessing'))
 from test_postprocessing_static import SyntheticWorkdir, LAT5, LON5, write   # noqa: E402
 import make_unit      # noqa: E402
+import check_unit     # noqa: E402
 import static_fields  # noqa: E402
 import support        # noqa: E402
 
@@ -184,6 +186,36 @@ class ProductUnitTest(SyntheticWorkdir):
         self.assertEqual(f0['identity']['climate_scenario'], 'historical')
         self.assertEqual(f0['identity']['bias_adjustment'], 'era5')
         self.assertIsNone(f0['identity']['model'])
+
+    def check(self):
+        return self.run_main(check_unit, '--run', RUN)
+
+    def summary(self):
+        return support.load_yaml(f'{self.W}/scratch/test-task/qc/postprocessed/test-campaign/ec-earth3-esm-1-1/'
+                                 f'historical_histsoc_default_historical/{YEAR}-{YEAR}/summary.json')
+
+    def test_check_passes(self):
+        self.assertEqual(self.produce(), 0)
+        self.assertEqual(self.check(), 0, self.summary())
+        self.assertEqual(set(self.summary()['checks']),
+                         {'record', 'files', 'time', 'coverage', 'identities', 'recompute', 'valid_range',
+                          'daily_monthly'})
+
+    def test_check_finds_a_changed_value(self):
+        self.assertEqual(self.produce(), 0)
+        step = YEAR % 12                                         # the month the check recomputes
+        with nc.Dataset(f'{self.unit}/qtot_monthly_{YEAR}_{YEAR}.nc', 'a') as d:
+            d['qtot'][step, 1, 1] = 1.0
+        self.assertEqual(self.check(), 1)
+        checks = self.summary()['checks']
+        self.assertEqual(checks['recompute'], 'failed')
+        self.assertEqual(checks['record'], 'failed')             # the sha256 differs from the record
+
+    def test_check_finds_a_changed_source(self):
+        self.assertEqual(self.produce(), 0)
+        os.utime(f'{self.W}/runs/test-campaign/{RUN}/output/monthly.{YEAR}-01.nc', (0, 0))
+        self.assertEqual(self.check(), 1)
+        self.assertEqual(self.summary()['checks']['record'], 'failed')
 
     def test_unit_is_not_overwritten(self):
         self.assertEqual(self.produce(), 0)
