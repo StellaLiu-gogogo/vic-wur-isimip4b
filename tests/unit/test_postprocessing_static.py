@@ -103,7 +103,10 @@ def write(path, dims, variables, attrs=None):
             d.setncatts(attrs)
 
 
-class EndToEndTest(unittest.TestCase):
+class SyntheticWorkdir(unittest.TestCase):
+    """A tiny synthetic workdir (mask, parameter set, DDM30, protocol, campaign) with the stage's configuration,
+    environment and Git state patched; no tests of its own (also used by test_postprocessing_unit.py)."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         W = self.W = self.tmp.name
@@ -163,8 +166,8 @@ class EndToEndTest(unittest.TestCase):
             p.stop()
         self.tmp.cleanup()
 
-    def run_main(self, module):
-        argv = [module.__file__, '--campaign', self.campaign, '--scratch', 'test-task']
+    def run_main(self, module, *extra):
+        argv = [module.__file__, '--campaign', self.campaign, '--scratch', 'test-task', *extra]
         with mock.patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
             try:
                 module.main()
@@ -172,6 +175,8 @@ class EndToEndTest(unittest.TestCase):
                 return e.code
         return 0
 
+
+class EndToEndTest(SyntheticWorkdir):
     def test_produce_and_check(self):
         self.assertEqual(self.run_main(static_fields), 0)
         static = f'{self.W}/scratch/test-task/postprocessed/test-campaign/static'

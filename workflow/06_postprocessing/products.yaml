@@ -43,3 +43,70 @@ static:
   ddm30_flowdir: raw/ISIMIP4b/InputData/geo_conditions/river_routing/ddm30_flowdir_cru_neva.nc
   ddm30_variable: flowdirection
   ddm30_min_area_km2: 10000          # 0.5 degree cells compared: DDM30 upstream area at least this
+
+# ISIMIP identity of every product file, recorded in the unit record for 08_delivery (D09, D11); the model name is
+# D10 (open) and is given at delivery
+identity:
+  bias_adjustment: era5              # ISIMIP4b atmospheric forcing (docs/glossary.md, bias adjustment)
+  region: global
+
+# VIC-WUR water-use classes of the locked commit (plugin_def.h): 0 municipal, 1 energy, 2 manufacturing (ISIMIP
+# industrial), 3 livestock, 4 irrigation; `all` sums every class
+sectors: {municipal: 0, manufacturing: 2, irrigation: 4}
+
+# How each ISIMIP variable is made from the VIC-WUR outputs (D07). The VIC outputs of every recipe must be exactly
+# those of output.isimip in the campaign (make_unit.py stops otherwise). Keys:
+#   terms     VIC outputs summed at 5 arcmin before the area-weighted mean (D07 part 1); a layered output is summed
+#             over its layers unless `layers` is true
+#   volumes   VIC outputs in hm3 summed per 0.5 degree cell and divided by its simulated area (kg m-2)
+#   layers    keep the VIC soil layers (ISIMIP varying levels: lev, depth, depth_bnds)
+#   outlet    the value of the 5 arcmin outlet cell (static/dis-outlets.nc; D07 part 2) instead of a mean
+#   sector    water-use class of the *_SECT outputs (a name of `sectors`, or all)
+#   times_forcing  multiply at 5 arcmin by this water-use forcing series of the run (consumption fraction; a missing
+#             fraction counts as 0, as in the run check)
+# Unit conversion follows the VIC unit of the output file and the protocol unit: mm -> kg m-2 s-1 divided by the
+# seconds of the time step, mm -> kg m-2, C -> K (+273.15), cm -> m (x 0.01), m3 s-1 and 1 unchanged.
+variables:
+  qtot: {terms: [OUT_RUNOFF, OUT_BASEFLOW]}
+  dis: {terms: [OUT_DISCHARGE], outlet: true}
+  qs: {terms: [OUT_RUNOFF]}
+  qsb: {terms: [OUT_BASEFLOW]}
+  qg: {terms: [OUT_BASEFLOW]}
+  qr: {terms: [OUT_BASEFLOW]}
+  evap: {terms: [OUT_EVAP]}
+  potevap: {terms: [OUT_PET]}
+  soilmoist: {terms: [OUT_SOIL_MOIST], layers: true}
+  rootmoist: {terms: [OUT_ROOTMOIST]}
+  tsl: {terms: [OUT_SOIL_TEMP], layers: true}
+  snd: {terms: [OUT_SNOW_DEPTH]}
+  snm: {terms: [OUT_SNOW_MELT]}
+  swe: {terms: [OUT_SWE, OUT_SNOW_CANOPY]}
+  canopystor: {terms: [OUT_WDEW]}
+  riverstor: {terms: [OUT_STREAM_MOIST]}
+  reservoirstor: {volumes: [OUT_GDAM_STORAGE, OUT_LDAM_STORAGE]}
+  tws: {terms: [OUT_SOIL_MOIST, OUT_SWE, OUT_SNOW_CANOPY, OUT_WDEW, OUT_SURFSTOR, OUT_STREAM_MOIST],
+        volumes: [OUT_GDAM_STORAGE, OUT_LDAM_STORAGE]}
+  lai: {terms: [OUT_LAI]}
+  airrww: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
+           sector: irrigation}
+  airrwwgw: {terms: [OUT_WI_GW_SECT], sector: irrigation}
+  airruse: {terms: [OUT_RECEIVED]}
+  adomww: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
+           sector: municipal}
+  adomwwgw: {terms: [OUT_WI_GW_SECT], sector: municipal}
+  adomuse: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
+            sector: municipal, times_forcing: water_use/municipal_consumption_fraction}
+  pdomww: {terms: [OUT_DE_GW_SECT, OUT_DE_SURF_SECT], sector: municipal}
+  pdomwwgw: {terms: [OUT_DE_GW_SECT], sector: municipal}
+  aindww: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
+           sector: manufacturing}
+  aindwwgw: {terms: [OUT_WI_GW_SECT], sector: manufacturing}
+  ainduse: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
+            sector: manufacturing, times_forcing: water_use/manufacturing_consumption_fraction}
+  pindww: {terms: [OUT_DE_GW_SECT, OUT_DE_SURF_SECT], sector: manufacturing}
+  pindwwgw: {terms: [OUT_DE_GW_SECT], sector: manufacturing}
+  atotww: {terms: [OUT_WITHDRAWN]}
+  atotuse: {terms: [OUT_CONSUMED]}
+  ptotww: {terms: [OUT_DEMAND]}
+  atotwwgw: {terms: [OUT_WI_GW_SECT], sector: all}
+  ptotwwgw: {terms: [OUT_DE_GW_SECT], sector: all}

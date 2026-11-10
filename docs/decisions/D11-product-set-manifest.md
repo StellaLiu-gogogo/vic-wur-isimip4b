@@ -98,3 +98,20 @@ The user took the recommended option on 2026-11-09.
 - The backup snapshots take the whole set, records included (D13 rule 3).
 - `docs/directory-contracts.md`, `postprocessed/`, describes the layout in
   the same change.
+
+## Amendment 2026-11-10 (user, task AD3)
+
+1. **Run output files by size and modification time.** The unit record lists
+   the run output files it read with their size and modification time, not
+   their sha256. Hashing would read the 5′ output a second time (about 525 GB
+   per 25-year chunk, 15–30 minutes, about 45 TB for the campaign) on the
+   file system the running VIC jobs write to. The output of a completed
+   attempt is never rewritten, and the record names the attempt (number,
+   Slurm job ID) and the sha256 of the run manifest. Small inputs (the
+   static files of the set, the ISIMIP mask, the water-use forcing files of
+   the consumption fractions) keep their sha256.
+2. **Check status outside the unit.** A unit is never changed after it has
+   been renamed into place, so its record names the path of its QC summary
+   (`qc/postprocessed/<product-set-id>/<gcm>/<segment-key>/<start>-<end>/summary.json`)
+   but not the check status; the status is in that summary and in
+   `product-set.yaml`.
