@@ -34,8 +34,10 @@ import support       # noqa: E402
 
 TEMPLATE = os.path.join(HERE, 'postprocessing.sbatch')
 SCRIPT = 'workflow/06_postprocessing'
-# default resources per step (one core each); unit to be set from the scratch test of task AD (AD6)
-RESOURCES = {'static': ('02:00:00', '32G'), 'unit': ('24:00:00', '64G'), 'collect': ('01:00:00', '8G')}
+# default resources per step (one core each). unit from the scratch test of task AD (AD6, 2026-11-11, 10 years with
+# daily soilmoist, production runs writing at the same time): producer 8.7 min per model year and 16.5 GB, check 7 min
+# and 9.5 GB, so about 4 h for a 25-year chunk; twice that time, and memory for a check that keeps more months
+RESOURCES = {'static': ('02:00:00', '32G'), 'unit': ('08:00:00', '40G'), 'collect': ('01:00:00', '8G')}
 UNIT_JOB = 'product-unit-'
 MAX_JOBS = 4
 
@@ -181,7 +183,8 @@ def main():
     if a.step == 'unit':
         return step_unit(W, a, state, camp, camp_rel, args)
     if a.step == 'static':
-        job_name, producer, check = f'static-files-{pset}{suffix}', f'static_fields.py {args}', f'check_static.py {args}'
+        job_name = f'static-files-{pset}{suffix}'
+        producer, check = f'static_fields.py {args}', f'check_static.py {args}'
         io = ([camp_rel, f'{SCRIPT}/products.yaml'], [f'{set_rel}/static'], [f'{qc_rel}/static'])
     else:
         job_name, producer, check = f'product-set-{pset}{suffix}', f'collect_set.py {args}', f'check_set.py {args}'

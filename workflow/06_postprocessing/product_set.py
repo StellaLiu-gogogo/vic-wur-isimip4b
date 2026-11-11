@@ -24,7 +24,9 @@ Unit status (D11): `missing` (no unit directory), `present` (made, not accepted:
 not_checked, a source that is not accepted), `accepted` (check passed from a clean repository on the unchanged unit
 record, made and checked from a clean repository, source accepted and still the latest completed attempt with its
 passed chunk check), `failed` (check failed, the unit record changed after its check, a product file whose size
-differs from the record, or a newer attempt of the source chunk). A segment is accepted when every unit is accepted
+differs from the record, or a newer attempt of the source chunk). A check whose only warning is the range check
+(values outside the protocol's valid range, kept unclipped) counts as passed (D11 amendment 2026-11-11, user); the
+number of such values per product file is recorded with the unit. A segment is accepted when every unit is accepted
 and the whole-run check of its run has passed, bound to the latest completed attempt of every chunk.
 """
 import json
@@ -37,6 +39,7 @@ PERIODS = ('pre-industrial', 'historical', 'future')
 IDENTICAL = re.compile(r'Identical to the similar \*\*([^*]+)\*\* run', re.I)
 NOT_SIMULATED = re.compile(r'Does not have to be simulated, spin-up should be based on the (\d{4}) DHF', re.I)
 UNIT_STATUSES = ('missing', 'present', 'accepted', 'failed')
+RANGE_CHECK = 'valid_range'          # its warning alone does not hold back acceptance (D11 amendment 2026-11-11)
 DECISIONS = ('D07', 'D08', 'D09', 'D10', 'D11')
 DECISION_TABLE = os.path.join(support.REPO, 'docs', 'decisions', 'open-decisions.md')
 
@@ -276,13 +279,21 @@ def unit_state(W, set_dir, qc_dir, run, unit, man):
             s = json.load(fh)
         check['status'] = s.get('status', 'not_checked')
         check['checked_at'] = s.get('checked_at')
+        checks = s.get('checks') or {}
+        check['range_only'] = check['status'] == 'warning' and checks.get(RANGE_CHECK) == 'warning' and \
+            all(v == 'passed' for k, v in checks.items() if k != RANGE_CHECK)
+        if checks.get(RANGE_CHECK) == 'warning':
+            report = support.load_yaml(os.path.join(qc_dir, rel, 'reports', 'check.json'))
+            check['values_outside_valid_range'] = {
+                f: v['values_outside'] for f, v in report['details'][RANGE_CHECK]['files'].items()
+                if v.get('values_outside')}
         if s.get('record_sha256') != support.sha256(os.path.join(d, 'provenance.yaml')):
             failed.append('the unit record changed after its check')
         if (s.get('checked_by') or {}).get('dirty') is not False:
             present.append('checked from a repository that was not clean')
     if check['status'] == 'failed':
         failed.append('unit check failed')
-    elif check['status'] != 'passed':
+    elif check['status'] != 'passed' and not check.get('range_only'):
         present.append(f'unit check {check["status"]}')
     if rec['code'].get('dirty') is not False:
         present.append('made from a repository that was not clean')

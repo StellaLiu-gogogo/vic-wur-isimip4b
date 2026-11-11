@@ -79,7 +79,8 @@ The user took the recommended option on 2026-11-09.
    - the expected product units, derived by code from the campaign's
      reported segments and their chunks, each with its status (`missing`,
      `present`, `accepted`, `failed`);
-   - per segment, whether it is accepted: every unit `passed` and the
+   - per segment, whether it is accepted: every unit `passed` (amended
+     2026-11-11: or `warning` from the range check only) and the
      run's whole-run check `passed`;
    - when the file was last written, by which commit and job.
 
@@ -115,3 +116,23 @@ The user took the recommended option on 2026-11-09.
    (`qc/postprocessed/<product-set-id>/<gcm>/<segment-key>/<start>-<end>/summary.json`)
    but not the check status; the status is in that summary and in
    `product-set.yaml`.
+
+## Amendment 2026-11-11 (user, task AD6)
+
+**Range warnings do not hold back acceptance.** A product unit counts as
+`accepted` when every check of its unit check has passed except the range
+check (`valid_range`: values outside the protocol's `valid_min` /
+`valid_max`), which may be `warning`. The values are kept as VIC-WUR
+computed them: nothing is clipped, so the water balance of the products is
+unchanged. The number of values outside the range per product file is
+recorded with the unit in `product-set.yaml`, for the report to ISIMIP at
+delivery. Any other warning (the monthly means of a daily product against the
+monthly product) still leaves the unit `present` until the user has seen it.
+
+Reason: the scratch test of AD6 (soil-comparison-version-b, 2011–2020) passed
+every other check, and its only warnings were model behaviour: negative
+monthly `evap` (4 % of cell-months, condensation and deposition in high
+latitudes and on the Tibetan Plateau in winter, at least −0.38 mm/day) and
+daily `dis` above 700 000 m3 s-1 at the Amazon mouth (23 days in 2013, at
+most 776 402 m3 s-1). Negative winter `evap` occurs in every chunk, so with
+"every unit `passed`" no segment could be accepted.

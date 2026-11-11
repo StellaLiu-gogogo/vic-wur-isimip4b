@@ -7,7 +7,8 @@ renamed into place; no product unit is changed.
 product-set.yaml records the identity of the set (product-set ID = campaign ID, campaign file and its sha256,
 parameter set, model and protocol commit), the state of the decisions the products depend on (D07-D11, from
 docs/decisions/open-decisions.md), the static files with sha256 and the status of their check, every expected product
-unit (derived from the campaign, product_set.py) with its status missing / present / accepted / failed and the reasons,
+unit (derived from the campaign, product_set.py) with its status missing / present / accepted / failed, the reasons
+and the number of values outside the protocol's valid range per product file (D11 amendment 2026-11-11),
 per segment whether it is accepted (every unit accepted and the whole-run check of its run passed and bound to the
 latest attempt of every chunk), the counts, and when, by which commit and job the file was written.
 

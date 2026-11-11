@@ -7,8 +7,9 @@ check_set.py, submit.py; D11):
   sensitivity equivalence, restriction labels, chunks;
 - on the synthetic one-year run of test_postprocessing_unit.py: the unit submission selects the ready unit, the
   collecting step records it as present (a scratch source) or accepted (production source with a passed bound check)
-  and the segment as accepted; the set check passes, finds an unlisted product file, and warns about a unit whose
-  source chunk has a newer attempt; a run manifest that differs from the derivation stops the collecting step.
+  and the segment as accepted, also when the range check is the only warning (D11 amendment 2026-11-11); the set
+  check passes, finds an unlisted product file, and warns about a unit whose source chunk has a newer attempt; a run
+  manifest that differs from the derivation stops the collecting step.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
@@ -123,8 +124,10 @@ class SegmentRulesTest(unittest.TestCase):
                                                                            'y2': {'years': [2022, 2023],
                                                                                   'chunk_years': 1}}})
         runs = {r['run_id']: r for r in product_set.expected_runs(camp, self.W)}
-        self.assertEqual(sorted(runs), ['g_h_h-soc_default_future__y10', 'g_h_h-soc_default_future__y2'])
-        self.assertEqual([u['chunk'] for u in runs['g_h_h-soc_default_future__y2']['units']], ['2022-2022', '2023-2023'])
+        self.assertEqual(sorted(runs), ['g_h_h-soc_default_future__y10',
+                                        'g_h_h-soc_default_future__y2'])
+        y2 = runs['g_h_h-soc_default_future__y2']['units']
+        self.assertEqual([u['chunk'] for u in y2], ['2022-2022', '2023-2023'])
         with self.assertRaises(SystemExit):
             product_set.expected_runs(self.campaign(exclusions=[{'experiment': 'zz', 'reason': 'x'}]), self.W)
         write_protocol(self.W, [], commit='e' * 40)
@@ -228,6 +231,31 @@ class ProductSetTest(synthetic.SyntheticRun):
         self.manifest(attempts=man['attempts'])
         self.assertEqual(self.collect(), (0, 3))
         self.assertEqual(self.record()['segments'][0]['units'][0]['status'], 'failed')
+
+    def test_range_warning_alone_is_accepted(self):
+        """D11 amendment 2026-11-11: a unit whose only warning is the range check is accepted, with the counts."""
+        self.accept_source()
+        self.assertEqual(self.produce(), 0)
+        self.assertEqual(self.check(), 0)
+        qc = f'{self.set_qc}/ec-earth3-esm-1-1/historical_histsoc_default_historical/{YEAR}-{YEAR}'
+        summ, rep = support.load_yaml(f'{qc}/summary.json'), support.load_yaml(f'{qc}/reports/check.json')
+
+        def warn(*checks):
+            for c in checks:
+                summ['checks'][c] = rep['checks'][c] = 'warning'
+            summ['status'] = rep['status'] = 'warning'
+            rep['details']['valid_range']['files'][f'qtot_monthly_{YEAR}_{YEAR}.nc'] = {'values_outside': 3}
+            support.write_json(f'{qc}/summary.json', summ)
+            support.write_json(f'{qc}/reports/check.json', rep)
+            self.assertEqual(self.collect(), (0, 0))
+            return self.record()['segments'][0]['units'][0]
+
+        unit = warn('valid_range')
+        self.assertEqual(unit['status'], 'accepted', unit)
+        self.assertEqual(unit['check']['values_outside_valid_range'], {f'qtot_monthly_{YEAR}_{YEAR}.nc': 3})
+        unit = warn('valid_range', 'daily_monthly')               # another warning: the user has to see it
+        self.assertEqual(unit['status'], 'present')
+        self.assertIn('unit check warning', unit['reasons'])
 
     def test_set_check_finds_an_unlisted_file(self):
         self.assertEqual(self.produce(), 0)

@@ -111,7 +111,8 @@ def main():
             p = f'{u}/{f["name"]}'
             if p in listed and listed[p] != f['sha256']:
                 ip.append(f'{p}: listed sha256 differs from the unit record')
-            if os.path.exists(os.path.join(set_dir, p)) and os.path.getsize(os.path.join(set_dir, p)) != f['size_bytes']:
+            full = os.path.join(set_dir, p)
+            if os.path.exists(full) and os.path.getsize(full) != f['size_bytes']:
                 ip.append(f'{p}: size differs from the unit record')
     checks['inventory'] = ('failed' if ip else 'passed', {'problems': ip[:200], 'files_on_disk': len(files),
                                                           'files_listed': len(listed)})
