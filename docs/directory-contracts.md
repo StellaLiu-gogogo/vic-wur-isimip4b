@@ -495,10 +495,13 @@ first. Tests of the stage are under `tests/unit/`.
 The stage is self-contained (user, 2026-11-10, task AD): it imports no module
 of `workflow/common/` or of another stage, because it may be published on its
 own. It keeps its own copy of the few infrastructure rules it needs (workdir,
-Git state, checksums, QC statuses, job records) and of the river-network
-functions of `workflow/05_simulation/monitor/grdc.py`, with the same
-behaviour; this is an exception to the canonical implementation rule of
-`AGENTS.md`, approved by the user.
+Git state, checksums, QC statuses, job records), of the river-network
+functions of `workflow/05_simulation/monitor/grdc.py`, and of the rules by
+which `workflow/05_simulation/render/` derives the reported segments and
+their chunks from the campaign and its protocol commit (a unit test compares
+the two on every campaign file), with the same behaviour; this is an
+exception to the canonical implementation rule of `AGENTS.md`, approved by
+the user.
 
 The stage reads run output, run manifests and run-check summaries under
 `runs/` and `qc/runs/`, the parameter set, and the ISIMIP mask and DDM30

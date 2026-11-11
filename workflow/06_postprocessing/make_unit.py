@@ -40,6 +40,7 @@ from scipy import sparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import routing         # noqa: E402
+import product_set     # noqa: E402
 import static_fields   # noqa: E402
 import support         # noqa: E402
 
@@ -212,34 +213,6 @@ class Block:
 
 
 # ------------------------------------------------------------------------------------------------ sources
-def latest_attempt(man, chunk):
-    at = [x for x in man.get('attempts') or [] if x.get('chunk') == chunk]
-    return at[-1] if at else {}
-
-
-def source_state(W, man, chunk):
-    """The attempt and the check the unit relies on, and what keeps it from being accepted (problems)."""
-    att = latest_attempt(man, chunk)
-    qc = os.path.join(W, 'qc', man['run_dir'], *(['chunks', chunk] if chunk else []), 'summary.json')
-    check = {'summary': os.path.relpath(qc, W), 'status': 'not_checked', 'bound': False}
-    if os.path.exists(qc):
-        with open(qc) as fh:
-            s = json.load(fh)
-        b = s.get('binding') or {}
-        check.update({'sha256': support.sha256(qc), 'status': s.get('status', 'not_checked'),
-                      'bound': b.get('attempt') == att.get('attempt') and
-                      b.get('slurm_job_id') == att.get('slurm_job_id') and s.get('code_dirty') is False})
-    problems = []
-    if not man.get('production'):
-        problems.append('not a production run')
-    if att.get('status') != 'completed':
-        problems.append(f'latest attempt is {att.get("status")}')
-    if check['status'] != 'passed' or not check['bound']:
-        problems.append(f'check {check["status"]}, bound to the attempt: {check["bound"]}')
-    attempt = {k: att.get(k) for k in ('attempt', 'slurm_job_id', 'status', 'ended_at')}
-    return attempt, check, problems
-
-
 def unit_years(man, chunk):
     if chunk:
         c = [x for x in man.get('chunks') or [] if x['id'] == chunk]
@@ -360,7 +333,7 @@ def main():
     man_path = os.path.join(rd, 'run_manifest.json')
     with open(man_path) as fh:
         man = json.load(fh)
-    attempt, check, problems = source_state(W, man, a.chunk)
+    attempt, check, problems = product_set.source_state(W, man, a.chunk)
     if problems and not a.scratch:
         raise SystemExit('the source is not accepted: ' + '; '.join(problems))
     if attempt.get('status') != 'completed':

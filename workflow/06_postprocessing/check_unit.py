@@ -44,6 +44,7 @@ import matplotlib.pyplot as plt   # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import make_unit       # noqa: E402
+import product_set     # noqa: E402
 import static_fields   # noqa: E402
 import support         # noqa: E402
 
@@ -89,7 +90,7 @@ def check_record(W, rec, unit_dir, static_dir, man):
     for fn, sha in rec['inputs']['static_files'].items():
         if support.sha256(os.path.join(static_dir, fn)) != sha:
             probs.append(f'static file {fn} differs from the one the unit was made with')
-    att = make_unit.latest_attempt(man, rec['chunk'])
+    att = product_set.latest_attempt(man, rec['chunk'])
     want = rec['source']['attempt']
     if att.get('attempt') != want.get('attempt') or att.get('slurm_job_id') != want.get('slurm_job_id') or \
             att.get('status') != 'completed':

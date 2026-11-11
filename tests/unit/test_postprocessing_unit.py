@@ -35,7 +35,10 @@ VARIABLES = {   # the recipes of products.yaml used here, with the protocol unit
 SOURCES = ['OUT_WI_GW_SECT', 'OUT_WI_SURF_SECT', 'OUT_WI_DAM_SECT', 'OUT_WI_TREM_SECT', 'OUT_WI_NREN_SECT']
 
 
-class ProductUnitTest(SyntheticWorkdir):
+class SyntheticRun(SyntheticWorkdir):
+    """The synthetic workdir with its static files and a one-year run; no tests of its own (also used by
+    test_postprocessing_set.py)."""
+
     def setUp(self):
         super().setUp()
         W = self.W
@@ -128,6 +131,15 @@ class ProductUnitTest(SyntheticWorkdir):
         with nc.Dataset(f'{self.unit}/{name}') as d:
             return np.ma.filled(d[var][:].astype('f8'), np.nan), d
 
+    def check(self):
+        return self.run_main(check_unit, '--run', RUN)
+
+    def summary(self):
+        return support.load_yaml(f'{self.W}/scratch/test-task/qc/postprocessed/test-campaign/ec-earth3-esm-1-1/'
+                                 f'historical_histsoc_default_historical/{YEAR}-{YEAR}/summary.json')
+
+
+class ProductUnitTest(SyntheticRun):
     def test_products(self):
         self.assertEqual(self.produce(), 0)
         names = sorted(os.listdir(self.unit))
@@ -186,13 +198,6 @@ class ProductUnitTest(SyntheticWorkdir):
         self.assertEqual(f0['identity']['climate_scenario'], 'historical')
         self.assertEqual(f0['identity']['bias_adjustment'], 'era5')
         self.assertIsNone(f0['identity']['model'])
-
-    def check(self):
-        return self.run_main(check_unit, '--run', RUN)
-
-    def summary(self):
-        return support.load_yaml(f'{self.W}/scratch/test-task/qc/postprocessed/test-campaign/ec-earth3-esm-1-1/'
-                                 f'historical_histsoc_default_historical/{YEAR}-{YEAR}/summary.json')
 
     def test_check_passes(self):
         self.assertEqual(self.produce(), 0)
