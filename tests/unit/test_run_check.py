@@ -109,6 +109,7 @@ def write_nc(path, dims, variables, dtype='f4'):
 class CheckRunMainTest(unittest.TestCase):
     """A one-year run of 2 x 3 cells (one inactive) with consistent output: the overall status is passed only when
     the coverage and budget checks pass and the end-state file exists."""
+    real_grdc = False          # True: grdc_compare and grdc_figures run (CheckRunNoGrdcStationTest)
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); W = self.W = self.tmp.name
@@ -174,10 +175,17 @@ class CheckRunMainTest(unittest.TestCase):
     def main(self, dirty=False, qc=None):
         """check_run.main() on the synthetic run; returns (summary.json, reports/check.json)."""
         no_stations = pd.DataFrame({'row': [], 'col': [], 'lat': [], 'lon': []})
+        with contextlib.ExitStack() as stack:
+            if not self.real_grdc:
+                stack.enter_context(mock.patch.object(check_run, 'grdc_compare',
+                                                      return_value=(no_stations, {}, [YEAR], None)))
+                stack.enter_context(mock.patch.object(check_run, 'grdc_figures',
+                                                      return_value=({'stations_mapped': 0}, [])))
+            return self.run_main(dirty, qc)
+
+    def run_main(self, dirty, qc):
         with mock.patch.dict(os.environ, {'ISIMIP4B_WORKDIR': self.W}), \
                 mock.patch.object(sys, 'argv', ['check_run', '--run-dir', self.rd]), \
-                mock.patch.object(check_run, 'grdc_compare', return_value=(no_stations, {}, [YEAR], None)), \
-                mock.patch.object(check_run, 'grdc_figures', return_value=({'stations_mapped': 0}, [])), \
                 mock.patch.object(check_run, 'draw'), \
                 mock.patch.object(run_figures, 'water_use_figures', return_value=[]), \
                 mock.patch.object(run_figures, 'water_balance', return_value=({}, 'wb.png')), \
@@ -312,6 +320,59 @@ class CheckRunNaturalTest(CheckRunMainTest):
     def test_budget_violation_fails(self):
         self.skipTest('no water-use budget in a natural run')
 
+
+
+class CheckRunNoGrdcStationTest(CheckRunMainTest):
+    """Task AC, 2026-11-12 (job 43712107): when no GRDC station has data in the reference years (a pre-industrial
+    chunk of 1601-1625), the check records that no station exists, makes no comparison and no GRDC figure, and runs
+    every other check as usual. grdc_compare and grdc_figures run for real here; the catalogue has one station of
+    20 000 km2 whose record starts in 1900."""
+
+    def catalogue(self):
+        return pd.DataFrame({'area': [20000.0], 'd_start': [1900], 'd_end': [2000], 'lat': [10.0], 'long': [20.0],
+                             'river': ['R'], 'station': ['S']}, index=pd.Index([7], name='grdc_no'))
+
+    real_grdc = True
+
+    def main(self, dirty=False, qc=None):
+        with mock.patch.object(grdc, 'catalogue', return_value=self.catalogue()), \
+                mock.patch.object(grdc, 'station_files', return_value={7: 'unused'}):
+            return super().main(dirty, qc)
+
+    def test_complete_run_passes(self):
+        summary, report = self.main()
+        self.assertEqual((summary['status'], report['status']), ('passed', 'passed'), report['years'])
+        self.assertEqual(self.exit_status, 0)
+        self.assertEqual(report['grdc'], {'stations_mapped': 0, 'stations_with_climatology': 0,
+                                          'reference_years': [YEAR - 10, min(YEAR + 10, 2024)],
+                                          'note': check_run.NO_STATION_NOTE, 'figures': []})
+        self.assertFalse(any(f.startswith('grdc_') for f in os.listdir(f'{self.W}/qc/runs/c/r/figures')))
+
+    def test_station_without_climatology(self):
+        """A mapped station whose record has no year in the reference years: no climatology, no comparison."""
+        mapped = pd.DataFrame({'row': [0], 'col': [1], 'upa_km2': [1.0], 'area_error': [0.0], 'lat': [10.0],
+                               'lon': [20.5], 'area_km2': [1.0], 'river': ['R'], 'station': ['S'], 'outlet': [1]},
+                              index=pd.Index([7], name='grdc_no'))
+        daily = pd.Series(1.0, index=pd.date_range('1950-01-01', '1950-12-31', freq='D'))
+        qc = f'{self.W}/qc/runs/c/r'; os.makedirs(f'{qc}/reports'); os.makedirs(f'{qc}/figures')
+        with mock.patch.object(grdc, 'read_station', return_value=({}, daily)):
+            summary, figs = check_run.grdc_figures(self.W, lambda y: self.rd, [YEAR], mapped, {7: 'unused'},
+                                                   list(range(YEAR - 10, YEAR + 11)), np.ones((365, 1)), RUN_MASK,
+                                                   f'{qc}/figures', qc, 24)
+        self.assertEqual(figs, [])
+        self.assertEqual((summary['stations_mapped'], summary['stations_with_climatology']), (1, 0))
+        self.assertTrue(os.path.exists(f'{qc}/reports/grdc_stations.csv'))
+
+    def test_grdc_compare_empty_table(self):
+        """The cause of the IndexError: the table of no mapped station has columns of dtype object."""
+        ny, nx = RUN_MASK.shape
+        with mock.patch.object(grdc, 'catalogue', return_value=self.catalogue()), \
+                mock.patch.object(grdc, 'station_files', return_value={7: 'unused'}):
+            mapped, files, ref, _ = check_run.grdc_compare(
+                self.W, self.rd, list(range(1601, 1626)), RUN_MASK, np.full((ny, nx), 1e8), np.array([10.0, 10.5]),
+                np.array([20.0, 20.5, 21.0]), f'{self.W}/parameters/p/routing.nc', None, None, 10000, 24)
+        self.assertEqual((len(mapped), ref[0], ref[-1]), (0, 1591, 1635))
+        self.assertIn('outlet', mapped.columns)
 
 class ChunkSummaryBindingTest(unittest.TestCase):
     """Review 2026-11-01 R5: the whole-run check of a chunked run counts a chunk summary only when it is bound to the

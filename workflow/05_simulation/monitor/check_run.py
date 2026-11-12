@@ -44,6 +44,10 @@ GRDC comparison (whole run)
   excluded when a cold-started run has at least 3 years) against the GRDC monthly
   climatology of the years first-10 .. last+10 (months with >= 20 valid days, >= 5 years per calendar month).
   Daily series of the same dates are drawn for visual reference only.
+  The comparison is descriptive, never part of the status. A check whose reference years have no GRDC station with
+  data that maps to a model cell (e.g. the pre-industrial chunk 1601-1625: at the default --min-area the earliest
+  record starts in 1806) records that no station exists and makes no comparison and no GRDC figures; every other
+  check runs as usual (task AC, 2026-11-12).
 
 Chunked runs (chunks/<start>-<end>/)
   --chunk ID      the checks per calendar year of one chunk (its output) and its end state, no GRDC comparison;
@@ -276,8 +280,20 @@ def grdc_compare(W, rd, years, mask, area, lat, lon, routing_path, figs, qc, min
     files = grdc.station_files(W)
     st = st[st.index.isin(list(files))]
     mapped = grdc.map_stations(st, upa, lat, lon, mask)
-    mapped['outlet'] = outl[mapped['row'].values * mask.shape[1] + mapped['col'].values]
+    # integer cell indices also when no station is mapped (an empty table has columns of dtype object)
+    mapped['outlet'] = outl[mapped['row'].to_numpy(int) * mask.shape[1] + mapped['col'].to_numpy(int)]
     return mapped, files, ref, upa
+
+
+NO_STATION_NOTE = 'no GRDC station with data in the reference years maps to a model cell: no comparison made'
+
+
+def grdc_none(ref, mapped, with_climatology=0):
+    """GRDC summary of a check that makes no comparison: no mapped station, or none with a climatology."""
+    return {'stations_mapped': int(len(mapped)), 'stations_with_climatology': with_climatology,
+            'reference_years': [ref[0], ref[-1]],
+            'note': NO_STATION_NOTE if not len(mapped) else
+            'no mapped GRDC station has a climatology in the reference years: no comparison made'}
 
 
 def climatology_years(years, cold_start):
@@ -286,7 +302,10 @@ def climatology_years(years, cold_start):
 
 
 def grdc_figures(W, ydir, years, mapped, files, ref, st_daily, mask, figs, qc, panels, cold_start=True):
-    """`ydir(year)`: the directory whose output/ holds the files of that year (the run, or its chunk)."""
+    """`ydir(year)`: the directory whose output/ holds the files of that year (the run, or its chunk). Without a
+    mapped station, or without a station that has a climatology, it returns the summary of grdc_none and no figure."""
+    if not len(mapped):
+        return grdc_none(ref, mapped), []
     # simulated monthly means at the station cells
     sim = {}
     for y in years:
@@ -318,6 +337,8 @@ def grdc_figures(W, ydir, years, mapped, files, ref, st_daily, mask, figs, qc, p
     tab = pd.DataFrame(rows).set_index('grdc_no')
     tab.to_csv(f'{qc}/reports/grdc_stations.csv')
     good = tab[np.isfinite(tab['ratio_sim_obs'])]
+    if not len(good):
+        return grdc_none(ref, mapped), []
     made = []
     # scatter of annual means
     fig, axs = plt.subplots(1, 2, figsize=(13, 5.5))
@@ -525,6 +546,8 @@ def main():
         closure(results, years)
     st_daily = np.concatenate(st_daily)
     grdc_summary, grdc_figs = {}, []
+    if a.chunk and not len(mapped):        # a chunk makes no comparison; it records when no station exists
+        grdc_summary = grdc_none(ref, mapped)
     if not a.chunk:
         cold_start = not (man.get('parent') or {}).get('init_state')
         grdc_summary, grdc_figs = grdc_figures(W, lambda y: ydirs[y], years, mapped, files, ref, st_daily, mask, figs,
