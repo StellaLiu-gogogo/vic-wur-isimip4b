@@ -64,16 +64,24 @@ sectors: {municipal: 0, manufacturing: 2, irrigation: 4}
 #   sector    water-use class of the *_SECT outputs (a name of `sectors`, or all)
 #   times_forcing  multiply at 5 arcmin by this water-use forcing series of the run (consumption fraction; a missing
 #             fraction counts as 0, as in the run check)
+#   exclude   {output, abs_above}: leave out of the mean every 5 arcmin cell and time step whose |output| (in its VIC
+#             unit) exceeds abs_above; the 0.5 degree value is the weighted mean of the remaining active 5 arcmin
+#             cells, and the fill value when none remains. The output must be in the stream of the time step. The
+#             left-out cell-steps and the 0.5 degree cells made missing are listed in the unit record and counted in
+#             the comment (D07 amendment 2026-11-11)
+#   notes     names of `notes` whose text is appended to the comment of the product
 # Unit conversion follows the VIC unit of the output file and the protocol unit: mm -> kg m-2 s-1 divided by the
 # seconds of the time step, mm -> kg m-2, C -> K (+273.15), cm -> m (x 0.01), m3 s-1 and 1 unchanged.
 variables:
-  qtot: {terms: [OUT_RUNOFF, OUT_BASEFLOW]}
+  qtot: {terms: [OUT_RUNOFF, OUT_BASEFLOW], notes: [baseflow_repayment]}
   dis: {terms: [OUT_DISCHARGE], outlet: true}
   qs: {terms: [OUT_RUNOFF]}
-  qsb: {terms: [OUT_BASEFLOW]}
-  qg: {terms: [OUT_BASEFLOW]}
-  qr: {terms: [OUT_BASEFLOW]}
-  evap: {terms: [OUT_EVAP]}
+  qsb: {terms: [OUT_BASEFLOW], notes: [baseflow_repayment]}
+  qg: {terms: [OUT_BASEFLOW], notes: [baseflow_repayment]}
+  qr: {terms: [OUT_BASEFLOW], notes: [baseflow_repayment]}
+  # task T rule (user 2026-10-30; D07 amendment 2026-11-11): rare VIC snow-sublimation outliers; OUT_WATER_ERROR of
+  # the monthly stream is the monthly mean of the daily water-balance error
+  evap: {terms: [OUT_EVAP], exclude: {output: OUT_WATER_ERROR, abs_above: 1.0}}
   potevap: {terms: [OUT_PET]}
   soilmoist: {terms: [OUT_SOIL_MOIST], layers: true}
   rootmoist: {terms: [OUT_ROOTMOIST]}
@@ -87,29 +95,52 @@ variables:
   tws: {terms: [OUT_SOIL_MOIST, OUT_SWE, OUT_SNOW_CANOPY, OUT_WDEW, OUT_SURFSTOR, OUT_STREAM_MOIST],
         volumes: [OUT_GDAM_STORAGE, OUT_LDAM_STORAGE]}
   lai: {terms: [OUT_LAI]}
+  # F1 (user 2026-11-11, option (a)): *wwgw keep the campaign mapping (OUT_WI_GW_SECT only); the non-renewable
+  # source is in the totals, and the comments say so
   airrww: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
-           sector: irrigation}
-  airrwwgw: {terms: [OUT_WI_GW_SECT], sector: irrigation}
+           sector: irrigation, notes: [nonrenewable_in_total]}
+  airrwwgw: {terms: [OUT_WI_GW_SECT], sector: irrigation, notes: [nonrenewable_not_groundwater]}
   airruse: {terms: [OUT_RECEIVED]}
   adomww: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
-           sector: municipal}
-  adomwwgw: {terms: [OUT_WI_GW_SECT], sector: municipal}
+           sector: municipal, notes: [nonrenewable_in_total]}
+  adomwwgw: {terms: [OUT_WI_GW_SECT], sector: municipal, notes: [nonrenewable_not_groundwater]}
   adomuse: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
-            sector: municipal, times_forcing: water_use/municipal_consumption_fraction}
+            sector: municipal, times_forcing: water_use/municipal_consumption_fraction,
+            notes: [nonrenewable_in_total]}
   pdomww: {terms: [OUT_DE_GW_SECT, OUT_DE_SURF_SECT], sector: municipal}
   pdomwwgw: {terms: [OUT_DE_GW_SECT], sector: municipal}
   aindww: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
-           sector: manufacturing}
-  aindwwgw: {terms: [OUT_WI_GW_SECT], sector: manufacturing}
+           sector: manufacturing, notes: [nonrenewable_in_total]}
+  aindwwgw: {terms: [OUT_WI_GW_SECT], sector: manufacturing, notes: [nonrenewable_not_groundwater]}
   ainduse: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
-            sector: manufacturing, times_forcing: water_use/manufacturing_consumption_fraction}
+            sector: manufacturing, times_forcing: water_use/manufacturing_consumption_fraction,
+            notes: [nonrenewable_in_total]}
   pindww: {terms: [OUT_DE_GW_SECT, OUT_DE_SURF_SECT], sector: manufacturing}
   pindwwgw: {terms: [OUT_DE_GW_SECT], sector: manufacturing}
-  atotww: {terms: [OUT_WITHDRAWN]}
-  atotuse: {terms: [OUT_CONSUMED]}
+  atotww: {terms: [OUT_WITHDRAWN], notes: [nonrenewable_in_total]}
+  atotuse: {terms: [OUT_CONSUMED], notes: [nonrenewable_in_total]}
   ptotww: {terms: [OUT_DEMAND]}
-  atotwwgw: {terms: [OUT_WI_GW_SECT], sector: all}
+  atotwwgw: {terms: [OUT_WI_GW_SECT], sector: all, notes: [nonrenewable_not_groundwater]}
   ptotwwgw: {terms: [OUT_DE_GW_SECT], sector: all}
+
+# Texts appended to the comment of the products whose recipe names them (AD7 review, user 2026-11-11: F1 option (a),
+# F2 option (a); D07 amendment 2026-11-11). VIC-WUR source a826251b: the non-renewable deficit is repaid from the
+# baseflow in the routing (plugins/routing/src/rout_run.c) and from the return flows of water use (wu_run_local.c,
+# wu_remote.c, wu_nonrenewable.c); the campaign sets no limit to the source (nonrenewable_limit_mm: null).
+notes:
+  nonrenewable_in_total: >-
+    Includes the non-renewable source of VIC-WUR (OUT_WI_NREN_SECT): demand that the renewable sources (river water of
+    the cell and of other cells, dams, groundwater of the deepest soil layer) cannot meet is taken from an unlimited
+    store, whose deficit is repaid later from the baseflow and the return flows of water use.
+  nonrenewable_not_groundwater: >-
+    Renewable groundwater only: water taken from the deepest VIC soil layer. Water from the non-renewable source of
+    VIC-WUR (OUT_WI_NREN_SECT: demand that the renewable sources cannot meet, taken from an unlimited store whose
+    deficit is repaid later from the baseflow and the return flows of water use) is included in the withdrawal totals
+    (airrww, adomww, aindww, atotww) but not here.
+  baseflow_repayment: >-
+    OUT_BASEFLOW is the baseflow leaving the soil column. Where a cell has a non-renewable deficit (water taken from
+    the unlimited non-renewable source of VIC-WUR and not yet repaid), part of it repays the deficit in the routing
+    and never reaches the river, so it is included here but not in dis; VIC-WUR does not write that part separately.
 
 # check of a product unit (check_unit.py)
 unit_check:

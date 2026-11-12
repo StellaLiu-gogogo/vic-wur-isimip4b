@@ -86,7 +86,9 @@ fields.
   do not enter the aggregation.
 - `07_quality_control`: a check confirms that exactly the 3 310 cells
   listed in `workdir/analysis/isimip-mask-coverage/tables/uncovered_isimip_cells.csv`
-  are missing in every product.
+  are missing in every product. `evap` may also be missing in the
+  cell-months that its unit records list. These are 0.5° cell-months whose
+  active 5′ cells all fall under the task T rule (D07 amendment 2026-11-11).
 - `08_delivery`: the missing cells and their reason (Greenland ice sheet
   not represented; small oceanic islands without 5′ parameters) are stated
   in the ISIMIP model documentation. Before the first delivery, the

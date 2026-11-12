@@ -145,3 +145,90 @@ The user took the recommended option of every part (2026-11-09).
   applies to every product, the static fields included.
 - A change of any part of this decision changes the products and needs a
   new product-set identity (D11).
+
+## Amendment 2026-11-11 (user, task AD7)
+
+The user reviewed the products of the AD6 scratch unit (test run
+`soil-comparison-version-b`, 2011–2020; review page under
+`scratch/postprocessing-build/review/`, deleted at the end of task AD) and
+decided its three findings. No production unit had been made, so no product
+set needs a new identity (D11); the scratch unit is made again.
+
+1. **Groundwater withdrawal products (F1), option (a).** `airrwwgw`,
+   `adomwwgw`, `aindwwgw` and `atotwwgw` keep the campaign mapping,
+   `OUT_WI_GW_SECT` only: renewable groundwater, taken from the deepest VIC
+   soil layer. The non-renewable source (`OUT_WI_NREN_SECT`) stays in the
+   withdrawal totals (`airrww`, `adomww`, `aindww`, `atotww`) and in the
+   consumption (`adomuse`, `ainduse`, `atotuse`). The `comment` of each of
+   these products says whether the non-renewable source is included. The
+   demand products `p*wwgw` (`OUT_DE_GW_SECT`) are unchanged.
+   - Evidence. In the test run the non-renewable source supplies 1 925 of
+     4 386 km3 per year (44 %), and `atotwwgw` is 279 km3 per year. Counting
+     the source as groundwater would give about 2 200 km3 per year.
+   - The share is not caused by the cold start of the test run. In the
+     production `2021soc` chain it is 49 % in the first year after the cold
+     start and 42–46 % from the second or third year on. This holds over the
+     whole spin-up 1800–1849 and over `historical_2021soc` 1850–1874.
+   - ISIMIP3b models report groundwater withdrawals of 640–1 000 km3 per
+     year, of which about 170–180 km3 per year are non-renewable (H08,
+     PCR-GLOBWB).
+   - The non-renewable source of VIC-WUR mainly makes up a supply
+     shortfall. H08 books a comparable shortfall as an unspecified surface
+     supply.
+2. **`qtot`, `qsb`, `qg`, `qr` and the repayment of the non-renewable
+   deficit (F2), option (a).** These products keep `OUT_BASEFLOW`. Their
+   `comment` says that, where a cell has a non-renewable deficit, part of
+   the baseflow repays it in the routing and never reaches the river, so
+   this water is in these products but not in `dis`.
+   - VIC-WUR repays the deficit by two routes (model commit `a826251b`):
+     - from the baseflow in the routing (`plugins/routing/src/rout_run.c`);
+     - from the return flows of water use (`wu_run_local.c`, `wu_remote.c`,
+       `wu_nonrenewable.c`).
+   - VIC-WUR does not write the two parts separately. In the test run
+     1 581 km3 per year were repaid. The baseflow part lies between 225 and
+     734 km3 per year, 0.5–1.5 % of the global `qtot`.
+   - Option (b), a separate model output for the baseflow part, would change
+     the frozen model (D01).
+3. **The task T rule in `evap` (F3).** The rule was decided by the user on
+   2026-10-30 (`analysis/snow-sublimation-outliers/`), and stage 06 did not
+   apply it until now.
+   - **Which cell-months.** A 5′ cell-month is left out when its monthly
+     mean |`OUT_WATER_ERROR`| exceeds 1 mm. These are rare snow-sublimation
+     outliers of VIC: 7 cell-months in 172 years of the natural run, and
+     none in the test run.
+   - **How the 0.5° value is made (user, 2026-11-11).** A left-out cell is
+     not counted in the area-weighted mean of `evap`. The 0.5° value is the
+     weighted mean of the remaining active 5′ cells of that 0.5° cell. The
+     whole 0.5° cell-month is not made missing: that keeps the coverage of
+     D08.
+   - **When no cell remains.** A 0.5° cell-month is missing (`1e+20`) only
+     when every active 5′ cell in it is left out.
+   - **Record.** The unit record (`provenance.yaml`, `exclusions`) lists:
+     - every left-out 5′ cell-month, with its 5′ cell and its values of
+       `OUT_WATER_ERROR` and `OUT_EVAP`;
+     - the 0.5° cell-months made missing.
+
+     The `comment` of the `evap` file states the rule and the counts for
+     that file.
+   - **Scope.** Daily `evap` is not produced (part 4), so the daily form of
+     the rule is not needed. No other product is affected: of the variables
+     the outliers touch, only `OUT_EVAP` enters a product.
+   - **Configuration.** The rule is the `exclude` setting of the `evap`
+     recipe in `products.yaml`. The VIC outputs of the recipe are still
+     exactly those of the campaign.
+
+**Changed consequences.**
+
+- The total check of part 1 also covers `evap`. Its global total equals the
+  5′ total in which every left-out cell-month takes the mean of the remaining
+  cells of its 0.5° cell.
+- **Missing cells.** Every product is missing on exactly the 3 310 uncovered
+  cells of D08. `evap` is also missing on the cell-months that its unit
+  record lists. The D08 check of `07_quality_control` takes those cell-months
+  from the unit records.
+- **The unit check** (`check_unit.py`) checks the rule in three ways:
+  - it reads `OUT_WATER_ERROR` at every time step and compares the left-out
+    cell-months and the missing cells with the record (`exclusions`);
+  - it allows missing values only at the recorded cells (`coverage`);
+  - it recomputes `evap` by its own route at every time step that has a
+    left-out cell (`recompute`).

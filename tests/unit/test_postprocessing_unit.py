@@ -3,8 +3,11 @@ on the tiny synthetic workdir of test_postprocessing_static.py, a one-year run w
 product files whose values, units, time axes, layers and unit record are checked: rates from mm per step, the
 outlet discharge, layer means with depth bounds, reservoir volumes per simulated area, total water storage, sector
 sums, consumption from the forcing fraction, degC to K, cm to m; daily products only where the daily stream has the
-outputs; recipes that differ from the campaign stop the producer; an existing unit is not overwritten. The unit
-check (check_unit.py) passes on the unit and fails after a product value, a source file or an attribute is changed.
+outputs; recipes that differ from the campaign stop the producer; an existing unit is not overwritten. The task T rule
+of evap (D07 amendment 2026-11-11): a 5' cell-month with |OUT_WATER_ERROR| above 1 mm is left out of the mean, a
+0.5-degree cell with every active cell left out is missing, both listed in the unit record; the notes of F1 and F2 in
+the comments. The unit check (check_unit.py) passes on the unit and fails after a product value, a source file, an
+attribute or the list of left-out cell-months is changed.
 
 Run from the repository root in the isimip4b environment:
     python -m unittest discover -s tests/unit -v
@@ -31,7 +34,8 @@ VARIABLES = {   # the recipes of products.yaml used here, with the protocol unit
     'qtot': ('kg m-2 s-1', 'daily & monthly'), 'dis': ('m3 s-1', 'daily & monthly'),
     'soilmoist': ('kg m-2', 'daily if possible, else monthly'), 'tsl': ('K', 'daily if possible, else monthly'),
     'snd': ('m', 'daily if possible, else monthly'), 'reservoirstor': ('kg m-2', 'monthly'),
-    'tws': ('kg m-2', 'monthly'), 'adomuse': ('kg m-2 s-1', 'monthly'), 'atotwwgw': ('kg m-2 s-1', 'monthly')}
+    'tws': ('kg m-2', 'monthly'), 'adomuse': ('kg m-2 s-1', 'monthly'), 'atotwwgw': ('kg m-2 s-1', 'monthly'),
+    'evap': ('kg m-2 s-1', 'monthly')}
 SOURCES = ['OUT_WI_GW_SECT', 'OUT_WI_SURF_SECT', 'OUT_WI_DAM_SECT', 'OUT_WI_TREM_SECT', 'OUT_WI_NREN_SECT']
 
 
@@ -93,6 +97,13 @@ class SyntheticRun(SyntheticWorkdir):
             v['OUT_LDAM_STORAGE'] = (('time', 'lat', 'lon'), np.zeros((n, ny, nx), 'f4'), {})
             for s in SOURCES:
                 v[s] = (('time', 'wu_class', 'lat', 'lon'), np.broadcast_to(sd[:, None], (n, 5, ny, nx)) * 1.0, {})
+            # evap 1 mm per day; task T rule: April, one outlier in fine cell (5, 2) of coarse cell (0, 1) and a value
+            # exactly at the limit (kept) beside it; July, every active fine cell of coarse cell (2, 0) left out
+            evap = np.array(np.broadcast_to(sd, (n, ny, nx)), 'f4'); werr = np.zeros((n, ny, nx), 'f4')
+            evap[3, 5, 2] = 5000.0; werr[3, 5, 2] = -4000.0; werr[3, 5, 3] = 1.0
+            werr[6, 0:2, 0:2] = 2.0
+            v['OUT_EVAP'] = (('time', 'lat', 'lon'), evap, {})
+            v['OUT_WATER_ERROR'] = (('time', 'lat', 'lon'), werr, {})
             return v
 
         unit = {'OUT_DISCHARGE': 'm3 s-1', 'OUT_SOIL_TEMP': 'C', 'OUT_SNOW_DEPTH': 'cm',
@@ -204,7 +215,7 @@ class ProductUnitTest(SyntheticRun):
         self.assertEqual(self.check(), 0, self.summary())
         self.assertEqual(set(self.summary()['checks']),
                          {'record', 'files', 'time', 'coverage', 'identities', 'recompute', 'valid_range',
-                          'daily_monthly'})
+                          'daily_monthly', 'exclusions'})
 
     def test_check_finds_a_changed_value(self):
         self.assertEqual(self.produce(), 0)
@@ -221,6 +232,63 @@ class ProductUnitTest(SyntheticRun):
         os.utime(f'{self.W}/runs/test-campaign/{RUN}/output/monthly.{YEAR}-01.nc', (0, 0))
         self.assertEqual(self.check(), 1)
         self.assertEqual(self.summary()['checks']['record'], 'failed')
+
+    def test_evap_task_t_rule(self):
+        self.assertEqual(self.produce(), 0)
+        e, _ = self.values(f'evap_monthly_{YEAR}_{YEAR}.nc', 'evap')
+        np.testing.assert_allclose(e[3, 0, 1], 1 / 86400, rtol=1e-6)       # the outlier left out, 3 cells remain
+        self.assertTrue(np.isnan(e[6, 2, 0]))                              # every active cell left out: missing
+        np.testing.assert_allclose(e[6, 2, 1], 1 / 86400, rtol=1e-6)
+        self.assertEqual(int(np.isfinite(e[6]).sum()), 10)
+        with nc.Dataset(f'{self.unit}/evap_monthly_{YEAR}_{YEAR}.nc') as d:
+            comment = d['evap'].comment
+            d.set_auto_mask(False)
+            self.assertEqual(float(d['evap'][6, 2, 0]), float(np.float32(1e20)))   # stored as the fill value
+        self.assertIn('|OUT_WATER_ERROR| exceeds 1 mm', comment)
+        self.assertIn('This file: 4 5 arcmin cell-steps left out, 1 0.5 degree cell-steps missing', comment)
+        ex = support.load_yaml(f'{self.unit}/provenance.yaml')['exclusions'][f'evap_monthly_{YEAR}_{YEAR}.nc']
+        self.assertEqual(ex['rule']['output'], 'OUT_WATER_ERROR'); self.assertEqual(ex['rule']['units'], 'mm')
+        self.assertEqual(sorted((c['period'], c['row5'], c['col5']) for c in ex['cell_steps']),
+                         [('2011-04', 5, 2), ('2011-07', 0, 1), ('2011-07', 1, 0), ('2011-07', 1, 1)])
+        april = [c for c in ex['cell_steps'] if c['period'] == '2011-04'][0]
+        self.assertEqual((april['rule_value'], april['term_value'], april['cell_missing']), (-4000.0, 5000.0, False))
+        self.assertEqual(ex['missing_cells'], [{'time_index': 6, 'period': '2011-07', 'lat': 1.5, 'lon': 0.5}])
+        self.assertEqual(self.check(), 0, self.summary())
+        rd = support.load_yaml(f'{self.W}/scratch/test-task/qc/postprocessed/test-campaign/ec-earth3-esm-1-1/'
+                               f'historical_histsoc_default_historical/{YEAR}-{YEAR}/reports/check.json')
+        self.assertEqual(rd['details']['exclusions']['files'][f'evap_monthly_{YEAR}_{YEAR}.nc'],
+                         {'cell_steps': 4, 'missing_cells': 1})
+        self.assertEqual(rd['details']['recompute']['files'][f'evap_monthly_{YEAR}_{YEAR}.nc']['steps'], 3)
+
+    def test_check_finds_an_unlisted_exclusion(self):
+        self.assertEqual(self.produce(), 0)
+        path = f'{self.unit}/provenance.yaml'
+        rec = support.load_yaml(path)
+        rec['exclusions'][f'evap_monthly_{YEAR}_{YEAR}.nc']['cell_steps'].pop(0)
+        support.write_yaml(path, rec)
+        self.assertEqual(self.check(), 1)
+        self.assertEqual(self.summary()['checks']['exclusions'], 'failed')
+
+    def test_check_finds_a_value_at_a_missing_cell(self):
+        self.assertEqual(self.produce(), 0)
+        with nc.Dataset(f'{self.unit}/evap_monthly_{YEAR}_{YEAR}.nc', 'a') as d:
+            d['evap'][6, 2, 0] = 1.0
+        self.assertEqual(self.check(), 1)
+        checks = self.summary()['checks']
+        self.assertEqual((checks['coverage'], checks['recompute']), ('failed', 'failed'))
+
+    def test_notes_in_the_comments(self):
+        self.assertEqual(self.produce(), 0)
+        with nc.Dataset(f'{self.unit}/qtot_monthly_{YEAR}_{YEAR}.nc') as d:
+            self.assertIn('never reaches the river', d['qtot'].comment)
+        with nc.Dataset(f'{self.unit}/atotwwgw_monthly_{YEAR}_{YEAR}.nc') as d:
+            self.assertIn('Renewable groundwater only', d['atotwwgw'].comment)
+            self.assertNotIn('  ', d['atotwwgw'].comment)
+
+    def test_exclude_rule_must_be_a_plain_mean(self):
+        self.cfg['variables']['evap'] = {'terms': ['OUT_EVAP'], 'outlet': True,
+                                         'exclude': {'output': 'OUT_WATER_ERROR', 'abs_above': 1.0}}
+        self.assertIn('exclude needs', str(self.produce()))
 
     def test_unit_is_not_overwritten(self):
         self.assertEqual(self.produce(), 0)

@@ -14,8 +14,10 @@ in the historical and future segments, qtot and dis daily everywhere).
 
 Aggregation (D07): the area-weighted mean over the active 5' cells inside each covered mask cell (weights domain
 area x frac), volumes summed and divided by the simulated area, `dis` the value of the outlet cell; every other cell
-is the fill value. An active 5' cell without a value stops the producer. Time axis: days since 1601-01-01 in the
-calendar of the run, a value stamped at the first day of its period (ISIMIP).
+is the fill value. An active 5' cell without a value stops the producer. A recipe with `exclude` leaves out the 5'
+cell-steps of its rule (evap: task T rule, |OUT_WATER_ERROR| > 1 mm) and takes the weighted mean of the remaining
+active 5' cells, the fill value where none remains; the unit record lists them (D07 amendment 2026-11-11). Time axis:
+days since 1601-01-01 in the calendar of the run, a value stamped at the first day of its period (ISIMIP).
 
 Sources: outside --scratch the run must be a production run, the chunk's latest attempt completed, and its chunk
 check (or the run check of an unchunked run) passed and bound to that attempt; the repository must be clean (rule
@@ -66,6 +68,12 @@ def recipes(cfg, camp):
             problems.append(f'{v}: recipe outputs {sorted(set(used))} differ from the campaign {sorted(iso[v]["vic"])}')
         if r.get('sector') not in (None, 'all', *cfg['sectors']):
             problems.append(f'{v}: unknown sector {r.get("sector")}')
+        problems += [f'{v}: unknown note {n}' for n in r.get('notes', []) if n not in (cfg.get('notes') or {})]
+        ex = r.get('exclude')
+        if ex is not None and (sorted(ex) != ['abs_above', 'output'] or ex['output'] in used or
+                               any(r.get(k) for k in ('outlet', 'volumes', 'layers', 'times_forcing'))):
+            problems.append(f'{v}: exclude needs exactly output and abs_above, an output outside the terms, and a '
+                            'plain mean (no outlet, volumes, layers or times_forcing)')
     if problems:
         raise SystemExit('products.yaml does not match the campaign: ' + '; '.join(problems))
     return {v: rec[v] for v in iso}
@@ -75,6 +83,8 @@ def time_steps(recipe, protocol_frequency, streams):
     """Time steps of a variable: monthly always, daily when the protocol names daily and the daily stream has every
     VIC output of the recipe. `streams`: {stream: set of VIC outputs}."""
     used = set(recipe.get('terms', [])) | set(recipe.get('volumes', []))
+    if recipe.get('exclude'):
+        used.add(recipe['exclude']['output'])         # the rule needs the output in the same stream
     if not used <= streams.get('monthly', set()):
         raise SystemExit(f'the monthly stream lacks {sorted(used - streams.get("monthly", set()))}')
     steps = ['monthly']
@@ -104,6 +114,7 @@ class Grid:
             area = np.ma.filled(d['area'][:], 0.0).astype('f8').ravel()
             frac = np.ma.filled(d['frac'][:], 0.0).astype('f8').ravel()
         self.shape5 = (lat5.size, lon5.size)
+        self.lat5, self.lon5 = lat5, lon5
         with nc.Dataset(os.path.join(W, files['routing'])) as d:
             d.set_auto_mask(False)
             nxt = routing.network(d['downstream'][:], d['downstream_id'][:], active)
@@ -140,10 +151,26 @@ class Grid:
         self.depth = bottom - th / 2
 
     def to_grid(self, vals, fill):
-        """(..., n_covered) -> (..., lat, lon) with the fill value elsewhere, float32."""
+        """(..., n_covered) -> (..., lat, lon) with the fill value elsewhere and where vals is NaN (a covered cell
+        whose 5' cells were all left out by an `exclude` rule), float32."""
         out = np.full(vals.shape[:-1] + (self.shape[0] * self.shape[1],), fill, 'f4')
-        out[..., self.cov] = vals
+        out[..., self.cov] = np.where(np.isnan(vals), fill, vals)
         return out.reshape(vals.shape[:-1] + self.shape)
+
+    def cell_steps(self, t_first, excluded, err, x, missing, period):
+        """Records of the 5' cell-steps left out by an `exclude` rule. `excluded`: (time index within the block,
+        counted index) arrays; `err`, `x`: values of the rule's output and of the product's terms (VIC units);
+        `missing`: (time, covered) true where the product is missing; `period(t)`: label of time step t."""
+        nx5, nx = self.shape5[1], self.shape[1]
+        rows = []
+        for t, i in zip(*excluded):
+            k = int(self.counted[i]); p = int(self.cellpos[i]); c = int(self.cov[p])
+            rows.append({'time_index': int(t_first + t), 'period': period(t), 'row5': k // nx5, 'col5': k % nx5,
+                         'lat5': float(self.lat5[k // nx5]), 'lon5': float(self.lon5[k % nx5]),
+                         'rule_value': float(err[t, i]), 'term_value': float(x[t, i]),
+                         'lat': float(self.coords['lat'][0][c // nx]), 'lon': float(self.coords['lon'][0][c % nx]),
+                         'cell_missing': bool(missing[t, p])})
+        return rows
 
 
 def read5(var, t0, t1, grid, sector=None):
@@ -174,6 +201,7 @@ class Block:
         self.ds, self.t0, self.t1, self.grid, self.cfg = ds, t0, t1, grid, cfg
         self.forcing = forcing                     # {series: (counted,) array} of the block's year
         self.cache = {}
+        self.excluded = {}                         # {variable: (time and counted indices, rule values, term values)}
 
     def sector(self, recipe):
         s = recipe.get('sector')
@@ -191,10 +219,33 @@ class Block:
                 self.cache[key] = aggregate(self.grid.mean if mode == 'mean' else self.grid.volume, a)
         return self.cache[key]
 
-    def product(self, recipe, conv, seconds):
+    def excluding_mean(self, var, recipe, sector):
+        """Area-weighted mean that leaves out the 5' cell-steps of the recipe's `exclude` rule: in a 0.5-degree cell
+        with a left-out cell the weighted mean of its other active 5' cells, NaN when none remains; every other cell
+        keeps the plain mean."""
+        vals = sum(self.term(n, sector, 'mean', False) for n in recipe['terms']).copy()
+        ex = recipe['exclude']
+        err = read5(self.ds[ex['output']], self.t0, self.t1, self.grid)
+        out = np.abs(err) > ex['abs_above']
+        if not out.any():
+            return vals
+        x = sum(read5(self.ds[n], self.t0, self.t1, self.grid, sector) for n in recipe['terms'])
+        for t in np.flatnonzero(out.any(axis=1)):
+            keep = ~out[t]
+            num = aggregate(self.grid.mean, np.where(keep, x[t], 0.0)[None])[0]
+            den = aggregate(self.grid.mean, keep.astype('f8')[None])[0]
+            hit = np.unique(self.grid.cellpos[out[t]])
+            ok = den[hit] > 0
+            vals[t, hit] = np.where(ok, num[hit] / np.where(ok, den[hit], 1.0), np.nan)
+        self.excluded[var] = (np.nonzero(out), err, x)
+        return vals
+
+    def product(self, var, recipe, conv, seconds):
         """Values of one variable on the covered cells, in the protocol unit."""
         sector, layers = self.sector(recipe), bool(recipe.get('layers'))
-        if recipe.get('times_forcing'):
+        if recipe.get('exclude'):
+            vals = self.excluding_mean(var, recipe, sector)
+        elif recipe.get('times_forcing'):
             a = sum(read5(self.ds[n], self.t0, self.t1, self.grid, sector) for n in recipe['terms'])
             vals = aggregate(self.grid.mean, a * self.forcing[recipe['times_forcing']])
         else:
@@ -297,9 +348,29 @@ def describe(var, recipe, camp_rule, cfg):
                 'simulated area'
     if recipe.get('layers'):
         text += '; per VIC soil layer'
+    ex = recipe.get('exclude')
+    if ex:
+        text += (f'; 5 arcmin cell-steps whose |{ex["output"]}| exceeds {ex["abs_above"]:g} mm (rare snow-sublimation '
+                 'outliers of VIC) are left out of the mean, and a 0.5 degree cell whose active 5 arcmin cells are '
+                 'all left out is missing; they are listed in provenance.yaml of the product unit')
     if camp_rule:
         text += f'. Campaign rule: {camp_rule}'
-    return text + ' (D07).'
+    text += ' (D07).'
+    for n in recipe.get('notes', []):
+        text += ' ' + ' '.join(cfg['notes'][n].split())
+    return text
+
+
+def missing_cells(rows):
+    """0.5-degree cell-steps made missing by an `exclude` rule, from its cell-step records."""
+    keys = sorted({(r['time_index'], r['period'], r['lat'], r['lon']) for r in rows if r['cell_missing']})
+    return [{'time_index': t, 'period': p, 'lat': la, 'lon': lo} for t, p, la, lo in keys]
+
+
+def exclusion_count_text(n_steps, n_missing):
+    """Sentence appended to the comment of a product with an `exclude` rule once the file is written."""
+    return (f' This file: {n_steps} 5 arcmin cell-steps left out, {n_missing} 0.5 degree cell-steps missing because '
+            'of them.')
 
 
 def output_files(rd, out_dir, years):
@@ -373,6 +444,9 @@ def main():
         if len(tunits) > 1 or any(units5[n] != 'hm3' for n in r.get('volumes', [])):
             raise SystemExit(f'{var}: VIC outputs in different units {sorted(tunits)}')
         conv = conversion(tunits.pop(), punit) if r.get('terms') else ('scale', 1.0)
+        if r.get('exclude') and units5.get(r['exclude']['output']) != 'mm':
+            raise SystemExit(f'{var}: the exclude rule is in mm, {r["exclude"]["output"]} is in '
+                             f'{units5.get(r["exclude"]["output"])}')
         if r.get('volumes') and punit != 'kg m-2':
             raise SystemExit(f'{var}: volumes need the protocol unit kg m-2, not {punit}')
         for step in time_steps(r, support.for_sector(protocol[var].get('frequency')), streams):
@@ -400,10 +474,11 @@ def main():
         if not cfg['attributes'].get(k):
             raise SystemExit(f'attributes.{k} of products.yaml is not set')
     os.makedirs(staging)
-    out, offsets = {}, {}
+    out, offsets, comments = {}, {}, {}
     for var, step, r, conv, punit in products:
         p = support.for_sector(protocol[var].get('long_name'))
         attrs = {'long_name': p, 'comment': describe(var, r, camp['output']['isimip'][var].get('rule'), cfg)}
+        comments[(var, step)] = attrs['comment']
         g = dict(global_attrs)
         if punit in ('kg m-2 s-1', 'kg m-2'):
             g['reference_area'] = 'simulated continental area of the grid cell (contfrac x cellarea, static files)'
@@ -414,6 +489,7 @@ def main():
 
     fill = cfg['fill_value']
     forcing_view = man.get('forcing_view') or {}
+    excluded = {(var, step): [] for var, step, r, _, _ in products if r.get('exclude')}
     for y in range(y0, y1 + 1):
         forcing = {}
         for series in {r['times_forcing'] for r in rec.values() if r.get('times_forcing')}:
@@ -441,17 +517,26 @@ def main():
                     t1 = min(n, t0 + size)
                     blk = Block(ds, t0, t1, grid, cfg, forcing)
                     for var, _, r, conv, _ in todo:
-                        vals = blk.product(r, conv, seconds[t0:t1])
+                        vals = blk.product(var, r, conv, seconds[t0:t1])
                         f = out[(var, step)]
                         o = offsets[(var, step)]
                         f['time'][o + t0:o + t1] = tnum[t0:t1]
                         f[var][o + t0:o + t1] = grid.to_grid(vals, fill)
+                        if var in blk.excluded:
+                            idx, err, x = blk.excluded[var]
+                            fmt = '%Y-%m' if step == 'monthly' else '%Y-%m-%d'
+                            excluded[(var, step)] += grid.cell_steps(
+                                o + t0, idx, err, x, np.isnan(vals), lambda t, t0=t0: dates[t0 + t].strftime(fmt))
                 for var, _, _, _, _ in todo:
                     offsets[(var, step)] += n
         print(f'{y} done {time.strftime("%H:%M:%S")}', flush=True)
     for (var, step), f in out.items():
         if offsets[(var, step)] != len(f.dimensions['time']):
             raise SystemExit(f'{var} {step}: {offsets[(var, step)]} time steps instead of {len(f.dimensions["time"])}')
+        if (var, step) in excluded:
+            rows = excluded[(var, step)]
+            f[var].setncattr('comment', comments[(var, step)] +
+                             exclusion_count_text(len(rows), len(missing_cells(rows))))
         f.close()
 
     # unit record (D11, amendment 2026-11-10)
@@ -491,6 +576,11 @@ def main():
                    'products_yaml_sha256': support.sha256(support.CONFIG), 'reference_time': REFERENCE_TIME,
                    'calendar': calendar, 'fill_value': fill},
         'files': prod_files,
+        'exclusions': {f'{var}_{step}_{y0}_{y1}.nc': {
+            'rule': {**rec[var]['exclude'], 'units': units5[rec[var]['exclude']['output']],
+                     'terms': rec[var]['terms'], 'source': 'task T rule (user 2026-10-30); D07 amendment 2026-11-11'},
+            'cell_steps': rows, 'missing_cells': missing_cells(rows)}
+            for (var, step), rows in excluded.items()},
         'check': {'qc_summary': f'qc/postprocessed/{pset}/{unit_rel}/summary.json'},
     }
     support.write_yaml(os.path.join(staging, 'provenance.yaml'), record)

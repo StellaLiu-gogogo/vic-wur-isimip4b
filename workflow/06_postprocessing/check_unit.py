@@ -15,11 +15,16 @@ Checks (each passed, warning or failed; the summary takes the worst):
               accepted calendar, compression level, one chunk per field and layer, fill value and missing value,
               institution and contact, the varying-level variables and attributes of layered variables
   time        every day or month of the unit's years, stamped at the first day of its period, in order
-  coverage    values on exactly the covered mask cells at every time step (static files), no NaN
-  recompute   for recompute_steps_per_year sampled time steps per year, every product recomputed from the 5' output
-              with sums per cell (not the producer's matrix) equals the product within recompute_rel_tol; dis equals
-              the 5' discharge of the outlet cells
+  coverage    values on exactly the covered mask cells at every time step (static files), no NaN; missing only where
+              the unit record lists a cell made missing by an `exclude` rule
+  recompute   for recompute_steps_per_year sampled time steps per year, and for every time step with a left-out cell
+              of an `exclude` rule, every product recomputed from the 5' output with sums per cell (not the producer's
+              matrix) equals the product within recompute_rel_tol, missing at the same cells; dis equals the 5'
+              discharge of the outlet cells
   identities  0.5-degree products that the recipes make equal (qtot = qs + qsb, qg = qr = qsb)
+  exclusions  the rule output of every `exclude` recipe read at every time step: the unit record lists exactly the
+              5' cell-steps the rule leaves out and the 0.5-degree cell-steps it makes missing (D07 amendment
+              2026-11-11)
 Warnings: values outside the protocol's valid_min / valid_max (counted), monthly means of a daily product that
 differ from the monthly product by more than daily_monthly_rel_tol.
 
@@ -105,10 +110,11 @@ def check_record(W, rec, unit_dir, static_dir, man):
     return ('failed' if probs else 'passed'), {'problems': probs}
 
 
-def check_file(path, var, step, cfg, protocol, grid, layered, y0, y1, wcell, keep=False, block=366):
-    """Format, time axis, coverage and value range of one product file, read in blocks of time steps. Returns
-    (problems of each check, statistics): range, the global area-weighted series, the time mean (map), the monthly
-    means of a daily file, and all values when `keep`."""
+def check_file(path, var, step, cfg, protocol, grid, layered, y0, y1, wcell, keep=False, block=366, allowed=None):
+    """Format, time axis, coverage and value range of one product file, read in blocks of time steps. `allowed`:
+    {time index: (rows, cols)} of covered cells recorded as missing (an `exclude` rule). Returns (problems of each
+    check, statistics): range, the global area-weighted series, the time mean (map), the monthly means of a daily
+    file, and all values when `keep`."""
     probs = {'files': [], 'time': [], 'coverage': []}
     rules = cfg['file_rules']; fill = cfg['fill_value']
     stats = {}
@@ -179,7 +185,12 @@ def check_file(path, var, step, cfg, protocol, grid, layered, y0, y1, wcell, kee
             j = min(n, i + block)
             vals = np.ma.filled(v[i:j], np.nan).astype('f8')
             has = np.isfinite(vals)
-            c = cov if not layered else cov[None]
+            c = np.broadcast_to(cov if not layered else cov[None], vals.shape)
+            if allowed:
+                c = c.copy()
+                for t_, (rr, cc) in allowed.items():
+                    if i <= t_ < j:
+                        c[t_ - i, ..., rr, cc] = False
             off += int((has & ~c).sum()); on_missing += int((~has & c).sum())
             if has.any():
                 vmin = min(vmin, float(np.nanmin(vals))); vmax = max(vmax, float(np.nanmax(vals)))
@@ -197,8 +208,8 @@ def check_file(path, var, step, cfg, protocol, grid, layered, y0, y1, wcell, kee
             if keep:
                 kept[i:j] = vals
         if off or on_missing:
-            probs['coverage'].append(f'{off} values off the covered cells, {on_missing} missing on covered cells '
-                                     '(all time steps and layers)')
+            probs['coverage'].append(f'{off} values off the covered cells or at cells recorded as missing, '
+                                     f'{on_missing} missing on covered cells (all time steps and layers)')
         mean = total / max(n, 1)
         stats = {'range': {'min': vmin, 'max': vmax, 'valid_min': lo, 'valid_max': hi, 'values_outside': outside},
                  'series': (tv, series), 'map': np.where(cov if not layered else cov[None], mean, np.nan),
@@ -222,7 +233,13 @@ def recompute(ds, t, recipe, conv, seconds, grid, cfg, forcing, static_outlets):
         x = x + a
     if recipe.get('times_forcing'):
         x = x * forcing[recipe['times_forcing']]
-    if recipe.get('outlet'):
+    if recipe.get('exclude'):
+        ex = recipe['exclude']
+        keep = np.abs(make_unit.read5(ds[ex['output']], t, t + 1, grid)[0]) <= ex['abs_above']
+        num = np.bincount(grid.cellpos, weights=np.asarray(x) * grid.weights * keep, minlength=grid.cov.size)
+        den = np.bincount(grid.cellpos, weights=grid.weights * keep, minlength=grid.cov.size)
+        vals = np.where(den > 0, num / np.where(den > 0, den, 1.0), np.nan)
+    elif recipe.get('outlet'):
         vals = np.asarray(x)[..., static_outlets]
     elif recipe.get('terms'):
         x = np.asarray(x)
@@ -238,6 +255,22 @@ def recompute(ds, t, recipe, conv, seconds, grid, cfg, forcing, static_outlets):
         vals = vals + np.bincount(grid.cellpos, weights=vol, minlength=grid.cov.size) * make_unit.KG_PER_HM3 / \
             grid.wsum
     return vals
+
+
+def scan_exclusions(ds, n, ex, grid, offset, block=31):
+    """5' cell-steps (time index of the unit, 5' row, 5' column) whose |rule output| exceeds the limit, and the
+    0.5-degree cell-steps (time index, covered position) whose counted 5' cells are all left out."""
+    nx5 = grid.shape5[1]
+    per_cell = np.bincount(grid.cellpos, minlength=grid.cov.size)
+    steps, missing = set(), set()
+    for t0 in range(0, n, block):
+        out = np.abs(make_unit.read5(ds[ex['output']], t0, min(n, t0 + block), grid)) > ex['abs_above']
+        for t in np.flatnonzero(out.any(axis=1)):
+            idx = np.flatnonzero(out[t])
+            steps |= {(int(offset + t0 + t), int(k // nx5), int(k % nx5)) for k in grid.counted[idx]}
+            gone = np.flatnonzero(np.bincount(grid.cellpos[idx], minlength=grid.cov.size) == per_cell)
+            missing |= {(int(offset + t0 + t), int(p)) for p in gone}
+    return steps, missing
 
 
 def figures(series, maps, figs):
@@ -305,11 +338,18 @@ def main():
     wcell = np.zeros(grid.shape[0] * grid.shape[1]); wcell[grid.cov] = grid.wsum
     wcell = wcell.reshape(grid.shape)
     keep = {(q, 'monthly') for target, parts in uc['identities'] for q in [target, *parts]}
+    excl = rec.get('exclusions') or {}
+    lat_row = {float(v): i for i, v in enumerate(grid.coords['lat'][0])}
+    lon_col = {float(v): i for i, v in enumerate(grid.coords['lon'][0])}
     for f in rec['files']:
         var, step = f['variable'], f['time_step']
         layered = bool(recipes[var].get('layers'))
+        allowed = {}
+        for m in (excl.get(f['name']) or {}).get('missing_cells', []):
+            rr, cc = allowed.setdefault(m['time_index'], ([], []))
+            rr.append(lat_row[float(m['lat'])]); cc.append(lon_col[float(m['lon'])])
         p, st = check_file(os.path.join(unit_dir, f['name']), var, step, cfg, protocol, grid, layered, y0, y1, wcell,
-                           keep=(var, step) in keep)
+                           keep=(var, step) in keep, allowed=allowed)
         for k, v in p.items():
             probs[k] += [f'{f["name"]}: {x}' for x in v]
         if st is None:
@@ -355,8 +395,9 @@ def main():
             dmp.append(f'{var}: monthly mean of the daily product differs from the monthly product by {diff:.3g}')
     monthly_of_daily.clear()
 
-    # recompute sampled steps from the 5' output
+    # recompute sampled steps from the 5' output; scan the rule output of every `exclude` recipe
     rp, rd_ = [], {}
+    found = {f['name']: (set(), set()) for f in rec['files'] if recipes[f['variable']].get('exclude')}
     forcing_view = man.get('forcing_view') or {}
     for y in range(y0, y1 + 1):
         forcing = {}
@@ -375,23 +416,50 @@ def main():
                 offset = (y - y0) * 12 if step == 'monthly' else int(round(
                     (cftime.datetime(y, 1, 1, calendar=ds['time'].calendar) -
                      cftime.datetime(y0, 1, 1, calendar=ds['time'].calendar)).total_seconds() / 86400))
-                for t in sampled_steps(step, y, len(bnds), uc['recompute_steps_per_year']):
-                    for f in todo:
-                        var = f['variable']; r = recipes[var]
-                        tun = {ds[n].units for n in r.get('terms', [])}
-                        conv = make_unit.conversion(tun.pop(), f['units']) if tun else ('scale', 1.0)
+                sampled = sampled_steps(step, y, len(bnds), uc['recompute_steps_per_year'])
+                for f in todo:
+                    var = f['variable']; r = recipes[var]
+                    steps_here = set(sampled)
+                    if f['name'] in found:
+                        s_, m_ = scan_exclusions(ds, len(bnds), r['exclude'], grid, offset)
+                        found[f['name']][0].update(s_); found[f['name']][1].update(m_)
+                        steps_here |= {t_ - offset for t_, _, _ in s_}
+                    tun = {ds[n].units for n in r.get('terms', [])}
+                    conv = make_unit.conversion(tun.pop(), f['units']) if tun else ('scale', 1.0)
+                    for t in sorted(steps_here):
                         ref = recompute(ds, t, r, conv, seconds[t], grid, cfg, forcing, static_outlets)
                         with nc.Dataset(os.path.join(unit_dir, f['name'])) as d:
                             prod = np.ma.filled(d[var][offset + t].astype('f8'), np.nan)
                         prod = prod.reshape(prod.shape[:-2] + (-1,))[..., grid.cov]
-                        ok, diff, scale = close(prod, ref, uc['recompute_rel_tol'])
+                        same_missing = np.array_equal(np.isnan(prod), np.isnan(ref))
+                        sel = ~np.isnan(ref)
+                        ok, diff, scale = close(prod[sel], ref[sel], uc['recompute_rel_tol'])
                         rd_.setdefault(f['name'], {'steps': 0, 'max_rel_diff': 0.0})
                         rd_[f['name']]['steps'] += 1
                         rd_[f['name']]['max_rel_diff'] = max(rd_[f['name']]['max_rel_diff'], diff / max(scale, 1e-30))
-                        if not ok:
+                        if not (ok and same_missing):
                             rp.append(f'{f["name"]} step {offset + t}: differs from the 5 arcmin output by {diff:.3g} '
-                                      f'(largest value {scale:.3g})')
+                                      f'(largest value {scale:.3g})' + ('' if same_missing else
+                                                                        ', missing at other cells'))
     checks['recompute'] = ('failed' if rp else 'passed', {'problems': rp[:50], 'files': rd_})
+    ep, ed = [], {}
+    nx = grid.shape[1]
+    for name, (steps_found, missing_found) in found.items():
+        e = excl.get(name) or {}
+        listed = {(c['time_index'], c['row5'], c['col5']) for c in e.get('cell_steps', [])}
+        listed_missing = {(m['time_index'], lat_row[float(m['lat'])] * nx + lon_col[float(m['lon'])])
+                          for m in e.get('missing_cells', [])}
+        missing_flat = {(t_, int(grid.cov[p_])) for t_, p_ in missing_found}
+        ed[name] = {'cell_steps': len(steps_found), 'missing_cells': len(missing_found)}
+        if not e:
+            ep.append(f'{name}: the unit record has no exclusions entry')
+        if listed != steps_found:
+            ep.append(f'{name}: {len(listed - steps_found)} cell-steps listed but not left out by the rule, '
+                      f'{len(steps_found - listed)} left out but not listed')
+        if listed_missing != missing_flat:
+            ep.append(f'{name}: the 0.5 degree cells recorded as missing differ from the rule '
+                      f'({len(listed_missing)} recorded, {len(missing_flat)} from the rule)')
+    checks['exclusions'] = ('failed' if ep else 'passed', {'problems': ep, 'files': ed})
     outside = {k: v for k, v in rng.items() if v['values_outside']}
     checks['valid_range'] = ('warning' if outside else 'passed', {'files': rng})
     checks['daily_monthly'] = ('warning' if dmp else 'passed', {'problems': dmp, 'compared': dm})
