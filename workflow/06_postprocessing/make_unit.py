@@ -16,7 +16,9 @@ Aggregation (D07): the area-weighted mean over the active 5' cells inside each c
 area x frac), volumes summed and divided by the simulated area, `dis` the value of the outlet cell; every other cell
 is the fill value. An active 5' cell without a value stops the producer. A recipe with `exclude` leaves out the 5'
 cell-steps of its rule (evap: task T rule, |OUT_WATER_ERROR| > 1 mm) and takes the weighted mean of the remaining
-active 5' cells, the fill value where none remains; the unit record lists them (D07 amendment 2026-11-11). Time axis:
+active 5' cells, the fill value where none remains; the unit record lists them (D07 amendment 2026-11-11). A recipe
+with `nonrenewable_groundwater` adds the groundwater part of the non-renewable withdrawal, split per 5' cell, water-use
+class and time step by `nonrenewable_split` (*wwgw, D07 amendment 2026-11-12). Time axis:
 days since 1601-01-01 in the calendar of the run, a value stamped at the first day of its period (ISIMIP).
 
 Sources: outside --scratch the run must be a production run, the chunk's latest attempt completed, and its chunk
@@ -74,17 +76,33 @@ def recipes(cfg, camp):
                                any(r.get(k) for k in ('outlet', 'volumes', 'layers', 'times_forcing'))):
             problems.append(f'{v}: exclude needs exactly output and abs_above, an output outside the terms, and a '
                             'plain mean (no outlet, volumes, layers or times_forcing)')
+        if r.get('nonrenewable_groundwater') and (
+                v not in (cfg.get('campaign_exceptions') or {}) or not cfg.get('nonrenewable_split') or
+                r.get('sector') is None or
+                any(r.get(k) for k in ('exclude', 'outlet', 'volumes', 'layers', 'times_forcing'))):
+            problems.append(f'{v}: nonrenewable_groundwater needs an entry in campaign_exceptions, nonrenewable_split, '
+                            'a sector and a plain mean')
+    problems += [f'{v}: listed in campaign_exceptions but reads no output beyond the campaign mapping'
+                 for v in (cfg.get('campaign_exceptions') or {}) if not (rec.get(v) or {}).get('nonrenewable_groundwater')]
     if problems:
         raise SystemExit('products.yaml does not match the campaign: ' + '; '.join(problems))
     return {v: rec[v] for v in iso}
 
 
-def time_steps(recipe, protocol_frequency, streams):
+def split_outputs(sp):
+    """VIC outputs read by the groundwater split of the non-renewable withdrawal."""
+    return {sp['nonrenewable'], sp['demand_groundwater'], sp['demand_surface'], *sp['withdrawn_groundwater'],
+            *sp['withdrawn_surface']}
+
+
+def time_steps(recipe, protocol_frequency, streams, split_config=None):
     """Time steps of a variable: monthly always, daily when the protocol names daily and the daily stream has every
     VIC output of the recipe. `streams`: {stream: set of VIC outputs}."""
     used = set(recipe.get('terms', [])) | set(recipe.get('volumes', []))
     if recipe.get('exclude'):
         used.add(recipe['exclude']['output'])         # the rule needs the output in the same stream
+    if recipe.get('nonrenewable_groundwater'):
+        used |= split_outputs(split_config)
     if not used <= streams.get('monthly', set()):
         raise SystemExit(f'the monthly stream lacks {sorted(used - streams.get("monthly", set()))}')
     steps = ['monthly']
@@ -202,6 +220,7 @@ class Block:
         self.forcing = forcing                     # {series: (counted,) array} of the block's year
         self.cache = {}
         self.excluded = {}                         # {variable: (time and counted indices, rule values, term values)}
+        self.split = {}                            # {water-use class: groundwater part of the non-renewable source}
 
     def sector(self, recipe):
         s = recipe.get('sector')
@@ -240,6 +259,23 @@ class Block:
         self.excluded[var] = (np.nonzero(out), err, x)
         return vals
 
+    def groundwater_part(self, sector):
+        """Groundwater part of the non-renewable withdrawal on the counted 5' cells, (time, counted): per water-use
+        class N x Ug / (Ug + Us) (products.yaml, nonrenewable_split), summed over the classes for 'all'."""
+        sp = self.cfg['nonrenewable_split']
+        classes = range(self.ds[sp['nonrenewable']].shape[1]) if sector == 'all' else [sector]
+        total = 0.0
+        for k in classes:
+            if k not in self.split:
+                def r(name):
+                    return read5(self.ds[name], self.t0, self.t1, self.grid, k)
+                ug = np.maximum(0.0, r(sp['demand_groundwater']) - sum(r(n) for n in sp['withdrawn_groundwater']))
+                us = np.maximum(0.0, r(sp['demand_surface']) - sum(r(n) for n in sp['withdrawn_surface']))
+                u = ug + us
+                self.split[k] = np.where(u > 0, r(sp['nonrenewable']) * ug / np.where(u > 0, u, 1.0), 0.0)
+            total = total + self.split[k]
+        return total
+
     def product(self, var, recipe, conv, seconds):
         """Values of one variable on the covered cells, in the protocol unit."""
         sector, layers = self.sector(recipe), bool(recipe.get('layers'))
@@ -251,6 +287,8 @@ class Block:
         else:
             mode = 'outlet' if recipe.get('outlet') else 'mean'
             vals = sum(self.term(n, sector, mode, layers) for n in recipe.get('terms', []))
+        if recipe.get('nonrenewable_groundwater'):
+            vals = vals + aggregate(self.grid.mean, self.groundwater_part(sector))
         kind, k = conv
         if kind == 'rate':
             vals = vals / seconds.reshape((-1,) + (1,) * (vals.ndim - 1))
@@ -335,7 +373,9 @@ def describe(var, recipe, camp_rule, cfg):
                                      f' (water-use sector {sector}, VIC class {cfg["sectors"][sector]})')
     parts = []
     if recipe.get('terms'):
-        parts.append(' + '.join(recipe['terms']) + sec)
+        parts.append(' + '.join(recipe['terms']) +
+                     (' + the groundwater part of OUT_WI_NREN_SECT' if recipe.get('nonrenewable_groundwater') else '')
+                     + sec)
     if recipe.get('times_forcing'):
         parts.append(f'multiplied by the {recipe["times_forcing"].split("/")[-1].replace("_", " ")} of the water-use '
                      'forcing')
@@ -449,7 +489,8 @@ def main():
                              f'{units5.get(r["exclude"]["output"])}')
         if r.get('volumes') and punit != 'kg m-2':
             raise SystemExit(f'{var}: volumes need the protocol unit kg m-2, not {punit}')
-        for step in time_steps(r, support.for_sector(protocol[var].get('frequency')), streams):
+        for step in time_steps(r, support.for_sector(protocol[var].get('frequency')), streams,
+                               cfg.get('nonrenewable_split')):
             products.append((var, step, r, conv, punit))
 
     # number of time steps of the unit
@@ -574,7 +615,9 @@ def main():
                  'slurm_job_id': os.environ.get('SLURM_JOB_ID'), 'started_at': started, 'ended_at': support.utcnow()},
         'method': {'decisions': ['D07', 'D08', 'D11'], 'protocol_commit': camp['protocol']['commit'],
                    'products_yaml_sha256': support.sha256(support.CONFIG), 'reference_time': REFERENCE_TIME,
-                   'calendar': calendar, 'fill_value': fill},
+                   'calendar': calendar, 'fill_value': fill,
+                   'nonrenewable_split': cfg.get('nonrenewable_split'),
+                   'campaign_exceptions': cfg.get('campaign_exceptions') or {}},
         'files': prod_files,
         'exclusions': {f'{var}_{step}_{y0}_{y1}.nc': {
             'rule': {**rec[var]['exclude'], 'units': units5[rec[var]['exclude']['output']],

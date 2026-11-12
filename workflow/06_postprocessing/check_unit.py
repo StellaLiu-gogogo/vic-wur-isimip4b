@@ -20,7 +20,8 @@ Checks (each passed, warning or failed; the summary takes the worst):
   recompute   for recompute_steps_per_year sampled time steps per year, and for every time step with a left-out cell
               of an `exclude` rule, every product recomputed from the 5' output with sums per cell (not the producer's
               matrix) equals the product within recompute_rel_tol, missing at the same cells; dis equals the 5'
-              discharge of the outlet cells
+              discharge of the outlet cells; the groundwater part of the non-renewable withdrawal (*wwgw) is
+              recomputed for all water-use classes at once (not class by class as the producer does)
   identities  0.5-degree products that the recipes make equal (qtot = qs + qsb, qg = qr = qsb)
   exclusions  the rule output of every `exclude` recipe read at every time step: the unit record lists exactly the
               5' cell-steps the rule leaves out and the 0.5-degree cell-steps it makes missing (D07 amendment
@@ -220,6 +221,22 @@ def check_file(path, var, step, cfg, protocol, grid, layered, y0, y1, wcell, kee
     return probs, stats
 
 
+def groundwater_part(ds, t, grid, sp, sector):
+    """Groundwater part of the non-renewable withdrawal at time step t on the counted 5' cells, from all water-use
+    classes at once: N x Ug / (Ug + Us) per class, then the class of the sector or the sum over the classes."""
+    def read(name):
+        a = np.ma.filled(ds[name][t], np.nan).astype('f8')
+        a = a.reshape(a.shape[0], -1)[:, grid.counted]
+        if np.isnan(a).any():
+            raise SystemExit(f'{name}: missing values on active 5 arcmin cells')
+        return a
+    ug = np.clip(read(sp['demand_groundwater']) - sum(read(n) for n in sp['withdrawn_groundwater']), 0.0, None)
+    us = np.clip(read(sp['demand_surface']) - sum(read(n) for n in sp['withdrawn_surface']), 0.0, None)
+    u = ug + us
+    part = read(sp['nonrenewable']) * np.divide(ug, u, out=np.zeros_like(u), where=u > 0)
+    return part.sum(axis=0) if sector == 'all' else part[sector]
+
+
 def recompute(ds, t, recipe, conv, seconds, grid, cfg, forcing, static_outlets):
     """Values of one variable on the covered cells at time step t from the 5' output, with sums per cell."""
     s = recipe.get('sector')
@@ -233,6 +250,8 @@ def recompute(ds, t, recipe, conv, seconds, grid, cfg, forcing, static_outlets):
         x = x + a
     if recipe.get('times_forcing'):
         x = x * forcing[recipe['times_forcing']]
+    if recipe.get('nonrenewable_groundwater'):
+        x = x + groundwater_part(ds, t, grid, cfg['nonrenewable_split'], sector)
     if recipe.get('exclude'):
         ex = recipe['exclude']
         keep = np.abs(make_unit.read5(ds[ex['output']], t, t + 1, grid)[0]) <= ex['abs_above']

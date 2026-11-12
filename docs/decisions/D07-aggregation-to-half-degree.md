@@ -154,7 +154,9 @@ The user reviewed the products of the AD6 scratch unit (test run
 decided its three findings. No production unit had been made, so no product
 set needs a new identity (D11); the scratch unit is made again.
 
-1. **Groundwater withdrawal products (F1), option (a).** `airrwwgw`,
+1. **Groundwater withdrawal products (F1), option (a).** *Replaced by the
+   amendment of 2026-11-12 (below) before any production unit was made.*
+   `airrwwgw`,
    `adomwwgw`, `aindwwgw` and `atotwwgw` keep the campaign mapping,
    `OUT_WI_GW_SECT` only: renewable groundwater, taken from the deepest VIC
    soil layer. The non-renewable source (`OUT_WI_NREN_SECT`) stays in the
@@ -232,3 +234,87 @@ set needs a new identity (D11); the scratch unit is made again.
   - it allows missing values only at the recorded cells (`coverage`);
   - it recomputes `evap` by its own route at every time step that has a
     left-out cell (`recompute`).
+
+## Amendment 2026-11-12 (user, task AD7): groundwater part of the non-renewable withdrawal
+
+The user replaced part 1 (F1) of the amendment of 2026-11-11, in the
+session that compared VIC-WUR with ISIMIP3b groundwater withdrawals: "*wwgw
+should be 279 + the groundwater part of NREN". In that sentence, 279 is
+`atotwwgw` of the test run, in km3 per year.
+
+**Decision.** `airrwwgw`, `adomwwgw`, `aindwwgw` and `atotwwgw` are the
+renewable groundwater withdrawal (`OUT_WI_GW_SECT`) plus the groundwater part
+of the non-renewable withdrawal (`OUT_WI_NREN_SECT`).
+
+- **How the part is split.** For each 5′ cell, water-use class and month,
+  the non-renewable withdrawal N is divided in proportion to the demand that
+  the local sources left unmet:
+  - unmet groundwater demand: Ug = max(0, `OUT_DE_GW_SECT` −
+    `OUT_WI_GW_SECT`);
+  - unmet surface-water demand: Us = max(0, `OUT_DE_SURF_SECT` −
+    `OUT_WI_SURF_SECT` − `OUT_WI_DAM_SECT`);
+  - groundwater part = N × Ug / (Ug + Us), and 0 where Ug + Us is 0.
+
+  The user took this proportional rule, which was recommended. The split is
+  made per class and then summed over the classes of the sector, or over
+  all classes for `atotwwgw`.
+- **The rest of N** is the unmet surface-water demand. It stays in the
+  withdrawal totals (`a*ww`) and the consumption only, as before.
+- **The comments** of `*wwgw` state the rule. The comments of the totals say
+  that the groundwater part of the non-renewable withdrawal is also in
+  `*wwgw`.
+- **The demand products** `p*wwgw` (`OUT_DE_GW_SECT`) are unchanged.
+
+**Why the split follows the model.** VIC-WUR `a826251b` with `GWM FALSE`
+(`wu_run.c`, `wu_remote.c`, `wu_nonrenewable.c`) handles demand in four steps:
+
+1. It splits the demand of a class into a groundwater demand (the
+   groundwater fraction of the forcing, D05) and a surface-water demand.
+2. The local step serves the groundwater demand from the deepest soil layer
+   only, and the surface-water demand from the local river and the local
+   dams only.
+3. The remote step serves what is left of both.
+4. The non-renewable source takes the rest.
+
+What follows from this:
+
+- The remote step can serve either kind of demand first. So the groundwater
+  part of N lies between max(0, N − Us) and min(N, Ug), and the
+  proportional rule always lies inside these bounds.
+- In the test run, N = max(0, Ug + Us − `OUT_WI_TREM_SECT`) holds in every
+  cell-month, within 1e-4 km3 per year globally. This confirms that the
+  monthly outputs follow this order of steps.
+
+**Evidence** (test run 2011–2020, cold start, km3 per year; scratch check of
+the comparison session, job 43913296):
+
+| | municipal | manufacturing | irrigation | all |
+|---|---|---|---|---|
+| groundwater part of N, bounds | 51–52 | 146–150 | 571–595 | 768–798 |
+| groundwater part of N, proportional | 52 | 148 | 584 | 784 |
+| `*wwgw`, proportional | 170 | 271 | 622 | 1 063 |
+
+- `atotwwgw` = 1 063 km3 per year, 24 % of the withdrawal of 4 386 km3 per
+  year. The literature range of global groundwater withdrawal is 737–1 500
+  km3 per year.
+- The shares of municipal, manufacturing and irrigation are close to those
+  of WaterGAP 2.2e.
+- The surface-water shortfall in N is about 1 140 km3 per year.
+
+**Exception to the campaign mapping.** The campaign maps these four
+variables to `OUT_WI_GW_SECT` only (task S). The campaign file is not changed
+while its runs are in production. Stage 06 normally requires that a recipe
+names exactly the campaign's VIC outputs; these four recipes are an exception
+to that rule. Each of them is listed with this decision under
+`campaign_exceptions` in `products.yaml`, and the producer stops when an
+exception is missing or unused.
+
+- The split reads six VIC outputs. All of them are in the monthly stream of
+  the campaign already (the `a*ww` and `p*ww` recipes use them), so no model
+  or campaign change is needed.
+- The unit record keeps the split rule and the exceptions under `method`.
+
+**Checks.** The unit check recomputes the products by a route of its own.
+For the split, that route reads all water-use classes of a time step at
+once, while the producer works class by class. No production unit had been
+made, so no product set needs a new identity (D11).

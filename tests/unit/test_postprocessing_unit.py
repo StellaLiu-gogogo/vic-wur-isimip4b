@@ -6,7 +6,8 @@ sums, consumption from the forcing fraction, degC to K, cm to m; daily products 
 outputs; recipes that differ from the campaign stop the producer; an existing unit is not overwritten. The task T rule
 of evap (D07 amendment 2026-11-11): a 5' cell-month with |OUT_WATER_ERROR| above 1 mm is left out of the mean, a
 0.5-degree cell with every active cell left out is missing, both listed in the unit record; the notes of F1 and F2 in
-the comments. The unit check (check_unit.py) passes on the unit and fails after a product value, a source file, an
+the comments; *wwgw with the groundwater part of the non-renewable withdrawal, split per water-use class (D07
+amendment 2026-11-12). The unit check (check_unit.py) passes on the unit and fails after a product value, a source file, an
 attribute or the list of left-out cell-months is changed.
 
 Run from the repository root in the isimip4b environment:
@@ -35,7 +36,7 @@ VARIABLES = {   # the recipes of products.yaml used here, with the protocol unit
     'soilmoist': ('kg m-2', 'daily if possible, else monthly'), 'tsl': ('K', 'daily if possible, else monthly'),
     'snd': ('m', 'daily if possible, else monthly'), 'reservoirstor': ('kg m-2', 'monthly'),
     'tws': ('kg m-2', 'monthly'), 'adomuse': ('kg m-2 s-1', 'monthly'), 'atotwwgw': ('kg m-2 s-1', 'monthly'),
-    'evap': ('kg m-2 s-1', 'monthly')}
+    'evap': ('kg m-2 s-1', 'monthly'), 'adomwwgw': ('kg m-2 s-1', 'monthly')}
 SOURCES = ['OUT_WI_GW_SECT', 'OUT_WI_SURF_SECT', 'OUT_WI_DAM_SECT', 'OUT_WI_TREM_SECT', 'OUT_WI_NREN_SECT']
 
 
@@ -48,6 +49,7 @@ class SyntheticRun(SyntheticWorkdir):
         W = self.W
         self.cfg = cfg = support.config()
         cfg['variables'] = {v: r for v, r in cfg['variables'].items() if v in VARIABLES}
+        cfg['campaign_exceptions'] = {v: t for v, t in cfg['campaign_exceptions'].items() if v in VARIABLES}
         prot = f'{W}/protocol/definitions/variable'
         with open(f'{prot}/hydrological.yaml', 'w') as fh:
             yaml.safe_dump([{'specifier': v, 'long_name': v.upper(), 'units': u, 'frequency': f}
@@ -97,6 +99,13 @@ class SyntheticRun(SyntheticWorkdir):
             v['OUT_LDAM_STORAGE'] = (('time', 'lat', 'lon'), np.zeros((n, ny, nx), 'f4'), {})
             for s in SOURCES:
                 v[s] = (('time', 'wu_class', 'lat', 'lon'), np.broadcast_to(sd[:, None], (n, 5, ny, nx)) * 1.0, {})
+            # demand per day: groundwater 2 mm in classes 0-3 and 1 mm in class 4 (Ug 1 and 0 after the 1 mm of
+            # OUT_WI_GW_SECT), surface 5 mm (Us 3 after surface and dam); groundwater part of the 1 mm non-renewable
+            # withdrawal 1 x 1 / 4 in classes 0-3 and 0 in class 4 (6.05 mm in total if split on the class sums)
+            gw = np.array([2, 2, 2, 2, 1], 'f4')[None, :, None, None]
+            v['OUT_DE_GW_SECT'] = (('time', 'wu_class', 'lat', 'lon'), sd[:, None] * gw * np.ones((n, 5, ny, nx)), {})
+            v['OUT_DE_SURF_SECT'] = (('time', 'wu_class', 'lat', 'lon'), sd[:, None] * 5.0 * np.ones((n, 5, ny, nx)),
+                                     {})
             # evap 1 mm per day; task T rule: April, one outlier in fine cell (5, 2) of coarse cell (0, 1) and a value
             # exactly at the limit (kept) beside it; July, every active fine cell of coarse cell (2, 0) left out
             evap = np.array(np.broadcast_to(sd, (n, ny, nx)), 'f4'); werr = np.zeros((n, ny, nx), 'f4')
@@ -194,9 +203,12 @@ class ProductUnitTest(SyntheticRun):
         self.assertEqual(float(np.nansum(r[0])), float(r[0, 1, 1]))
         tws, _ = self.values(f'tws_monthly_{YEAR}_{YEAR}.nc', 'tws')
         np.testing.assert_allclose(tws[0, 1, 1], 60 + 4 + 1 + 2 + 3 + 5 + r[0, 1, 1], rtol=1e-5)
-        # sectors: all five classes of the groundwater source; consumption = 5 sources x fraction 0.5
+        # sectors: all five classes of the groundwater source plus the groundwater part of the non-renewable source
+        # (0.25 mm per day in classes 0-3, 0 in class 4); consumption = 5 sources x fraction 0.5
         a, _ = self.values(f'atotwwgw_monthly_{YEAR}_{YEAR}.nc', 'atotwwgw')
-        np.testing.assert_allclose(a[:, cov], 5 / 86400, rtol=1e-6)
+        np.testing.assert_allclose(a[:, cov], 6 / 86400, rtol=1e-6)
+        a, _ = self.values(f'adomwwgw_monthly_{YEAR}_{YEAR}.nc', 'adomwwgw')
+        np.testing.assert_allclose(a[:, cov], 1.25 / 86400, rtol=1e-6)
         u, _ = self.values(f'adomuse_monthly_{YEAR}_{YEAR}.nc', 'adomuse')
         np.testing.assert_allclose(u[:, cov], 2.5 / 86400, rtol=1e-6)
         # unit record
@@ -282,8 +294,16 @@ class ProductUnitTest(SyntheticRun):
         with nc.Dataset(f'{self.unit}/qtot_monthly_{YEAR}_{YEAR}.nc') as d:
             self.assertIn('never reaches the river', d['qtot'].comment)
         with nc.Dataset(f'{self.unit}/atotwwgw_monthly_{YEAR}_{YEAR}.nc') as d:
-            self.assertIn('Renewable groundwater only', d['atotwwgw'].comment)
+            self.assertIn('OUT_WI_GW_SECT + the groundwater part of OUT_WI_NREN_SECT', d['atotwwgw'].comment)
+            self.assertIn('Ug / (Ug + Us)', d['atotwwgw'].comment)
             self.assertNotIn('  ', d['atotwwgw'].comment)
+        rec = support.load_yaml(f'{self.unit}/provenance.yaml')
+        self.assertEqual(rec['method']['nonrenewable_split']['nonrenewable'], 'OUT_WI_NREN_SECT')
+        self.assertIn('atotwwgw', rec['method']['campaign_exceptions'])
+
+    def test_groundwater_split_needs_a_campaign_exception(self):
+        del self.cfg['campaign_exceptions']['atotwwgw']
+        self.assertIn('needs an entry in campaign_exceptions', str(self.produce()))
 
     def test_exclude_rule_must_be_a_plain_mean(self):
         self.cfg['variables']['evap'] = {'terms': ['OUT_EVAP'], 'outlet': True,

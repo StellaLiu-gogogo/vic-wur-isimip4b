@@ -70,6 +70,9 @@ sectors: {municipal: 0, manufacturing: 2, irrigation: 4}
 #             left-out cell-steps and the 0.5 degree cells made missing are listed in the unit record and counted in
 #             the comment (D07 amendment 2026-11-11)
 #   notes     names of `notes` whose text is appended to the comment of the product
+#   nonrenewable_groundwater  true: add the groundwater part of the non-renewable withdrawal (`nonrenewable_split`),
+#             computed per 5 arcmin cell, water-use class and time step and summed over the classes of the sector;
+#             needs an entry in `campaign_exceptions`
 # Unit conversion follows the VIC unit of the output file and the protocol unit: mm -> kg m-2 s-1 divided by the
 # seconds of the time step, mm -> kg m-2, C -> K (+273.15), cm -> m (x 0.01), m3 s-1 and 1 unchanged.
 variables:
@@ -95,15 +98,17 @@ variables:
   tws: {terms: [OUT_SOIL_MOIST, OUT_SWE, OUT_SNOW_CANOPY, OUT_WDEW, OUT_SURFSTOR, OUT_STREAM_MOIST],
         volumes: [OUT_GDAM_STORAGE, OUT_LDAM_STORAGE]}
   lai: {terms: [OUT_LAI]}
-  # F1 (user 2026-11-11, option (a)): *wwgw keep the campaign mapping (OUT_WI_GW_SECT only); the non-renewable
-  # source is in the totals, and the comments say so
+  # F1 (user 2026-11-12, replacing option (a) of 2026-11-11): *wwgw = renewable groundwater (OUT_WI_GW_SECT) plus the
+  # groundwater part of the non-renewable withdrawal; the totals hold the whole non-renewable withdrawal
   airrww: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
            sector: irrigation, notes: [nonrenewable_in_total]}
-  airrwwgw: {terms: [OUT_WI_GW_SECT], sector: irrigation, notes: [nonrenewable_not_groundwater]}
+  airrwwgw: {terms: [OUT_WI_GW_SECT], sector: irrigation, nonrenewable_groundwater: true,
+             notes: [nonrenewable_groundwater_part]}
   airruse: {terms: [OUT_RECEIVED]}
   adomww: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
            sector: municipal, notes: [nonrenewable_in_total]}
-  adomwwgw: {terms: [OUT_WI_GW_SECT], sector: municipal, notes: [nonrenewable_not_groundwater]}
+  adomwwgw: {terms: [OUT_WI_GW_SECT], sector: municipal, nonrenewable_groundwater: true,
+             notes: [nonrenewable_groundwater_part]}
   adomuse: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
             sector: municipal, times_forcing: water_use/municipal_consumption_fraction,
             notes: [nonrenewable_in_total]}
@@ -111,7 +116,8 @@ variables:
   pdomwwgw: {terms: [OUT_DE_GW_SECT], sector: municipal}
   aindww: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
            sector: manufacturing, notes: [nonrenewable_in_total]}
-  aindwwgw: {terms: [OUT_WI_GW_SECT], sector: manufacturing, notes: [nonrenewable_not_groundwater]}
+  aindwwgw: {terms: [OUT_WI_GW_SECT], sector: manufacturing, nonrenewable_groundwater: true,
+             notes: [nonrenewable_groundwater_part]}
   ainduse: {terms: [OUT_WI_GW_SECT, OUT_WI_SURF_SECT, OUT_WI_DAM_SECT, OUT_WI_TREM_SECT, OUT_WI_NREN_SECT],
             sector: manufacturing, times_forcing: water_use/manufacturing_consumption_fraction,
             notes: [nonrenewable_in_total]}
@@ -120,23 +126,53 @@ variables:
   atotww: {terms: [OUT_WITHDRAWN], notes: [nonrenewable_in_total]}
   atotuse: {terms: [OUT_CONSUMED], notes: [nonrenewable_in_total]}
   ptotww: {terms: [OUT_DEMAND]}
-  atotwwgw: {terms: [OUT_WI_GW_SECT], sector: all, notes: [nonrenewable_not_groundwater]}
+  atotwwgw: {terms: [OUT_WI_GW_SECT], sector: all, nonrenewable_groundwater: true,
+             notes: [nonrenewable_groundwater_part]}
   ptotwwgw: {terms: [OUT_DE_GW_SECT], sector: all}
 
-# Texts appended to the comment of the products whose recipe names them (AD7 review, user 2026-11-11: F1 option (a),
-# F2 option (a); D07 amendment 2026-11-11). VIC-WUR source a826251b: the non-renewable deficit is repaid from the
-# baseflow in the routing (plugins/routing/src/rout_run.c) and from the return flows of water use (wu_run_local.c,
-# wu_remote.c, wu_nonrenewable.c); the campaign sets no limit to the source (nonrenewable_limit_mm: null).
+# Groundwater part of the non-renewable withdrawal (F1, user 2026-11-12; D07 amendment 2026-11-12). VIC-WUR a826251b
+# with GWM FALSE (wu_run.c): the demand of a water-use class is split into a groundwater demand (OUT_DE_GW_SECT, by the
+# groundwater fraction of the forcing) and a surface-water demand (OUT_DE_SURF_SECT); the local step serves the first
+# from groundwater only and the second from the local river and dams only, the remote step serves what is left of
+# both, and the non-renewable source takes the rest. Per 5 arcmin cell, class and time step:
+#   Ug = max(0, demand_groundwater - sum(withdrawn_groundwater)), Us = max(0, demand_surface - sum(withdrawn_surface)),
+#   groundwater part = nonrenewable x Ug / (Ug + Us), 0 where Ug + Us is 0
+# (proportional rule; it lies between max(0, N - Us) and min(N, Ug), 4 % apart globally in the test run).
+nonrenewable_split:
+  nonrenewable: OUT_WI_NREN_SECT
+  demand_groundwater: OUT_DE_GW_SECT
+  withdrawn_groundwater: [OUT_WI_GW_SECT]
+  demand_surface: OUT_DE_SURF_SECT
+  withdrawn_surface: [OUT_WI_SURF_SECT, OUT_WI_DAM_SECT]
+
+# Recipes that read VIC outputs beyond their campaign mapping (output.isimip), each with its decision. The campaign
+# file is not changed while its runs are in production; the outputs are in its monthly stream.
+campaign_exceptions:
+  airrwwgw: D07 amendment 2026-11-12 (F1), plus the groundwater part of the non-renewable withdrawal
+  adomwwgw: D07 amendment 2026-11-12 (F1), plus the groundwater part of the non-renewable withdrawal
+  aindwwgw: D07 amendment 2026-11-12 (F1), plus the groundwater part of the non-renewable withdrawal
+  atotwwgw: D07 amendment 2026-11-12 (F1), plus the groundwater part of the non-renewable withdrawal
+
+# Texts appended to the comment of the products whose recipe names them (AD7 review: F1 user 2026-11-12, F2 option (a)
+# user 2026-11-11; D07 amendments 2026-11-11 and 2026-11-12). VIC-WUR source a826251b: the non-renewable deficit is
+# repaid from the baseflow in the routing (plugins/routing/src/rout_run.c) and from the return flows of water use
+# (wu_run_local.c, wu_remote.c, wu_nonrenewable.c); the campaign sets no limit to the source
+# (nonrenewable_limit_mm: null).
 notes:
   nonrenewable_in_total: >-
     Includes the non-renewable source of VIC-WUR (OUT_WI_NREN_SECT): demand that the renewable sources (river water of
     the cell and of other cells, dams, groundwater of the deepest soil layer) cannot meet is taken from an unlimited
-    store, whose deficit is repaid later from the baseflow and the return flows of water use.
-  nonrenewable_not_groundwater: >-
-    Renewable groundwater only: water taken from the deepest VIC soil layer. Water from the non-renewable source of
-    VIC-WUR (OUT_WI_NREN_SECT: demand that the renewable sources cannot meet, taken from an unlimited store whose
-    deficit is repaid later from the baseflow and the return flows of water use) is included in the withdrawal totals
-    (airrww, adomww, aindww, atotww) but not here.
+    store, whose deficit is repaid later from the baseflow and the return flows of water use. Its groundwater part is
+    also in airrwwgw, adomwwgw, aindwwgw and atotwwgw.
+  nonrenewable_groundwater_part: >-
+    Renewable groundwater (OUT_WI_GW_SECT, the deepest VIC soil layer) plus the groundwater part of the non-renewable
+    source of VIC-WUR (OUT_WI_NREN_SECT: demand that the renewable sources cannot meet, taken from an unlimited store
+    whose deficit is repaid later from the baseflow and the return flows of water use). Per 5 arcmin cell, water-use
+    class and month the non-renewable withdrawal is split in proportion to the groundwater demand and the
+    surface-water demand left unmet by the local sources: Ug = max(0, OUT_DE_GW_SECT - OUT_WI_GW_SECT),
+    Us = max(0, OUT_DE_SURF_SECT - OUT_WI_SURF_SECT - OUT_WI_DAM_SECT), groundwater part = OUT_WI_NREN_SECT x
+    Ug / (Ug + Us). The rest of the non-renewable withdrawal is in the withdrawal totals (airrww, adomww, aindww,
+    atotww) only.
   baseflow_repayment: >-
     OUT_BASEFLOW is the baseflow leaving the soil column. Where a cell has a non-renewable deficit (water taken from
     the unlimited non-renewable source of VIC-WUR and not yet repaid), part of it repays the deficit in the routing
