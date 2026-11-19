@@ -32,7 +32,9 @@ plugin, e.g. a natural run, has no water-use output and gets no water-use checks
 Water balance of the check (chunk or unchunked run; review 2026-11-01 R8, user's rule of 2026-11-02): over every
   active cell and month of its years, the 99th percentile of |OUT_WATER_ERROR| must not exceed WATER_ERROR_LIMIT_MM
   (1 mm, the task T rule): status passed or failed, part of the check status; p99, p99.9, the largest value and the
-  number of cell-months above the limit are recorded (percentiles from a histogram of WATER_ERROR_BIN_MM resolution).
+  number of cell-months above the limit are recorded (percentiles from a histogram of WATER_ERROR_BIN_MM resolution;
+  any finite value, however large, goes to the last bin: e.g. -2.9e15 mm in one cell-month of the historical_2021soc
+  chunk 1925-1949, task AC, 2026-11-16).
 Binding (review 2026-11-01 R5): summary.json and reports/check.json name the attempt (number, Slurm job id, status)
   and the sha256 of the end state they checked, the code commit and whether the repository was clean; from a
   repository that is not clean the results go to scratch/run-check/uncommitted/qc/runs/... and do not count. The
@@ -109,7 +111,8 @@ class WaterError:
         self.missing += int((~ok).sum()); self.n += int(v.size)
         if not v.size:
             return 0.0, 0
-        idx = np.minimum((v / WATER_ERROR_BIN_MM).astype('i8'), self.nbin)
+        # cap before the cast: a value above ~9e14 mm would overflow the integer bin index (task AC, 2026-11-16)
+        idx = np.minimum(v / WATER_ERROR_BIN_MM, self.nbin).astype('i8')
         self.counts += np.bincount(idx, minlength=self.nbin + 1)
         vmax = float(v.max()); above = int((v > self.limit).sum())
         self.max = max(self.max, vmax); self.above += above

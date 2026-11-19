@@ -417,6 +417,16 @@ class WaterErrorTest(unittest.TestCase):
         w.add([np.nan])
         self.assertEqual(w.missing, 2)
 
+    def test_huge_finite_value(self):
+        """Task AC 2026-11-16: |value| / bin above the integer range (here -2.9e15 mm) goes to the last bin."""
+        w = check_run.WaterError()
+        vmax, above = w.add(np.concatenate([np.full(999, 0.001), [-2908231340916736.0, -1e300]]))
+        self.assertEqual((vmax, above, w.n), (1e300, 2, 1001))
+        self.assertEqual(int(w.counts[-1]), 2)
+        s = w.summary()
+        self.assertEqual(s['status'], 'passed')
+        self.assertAlmostEqual(s['p99_abs_monthly_mean_water_error_mm'], 0.001, delta=2e-4)
+
 
 class ClimatologyYearsTest(unittest.TestCase):
     """Review P3 D5: only a cold-started run leaves out its first year from the GRDC climatology."""
