@@ -107,10 +107,12 @@ class SyntheticRun(SyntheticWorkdir):
             v['OUT_DE_SURF_SECT'] = (('time', 'wu_class', 'lat', 'lon'), sd[:, None] * 5.0 * np.ones((n, 5, ny, nx)),
                                      {})
             # evap 1 mm per day; task T rule: April, one outlier in fine cell (5, 2) of coarse cell (0, 1) and a value
-            # exactly at the limit (kept) beside it; July, every active fine cell of coarse cell (2, 0) left out
+            # exactly at the limit (kept) beside it; July, every active fine cell of coarse cell (2, 0) left out;
+            # October, an infinite outlier in the same fine cell (VIC wrote inf in the production run, March 1868)
             evap = np.array(np.broadcast_to(sd, (n, ny, nx)), 'f4'); werr = np.zeros((n, ny, nx), 'f4')
             evap[3, 5, 2] = 5000.0; werr[3, 5, 2] = -4000.0; werr[3, 5, 3] = 1.0
             werr[6, 0:2, 0:2] = 2.0
+            evap[9, 5, 2] = np.inf; werr[9, 5, 2] = -np.inf
             v['OUT_EVAP'] = (('time', 'lat', 'lon'), evap, {})
             v['OUT_WATER_ERROR'] = (('time', 'lat', 'lon'), werr, {})
             return v
@@ -252,16 +254,18 @@ class ProductUnitTest(SyntheticRun):
         self.assertTrue(np.isnan(e[6, 2, 0]))                              # every active cell left out: missing
         np.testing.assert_allclose(e[6, 2, 1], 1 / 86400, rtol=1e-6)
         self.assertEqual(int(np.isfinite(e[6]).sum()), 10)
+        np.testing.assert_allclose(e[9, 0, 1], 1 / 86400, rtol=1e-6)       # the infinite outlier left out
+        self.assertEqual(int(np.isfinite(e[9]).sum()), 11)
         with nc.Dataset(f'{self.unit}/evap_monthly_{YEAR}_{YEAR}.nc') as d:
             comment = d['evap'].comment
             d.set_auto_mask(False)
             self.assertEqual(float(d['evap'][6, 2, 0]), float(np.float32(1e20)))   # stored as the fill value
         self.assertIn('|OUT_WATER_ERROR| exceeds 1 mm', comment)
-        self.assertIn('This file: 4 5 arcmin cell-steps left out, 1 0.5 degree cell-steps missing', comment)
+        self.assertIn('This file: 5 5 arcmin cell-steps left out, 1 0.5 degree cell-steps missing', comment)
         ex = support.load_yaml(f'{self.unit}/provenance.yaml')['exclusions'][f'evap_monthly_{YEAR}_{YEAR}.nc']
         self.assertEqual(ex['rule']['output'], 'OUT_WATER_ERROR'); self.assertEqual(ex['rule']['units'], 'mm')
         self.assertEqual(sorted((c['period'], c['row5'], c['col5']) for c in ex['cell_steps']),
-                         [('2011-04', 5, 2), ('2011-07', 0, 1), ('2011-07', 1, 0), ('2011-07', 1, 1)])
+                         [('2011-04', 5, 2), ('2011-07', 0, 1), ('2011-07', 1, 0), ('2011-07', 1, 1), ('2011-10', 5, 2)])
         april = [c for c in ex['cell_steps'] if c['period'] == '2011-04'][0]
         self.assertEqual((april['rule_value'], april['term_value'], april['cell_missing']), (-4000.0, 5000.0, False))
         self.assertEqual(ex['missing_cells'], [{'time_index': 6, 'period': '2011-07', 'lat': 1.5, 'lon': 0.5}])
@@ -269,8 +273,8 @@ class ProductUnitTest(SyntheticRun):
         rd = support.load_yaml(f'{self.W}/scratch/test-task/qc/postprocessed/test-campaign/ec-earth3-esm-1-1/'
                                f'historical_histsoc_default_historical/{YEAR}-{YEAR}/reports/check.json')
         self.assertEqual(rd['details']['exclusions']['files'][f'evap_monthly_{YEAR}_{YEAR}.nc'],
-                         {'cell_steps': 4, 'missing_cells': 1})
-        self.assertEqual(rd['details']['recompute']['files'][f'evap_monthly_{YEAR}_{YEAR}.nc']['steps'], 3)
+                         {'cell_steps': 5, 'missing_cells': 1})
+        self.assertEqual(rd['details']['recompute']['files'][f'evap_monthly_{YEAR}_{YEAR}.nc']['steps'], 4)
 
     def test_check_finds_an_unlisted_exclusion(self):
         self.assertEqual(self.produce(), 0)

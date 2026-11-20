@@ -255,7 +255,8 @@ def recompute(ds, t, recipe, conv, seconds, grid, cfg, forcing, static_outlets):
     if recipe.get('exclude'):
         ex = recipe['exclude']
         keep = np.abs(make_unit.read5(ds[ex['output']], t, t + 1, grid)[0]) <= ex['abs_above']
-        num = np.bincount(grid.cellpos, weights=np.asarray(x) * grid.weights * keep, minlength=grid.cov.size)
+        # a left-out value may be infinite (VIC writes inf in some outliers): replace it, 0 x inf is not a number
+        num = np.bincount(grid.cellpos, weights=np.where(keep, x, 0.0) * grid.weights, minlength=grid.cov.size)
         den = np.bincount(grid.cellpos, weights=grid.weights * keep, minlength=grid.cov.size)
         vals = np.where(den > 0, num / np.where(den > 0, den, 1.0), np.nan)
     elif recipe.get('outlet'):
