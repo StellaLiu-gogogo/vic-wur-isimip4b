@@ -374,6 +374,21 @@ class CheckRunNoGrdcStationTest(CheckRunMainTest):
         self.assertEqual((len(mapped), ref[0], ref[-1]), (0, 1591, 1635))
         self.assertIn('outlet', mapped.columns)
 
+    def test_no_reference_year(self):
+        """Task AC, 2026-11-23 (job 44320573): a future chunk of 2047-2071 has no reference year (the first is
+        2037, after the 2024 cap): no station, an empty reference, the note of no reference year."""
+        ny, nx = RUN_MASK.shape
+        with mock.patch.object(grdc, 'catalogue', return_value=self.catalogue()), \
+                mock.patch.object(grdc, 'station_files', return_value={7: 'unused'}):
+            mapped, files, ref, _ = check_run.grdc_compare(
+                self.W, self.rd, list(range(2047, 2072)), RUN_MASK, np.full((ny, nx), 1e8), np.array([10.0, 10.5]),
+                np.array([20.0, 20.5, 21.0]), f'{self.W}/parameters/p/routing.nc', None, None, 10000, 24)
+        self.assertEqual((len(mapped), ref), (0, []))
+        self.assertIn('outlet', mapped.columns)
+        self.assertEqual(check_run.grdc_none(ref, mapped),
+                         {'stations_mapped': 0, 'stations_with_climatology': 0, 'reference_years': [],
+                          'note': check_run.NO_REFERENCE_NOTE})
+
 class ChunkSummaryBindingTest(unittest.TestCase):
     """Review 2026-11-01 R5: the whole-run check of a chunked run counts a chunk summary only when it is bound to the
     chunk's completed attempt (attempt number and job id) and was written from a clean repository."""

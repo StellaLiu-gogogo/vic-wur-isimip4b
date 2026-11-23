@@ -277,7 +277,10 @@ def grdc_compare(W, rd, years, mask, area, lat, lon, routing_path, figs, qc, min
     y0, y1 = years[0], years[-1]
     ref = list(range(y0 - 10, min(y1 + 10, 2024) + 1))
     cat = grdc.catalogue(W)
-    cat = cat[(cat['area'] >= min_area) & (cat['d_end'] >= ref[0]) & (cat['d_start'] <= ref[-1])]
+    if ref:
+        cat = cat[(cat['area'] >= min_area) & (cat['d_end'] >= ref[0]) & (cat['d_start'] <= ref[-1])]
+    else:       # no reference year: the check starts after 2034, e.g. a future chunk of 2047-2071 (task AC, 2026-11-23)
+        cat = cat.iloc[:0]
     st = pd.DataFrame({'lat': cat['lat'], 'lon': cat['long'], 'area_km2': cat['area'], 'river': cat['river'],
                        'station': cat['station']})
     files = grdc.station_files(W)
@@ -289,13 +292,15 @@ def grdc_compare(W, rd, years, mask, area, lat, lon, routing_path, figs, qc, min
 
 
 NO_STATION_NOTE = 'no GRDC station with data in the reference years maps to a model cell: no comparison made'
+NO_REFERENCE_NOTE = 'no GRDC reference year (the check starts after 2024 + 10 years): no comparison made'
 
 
 def grdc_none(ref, mapped, with_climatology=0):
-    """GRDC summary of a check that makes no comparison: no mapped station, or none with a climatology."""
+    """GRDC summary of a check that makes no comparison: no reference year, no mapped station, or none with a
+    climatology."""
     return {'stations_mapped': int(len(mapped)), 'stations_with_climatology': with_climatology,
-            'reference_years': [ref[0], ref[-1]],
-            'note': NO_STATION_NOTE if not len(mapped) else
+            'reference_years': [ref[0], ref[-1]] if ref else [],
+            'note': NO_REFERENCE_NOTE if not ref else NO_STATION_NOTE if not len(mapped) else
             'no mapped GRDC station has a climatology in the reference years: no comparison made'}
 
 
